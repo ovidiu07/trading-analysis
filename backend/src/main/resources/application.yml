@@ -170,6 +170,15 @@ backtest:
       max-requests-per-minute: ${BACKTEST_PROVIDER_RATE_LIMIT_MAX_PER_MINUTE:30}
   oanda:
     base-url: ${BACKTEST_OANDA_BASE_URL:https://api-fxpractice.oanda.com/v3}
+    practice-base-url: ${BACKTEST_OANDA_PRACTICE_BASE_URL:https://api-fxpractice.oanda.com/v3}
+    live-base-url: ${BACKTEST_OANDA_LIVE_BASE_URL:https://api-fxtrade.oanda.com/v3}
+
+marketdata:
+  user-connected-oanda-display-enabled: ${MARKETDATA_OANDA_DISPLAY_AUTHORIZED:false}
+  oanda-candle-derivations-enabled: ${MARKETDATA_OANDA_CANDLE_DERIVATIONS_AUTHORIZED:false}
+  quote-cache-ttl-ms: ${MARKETDATA_QUOTE_CACHE_TTL_MS:1200}
+  treasury-feed-base-url: ${MARKETDATA_TREASURY_FEED_BASE_URL:https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml}
+  treasury-cache-ttl-hours: ${MARKETDATA_TREASURY_CACHE_TTL_HOURS:12}
 
 signalintel:
   webhook-base-url: ${SIGNALINTEL_WEBHOOK_BASE_URL:}

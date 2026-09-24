@@ -82,6 +82,7 @@ export default function SettingsPage() {
   const [notificationMessage, setNotificationMessage] = useState('')
   const [notificationError, setNotificationError] = useState('')
   const [oandaTokenDraft, setOandaTokenDraft] = useState('')
+  const [oandaEnvironment, setOandaEnvironment] = useState<'PRACTICE' | 'LIVE'>('PRACTICE')
   const [providerStatus, setProviderStatus] = useState<ProviderConnectionStatus | null>(null)
   const [providerLoading, setProviderLoading] = useState(false)
   const [providerTesting, setProviderTesting] = useState(false)
@@ -154,6 +155,7 @@ export default function SettingsPage() {
       .then((status) => {
         if (!mounted) return
         setProviderStatus(status)
+        if (status.environment) setOandaEnvironment(status.environment)
       })
       .catch((err) => {
         if (!mounted) return
@@ -294,6 +296,7 @@ export default function SettingsPage() {
   const refreshProviderStatus = async () => {
     const status = await getOandaProviderStatus()
     setProviderStatus(status)
+    if (status.environment) setOandaEnvironment(status.environment)
   }
 
   const handleTestProvider = async () => {
@@ -305,7 +308,7 @@ export default function SettingsPage() {
     setProviderMessage('')
     setProviderError('')
     try {
-      const status = await testOandaProvider(oandaTokenDraft.trim())
+      const status = await testOandaProvider(oandaTokenDraft.trim(), oandaEnvironment)
       setProviderStatus((prev) => ({ ...prev, ...status }))
       setProviderMessage(t('settings.providers.messages.testSuccess'))
     } catch (err) {
@@ -325,7 +328,7 @@ export default function SettingsPage() {
     setProviderMessage('')
     setProviderError('')
     try {
-      const status = await connectOandaProvider(oandaTokenDraft.trim())
+      const status = await connectOandaProvider(oandaTokenDraft.trim(), oandaEnvironment)
       setProviderStatus(status)
       setOandaTokenDraft('')
       setProviderMessage(t('settings.providers.messages.connected'))
@@ -628,7 +631,8 @@ export default function SettingsPage() {
             {providerError && <Alert severity="error">{providerError}</Alert>}
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} flexWrap="wrap">
-              <Typography variant="body2">{t('settings.providers.oandaPractice')}</Typography>
+              <Typography variant="body2">{t('settings.providers.oandaEnvironment')}:</Typography>
+              <Chip size="small" label={providerStatus?.connected ? providerStatus.environment : oandaEnvironment} />
               <Chip
                 size="small"
                 color={providerStatus?.connected ? 'success' : 'default'}
@@ -639,7 +643,13 @@ export default function SettingsPage() {
                   {t('settings.providers.accountId')}: {providerStatus.accountId}
                 </Typography>
               )}
+              {providerStatus?.connected && <Typography variant="caption" color="text.secondary">{t('settings.providers.supportedInstruments')}: {providerStatus.supportedInstruments?.join(', ') || '—'}</Typography>}
             </Stack>
+
+            <TextField select size="small" label={t('settings.providers.environment')} value={oandaEnvironment} onChange={event => setOandaEnvironment(event.target.value as 'PRACTICE' | 'LIVE')} sx={{ maxWidth: 280 }}>
+              <MenuItem value="PRACTICE">{t('settings.providers.practice')}</MenuItem>
+              <MenuItem value="LIVE">{t('settings.providers.live')}</MenuItem>
+            </TextField>
 
             <TextField
               type="password"

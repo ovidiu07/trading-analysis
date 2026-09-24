@@ -8,10 +8,12 @@ import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
+import com.tradevault.service.backtest.OandaEnvironment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -38,6 +40,7 @@ class QuoteServiceTest {
         backtestProviderService = Mockito.mock(BacktestProviderService.class);
         oandaCandleProvider = Mockito.mock(OandaCandleProvider.class);
         quoteService = new QuoteService(currentUserService, backtestProviderService, oandaCandleProvider);
+        ReflectionTestUtils.setField(quoteService, "displayAuthorized", true);
 
         user = User.builder()
                 .id(UUID.randomUUID())
@@ -61,7 +64,7 @@ class QuoteServiceTest {
     void returnsBidAskMidAndSpreadForOandaQuote() {
         when(backtestProviderService.requireOandaToken(user.getId())).thenReturn("token");
         when(backtestProviderService.resolveOandaSourceId(user.getId())).thenReturn("101-001-1234567-001");
-        when(oandaCandleProvider.getQuote("token", "101-001-1234567-001", "OANDA:EURUSD"))
+        when(oandaCandleProvider.getQuote("token", "101-001-1234567-001", "OANDA:EURUSD", OandaEnvironment.PRACTICE))
                 .thenReturn(new OandaCandleProvider.OandaQuote(
                         "EUR_USD",
                         BigDecimal.valueOf(1.08410),
@@ -78,7 +81,7 @@ class QuoteServiceTest {
         assertEquals(BigDecimal.valueOf(0.00012000).setScale(8), response.getSpread());
         assertEquals("OANDA", response.getSource());
         assertEquals(QuoteAvailabilityReason.OK, response.getReason());
-        verify(oandaCandleProvider).getQuote("token", "101-001-1234567-001", "OANDA:EURUSD");
+        verify(oandaCandleProvider).getQuote("token", "101-001-1234567-001", "OANDA:EURUSD", OandaEnvironment.PRACTICE);
     }
 
     @Test
@@ -113,7 +116,7 @@ class QuoteServiceTest {
     void returnsUnavailableWhenUpstreamThrowsUnexpectedError() {
         when(backtestProviderService.requireOandaToken(user.getId())).thenReturn("token");
         when(backtestProviderService.resolveOandaSourceId(user.getId())).thenReturn("account");
-        when(oandaCandleProvider.getQuote("token", "account", "OANDA:EURUSD"))
+        when(oandaCandleProvider.getQuote("token", "account", "OANDA:EURUSD", OandaEnvironment.PRACTICE))
                 .thenThrow(new RuntimeException("network down"));
 
         LiveQuoteResponse response = quoteService.getLiveQuote("OANDA:EURUSD");

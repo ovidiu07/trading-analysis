@@ -131,13 +131,13 @@ public class BacktestDataController {
 
     @PostMapping("/providers/oanda/test")
     public ResponseEntity<ProviderConnectionStatusResponse> testOanda(@Valid @RequestBody OandaConnectRequest request) {
-        return ResponseEntity.ok(backtestProviderService.testOanda(request.getToken()));
+        return ResponseEntity.ok(backtestProviderService.testOanda(request.getToken(), request.getEnvironment()));
     }
 
     @PostMapping("/providers/oanda/connect")
     public ResponseEntity<ProviderConnectionStatusResponse> connectOanda(@Valid @RequestBody OandaConnectRequest request) {
         var user = currentUserService.getCurrentUser();
-        return ResponseEntity.ok(backtestProviderService.connectOanda(user, request.getToken()));
+        return ResponseEntity.ok(backtestProviderService.connectOanda(user, request.getToken(), request.getEnvironment()));
     }
 
     @DeleteMapping("/providers/oanda")

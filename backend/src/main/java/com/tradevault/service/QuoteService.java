@@ -7,8 +7,10 @@ import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
+import com.tradevault.service.backtest.OandaEnvironment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,9 @@ public class QuoteService {
     private final BacktestProviderService backtestProviderService;
     private final OandaCandleProvider oandaCandleProvider;
 
+    @Value("${marketdata.user-connected-oanda-display-enabled:false}")
+    private boolean displayAuthorized;
+
     private final Map<String, CachedQuote> cache = new ConcurrentHashMap<>();
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -49,8 +54,19 @@ public class QuoteService {
             throw new IllegalArgumentException("Symbol is required");
         }
         log.debug("Quote fetch start [userId={}, symbol={}]", userId, symbol);
-        String cacheKey = userId + "|" + symbol;
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        String token;
+        try {
+            token = backtestProviderService.requireOandaToken(userId);
+        } catch (ProviderNotConnectedException ex) {
+            return unavailable(symbol, QuoteAvailabilityReason.NO_CREDENTIALS, now, ex.getCode());
+        } catch (BacktestDomainException ex) {
+            return unavailable(symbol, mapReason(ex), now, ex.getCode());
+        }
+        if (!displayAuthorized) return unavailable(symbol, QuoteAvailabilityReason.DISPLAY_NOT_AUTHORIZED, now, null);
+        OandaEnvironment environment = backtestProviderService.resolveOandaEnvironment(userId);
+        if (environment == null) environment = OandaEnvironment.PRACTICE;
+        String cacheKey = userId + "|" + environment + "|" + symbol;
 
         CachedQuote cached = cache.get(cacheKey);
         if (cached != null && Duration.between(cached.createdAtUtc(), now).compareTo(CACHE_TTL) < 0) {
@@ -59,9 +75,8 @@ public class QuoteService {
         }
 
         try {
-            String token = backtestProviderService.requireOandaToken(userId);
             String sourceId = backtestProviderService.resolveOandaSourceId(userId);
-            OandaCandleProvider.OandaQuote quote = oandaCandleProvider.getQuote(token, sourceId, symbol);
+            OandaCandleProvider.OandaQuote quote = oandaCandleProvider.getQuote(token, sourceId, symbol, environment);
             if (quote == null || quote.bid() == null || quote.ask() == null) {
                 return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now, null);
             }

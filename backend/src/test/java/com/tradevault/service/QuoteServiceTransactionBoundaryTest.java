@@ -34,6 +34,11 @@ class QuoteServiceTransactionBoundaryTest {
     @EnableTransactionManagement
     static class Config {
         @Bean
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
+            return new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        }
+
+        @Bean
         PlatformTransactionManager platformTransactionManager() {
             return new InMemoryTransactionManager();
         }
@@ -61,8 +66,9 @@ class QuoteServiceTransactionBoundaryTest {
         @Bean
         BacktestProviderService backtestProviderService(BacktestProviderCredentialRepository credentialRepository,
                                                         BacktestTokenCipherService tokenCipherService,
-                                                        OandaCandleProvider oandaCandleProvider) {
-            return new BacktestProviderService(credentialRepository, tokenCipherService, oandaCandleProvider);
+                                                        OandaCandleProvider oandaCandleProvider,
+                                                        com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+            return new BacktestProviderService(credentialRepository, tokenCipherService, oandaCandleProvider, objectMapper);
         }
 
         @Bean

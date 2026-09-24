@@ -28,6 +28,8 @@ import { emptyReview, getSessionReview, getSessionReviewHistory, saveSessionRevi
 import { formatDateTime, formatSignedCurrency } from '../utils/format'
 import { formatNetResult, netResult } from '../utils/tradeMoney'
 import MarketTickerStrip from '../components/trading-workspace/MarketTickerStrip'
+import { useMarketWorkspaceData } from '../features/trading-workspace/useMarketWorkspaceData'
+import { canonicalMarketInstrument } from '../api/marketData'
 import type { SetupDirection, SetupItem } from '../api/liveWorkspace'
 
 function resolvePreparationInstrument(chartSymbol: string, instruments: string): { symbol: string; market: NonNullable<SetupItem['market']> } {
@@ -136,7 +138,32 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     if (savingRef.current) return
     savingRef.current = true
     const sequence = editSequence.current
-    const next = { ...draft, state }; setDraft(next); setSaveState('saving')
+    const marketDataSnapshot = state === 'TRADE' ? {
+      capturedAt: new Date().toISOString(),
+      instruments: [ ...(marketWorkspace.data?.quotes ?? []).map(item => ({
+        canonicalInstrument: item.canonicalInstrument, provider: 'OANDA' as const, providerSymbol: item.providerSymbol,
+        instrumentType: item.instrumentType, priceBasis: item.priceBasis, observedAt: item.observedAt,
+        retrievedAt: item.retrievedAt, freshness: item.freshness, provenance: 'USER_CONNECTED' as const,
+        sourceUrl: item.sourceUrl, availabilityReason: item.availabilityReason
+      })), ...(marketWorkspace.data?.analysis ? [{
+        canonicalInstrument: marketWorkspace.data.analysis.canonicalInstrument, provider: 'OANDA' as const,
+        providerSymbol: marketWorkspace.data.analysis.providerSymbol, instrumentType: 'DERIVED_CANDLE_REFERENCE',
+        priceBasis: marketWorkspace.data.analysis.priceBasis ?? 'CLOSE', observedAt: marketWorkspace.data.analysis.dailyOpenObservedAt,
+        retrievedAt: marketWorkspace.data.analysis.retrievedAt, observationDate: marketWorkspace.data.analysis.previousDayDate,
+        freshness: marketWorkspace.data.analysis.freshness, provenance: 'USER_CONNECTED' as const,
+        sourceUrl: marketWorkspace.data.analysis.sourceUrl, availabilityReason: marketWorkspace.data.analysis.availabilityReason
+      }] : []) ],
+      macro: (marketWorkspace.data?.macroObservations ?? []).map(item => ({
+        canonicalInstrument: item.canonicalInstrument, provider: 'US_TREASURY' as const, providerSymbol: item.providerSymbol,
+        instrumentType: item.instrumentType, priceBasis: item.priceBasis, retrievedAt: item.retrievedAt,
+        observationDate: item.observationDate, freshness: item.freshness, provenance: 'OFFICIAL_PUBLIC' as const,
+        sourceUrl: item.sourceUrl, availabilityReason: item.availabilityReason
+      }))
+    } : undefined
+    const preparation = state === 'TRADE' && draft.preparation
+      ? { ...draft.preparation, marketDataSnapshot }
+      : draft.preparation
+    const next = { ...draft, state, preparation }; setDraft(next); setSaveState('saving')
     try {
       localStorage.setItem(draftKey, JSON.stringify({ revision, data: next }))
       const result = await saveSessionReview(accountId, date, revision, next, session)
@@ -169,6 +196,9 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   }
   const prep = draft.preparation || initialForWorkspace()
   const preparedInstrument = resolvePreparationInstrument(prep.chartSymbol, draft.instruments)
+  const marketInstrument = canonicalMarketInstrument(prep.chartSymbol, preparedInstrument.symbol)
+  const marketWorkspace = useMarketWorkspaceData(accountId, marketInstrument, date, ready && draft.state === 'PREPARE')
+  const marketQuotes = marketWorkspace.data?.quotes || []
   const preparedDirection: SetupDirection = prep.bias === 'bullish' ? 'LONG' : prep.bias === 'bearish' ? 'SHORT' : 'UNDECIDED'
   const effectiveAccountCurrency = accountCurrency || rules.data?.detail?.account.currency || ''
   const chart = <Card sx={{ minWidth: 0, overflow: 'hidden' }}><CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}><Stack spacing={0}>
@@ -192,7 +222,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   if (saved.isError) return <Alert severity="error" action={<Button onClick={() => void saved.refetch()}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.loadError')}</Alert>
   if (!ready) return <Typography role="status">{t('dailyReview.loading')}</Typography>
   return <Stack component="fieldset" spacing={1.25} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
-    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
+    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} quotes={marketQuotes} loading={marketWorkspace.isLoading} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
       {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} variant={draft.state === state ? 'contained' : 'outlined'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
       <Chip role="status" label={t(`dailyReview.save.${saveState}`)} />
@@ -206,7 +236,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     {draft.state !== 'PREPARE' && <Typography variant="caption" color="text.secondary">{t('dailyReview.freshness', { time: executions.dataUpdatedAt ? formatDateTime(new Date(executions.dataUpdatedAt).toISOString(), timezone) : '—' })} · {timezone}</Typography>}
     {closed.length > 0 && !knownMoney && <Alert severity="info">{t('dailyReview.moneyUnavailable')}</Alert>}
     {draft.state === 'PREPARE' && permission && <Alert severity={permission.maximumPermittedRisk === 0 ? 'warning' : 'info'}>{t('dailyReview.capacity', { trades: permission.remainingTrades ?? '—', risk: permission.maximumPermittedRisk == null ? '—' : formatSignedCurrency(permission.maximumPermittedRisk, rules.data!.detail!.account.currency) })} · {t(permission.primaryReason)}</Alert>}
-    {draft.state === 'PREPARE' && effectiveAccountCurrency && <PrepareSteps mentorStrategies={strategies.data?.mentorStrategies || []} reloadStrategies={() => { void strategies.refetch() }} date={date} draft={draft} update={update} strategies={strategies.data?.myStrategies || []} start={() => void save('TRADE')} saving={saveState === 'saving'} chart={chart} userId={user?.id || 'anonymous'} accountId={accountId} accountLabel={accountLabel} accountCurrency={effectiveAccountCurrency} isCurrentDate={date === accountToday} session={session} symbol={preparedInstrument.symbol} market={preparedInstrument.market} direction={preparedDirection} maximumPermittedRisk={permission?.maximumPermittedRisk} maximumPermittedRiskPct={permission?.maximumPermittedRiskPct} remainingTrades={permission?.remainingTrades} capacityReason={permission ? t(permission.primaryReason) : null} />}
+    {draft.state === 'PREPARE' && effectiveAccountCurrency && <PrepareSteps mentorStrategies={strategies.data?.mentorStrategies || []} reloadStrategies={() => { void strategies.refetch() }} date={date} draft={draft} update={update} strategies={strategies.data?.myStrategies || []} start={() => void save('TRADE')} saving={saveState === 'saving'} chart={chart} userId={user?.id || 'anonymous'} accountId={accountId} accountLabel={accountLabel} accountCurrency={effectiveAccountCurrency} isCurrentDate={date === accountToday} session={session} symbol={preparedInstrument.symbol} market={preparedInstrument.market} direction={preparedDirection} maximumPermittedRisk={permission?.maximumPermittedRisk} maximumPermittedRiskPct={permission?.maximumPermittedRiskPct} remainingTrades={permission?.remainingTrades} capacityReason={permission ? t(permission.primaryReason) : null} marketQuotes={marketQuotes} macroObservations={marketWorkspace.data?.macroObservations ?? []} marketAnalysis={marketWorkspace.data?.analysis ?? null} />}
     {draft.state === 'PREPARE' && !effectiveAccountCurrency && <Alert severity="warning">{t('risk.reasons.accountCurrencyUnavailable')}</Alert>}
     {draft.state !== 'PREPARE' && draft.readyContext && <Card><CardContent><Stack spacing={1}>
       <Typography component="h2" variant="h6">{t('prepare.ready')} · {formatDateTime(draft.readyContext.readyAt, timezone)}</Typography>

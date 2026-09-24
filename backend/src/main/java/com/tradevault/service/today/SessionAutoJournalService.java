@@ -364,6 +364,7 @@ public class SessionAutoJournalService {
         return switch (reason) {
             case NO_PROVIDER -> "Quotes provider is not configured";
             case NO_CREDENTIALS -> "Quotes credentials are missing or invalid";
+            case DISPLAY_NOT_AUTHORIZED, LICENSE_REQUIRED -> "Quotes display is not authorized";
             case SYMBOL_NOT_SUPPORTED -> "Spread unavailable for this symbol";
             case RATE_LIMIT -> "Quotes rate limit reached";
             case UPSTREAM_ERROR -> "Quotes provider is unavailable";

@@ -47,6 +47,10 @@ public class BriefingValidator {
     if(e.status()==BriefingDocument.EventStatus.RELEASED) past(e.scheduledAt(),doc.referenceTime(),locale+".events."+e.id());
     if(e.status()!=BriefingDocument.EventStatus.RELEASED && e.actual()!=null && !e.actual().isBlank()) fail(locale+".events."+e.id()+": actual only allowed for RELEASED");
    }
+   ids.clear();
+   for(var level:t.levels()==null?List.<BriefingDocument.Level>of():t.levels()) {
+    if(!ids.add(level.id())) fail(locale+".levels: duplicate id "+level.id());
+   }
    for(var n:t.news()) past(n.publishedAt(),doc.referenceTime(),locale+".news.publishedAt");
    for(var m:t.macro()) { if((m.value()!=null && !Double.isFinite(m.value())) || (m.referenceValue()!=null && !Double.isFinite(m.referenceValue()))) fail(locale+".macro: finite values required"); if(m.type().equalsIgnoreCase("YIELD") && !m.unit().equals("%")) fail(locale+".macro.unit: yield levels require %; changes are displayed in basis points"); past(m.observedAt(),doc.referenceTime(),locale+".macro.observedAt"); past(m.referenceAt(),m.observedAt(),locale+".macro.referenceAt"); if((m.referenceValue()==null)!=(m.referenceAt()==null)) fail(locale+".macro: reference value/time pair required"); }
    for(var s:t.scenarios()) if(s.type().equalsIgnoreCase("FUTURES") && (s.contract()==null || s.contract().isBlank())) fail(locale+".scenarios.contract: futures contract required");

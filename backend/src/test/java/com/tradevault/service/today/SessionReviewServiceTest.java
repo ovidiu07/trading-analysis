@@ -17,7 +17,7 @@ class SessionReviewServiceTest {
     UserStrategyRepository strategies = mock(UserStrategyRepository.class);
     CurrentUserService users = mock(CurrentUserService.class);
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    ObjectMapper mapper = new ObjectMapper();
+    ObjectMapper mapper = new ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
     SessionReviewService service = new SessionReviewService(users, accounts, trades, strategies, jdbc, mapper);
     UUID userId = UUID.randomUUID(), accountId = UUID.randomUUID();
     LocalDate date = LocalDate.of(2026, 9, 6);
@@ -49,6 +49,23 @@ class SessionReviewServiceTest {
         var result=service.save(accountId,date,"US",req);
         assertThat(result.data().path("readyContext").path("revision").asInt()).isEqualTo(1);
         assertThat(result.data().path("readyContext").path("focus").asText()).isEqualTo("Observe");
+    }
+    @Test void readyCapturesOnlySourceAndFreshnessMetadataWithoutMarketValues() {
+        var reference = new SessionReviewService.MarketSourceReference("GER40", "OANDA", "DE30_EUR", "CFD", "MID",
+                "2026-09-24T10:00:00Z", "2026-09-24T10:00:01Z", null, "LIVE", "USER_CONNECTED",
+                "https://developer.oanda.com/rest-live-v20/pricing-ep/", null);
+        var audit = new SessionReviewService.MarketDataAuditSnapshot(java.time.OffsetDateTime.now(), List.of(reference), List.of());
+        var prep = new SessionReviewService.Preparation(3,"ASIA",true,"neutral","Watch","OANDA:DE30EUR","15",true,true,true,true,List.of(),null,null,audit);
+        var req = new SessionReviewService.Request(0,"TRADE","GER40",null,"Observe","",null,List.of(),prep);
+
+        var result = service.save(accountId,date,"US",req);
+        var snapshot = result.data().path("readyContext").path("preparation").path("marketDataSnapshot");
+
+        assertThat(snapshot.path("retention").asText()).isEqualTo("PROVENANCE_ONLY_NO_MARKET_VALUES");
+        assertThat(snapshot.path("instruments").get(0).path("providerSymbol").asText()).isEqualTo("DE30_EUR");
+        assertThat(snapshot.path("instruments").get(0).path("freshness").asText()).isEqualTo("LIVE");
+        assertThat(snapshot.path("instruments").get(0).has("mid")).isFalse();
+        assertThat(snapshot.path("instruments").get(0).has("value")).isFalse();
     }
     @Test void cannotReadAnotherAccount() {
         assertThatThrownBy(() -> service.get(UUID.randomUUID(), date)).isInstanceOf(jakarta.persistence.EntityNotFoundException.class);

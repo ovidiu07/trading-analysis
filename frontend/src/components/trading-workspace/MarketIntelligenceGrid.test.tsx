@@ -17,7 +17,7 @@ const publication = {
 afterEach(cleanup)
 beforeEach(() => vi.mocked(apiGet).mockResolvedValue({ selected: publication } as never))
 
-function show() {
+function show(analysis?: unknown) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}><MarketIntelligenceGrid
     preparation={{ bias: 'neutral', contextAcknowledged: false } as never}
@@ -27,6 +27,7 @@ function show() {
     acknowledgeLabel="acknowledge"
     date="2026-09-24"
     selectedInstrument="GER40"
+    analysis={analysis as never}
   /></QueryClientProvider>)
 }
 
@@ -54,5 +55,26 @@ describe('Today market information', () => {
     show()
     await screen.findByText('CPI release')
     expect(screen.queryByText(/workstation.eventActual/)).not.toBeInTheDocument()
+  })
+
+  it('never renders another instrument analysis after the selection changes', async () => {
+    show({ canonicalInstrument: 'GBPUSD', provider: 'OANDA', providerSymbol: 'GBP_USD', priceBasis: 'MID',
+      previousDayHigh: 1.35, previousDayLow: 1.30, retrievedAt: '2026-09-24T12:00:00Z', freshness: 'CLOSE',
+      provenance: 'USER_CONNECTED', dailyAlignment: '17:00 America/New_York' })
+    await screen.findByText('CPI release')
+    expect(screen.queryByText('1.35')).not.toBeInTheDocument()
+    expect(screen.queryByText('1.30')).not.toBeInTheDocument()
+  })
+
+  it('shows only explicitly published levels for the selected canonical instrument', async () => {
+    const withLevels = { ...publication, document: { translations: { en: { ...publication.document.translations.en, levels: [
+      { id: 'ger-support', instrument: 'GER40', label: 'SUPPORT', value: 18000, unit: 'EUR points', source: 'Reviewed briefing', rationale: 'Published level' },
+      { id: 'gbp-support', instrument: 'GBPUSD', label: 'SUPPORT', value: 1.25, unit: 'USD', source: 'Reviewed briefing', rationale: 'Other instrument' }
+    ] } } } }
+    vi.mocked(apiGet).mockResolvedValue({ selected: withLevels } as never)
+    show()
+    expect(await screen.findByText('Published level · Reviewed briefing')).toBeInTheDocument()
+    expect(screen.queryByText('Other instrument · Reviewed briefing')).not.toBeInTheDocument()
+    expect(screen.getByText('18,000 EUR points')).toBeInTheDocument()
   })
 })

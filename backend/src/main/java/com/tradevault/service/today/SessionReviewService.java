@@ -48,13 +48,28 @@ public class SessionReviewService {
         @Size(max=4000) String chartPlan, @Size(max=500) String chartSymbol,
         @Size(max=10) String chartInterval, boolean observing,
         boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
-        @Size(max=20) List<Boolean> checklist, UUID briefingId, LocalDate briefingDate) {
+        @Size(max=20) List<Boolean> checklist, UUID briefingId, LocalDate briefingDate,
+        @jakarta.validation.Valid MarketDataAuditSnapshot marketDataSnapshot) {
         public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
           String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
           List<Boolean> checklist, UUID briefingId) {
-          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,null);
+          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,null,null);
+        }
+        public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
+          String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
+          List<Boolean> checklist, UUID briefingId, LocalDate briefingDate) {
+          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,briefingDate,null);
         }
     }
+    public record MarketDataAuditSnapshot(@NotNull OffsetDateTime capturedAt, @Size(max=12) List<@jakarta.validation.Valid MarketSourceReference> instruments,
+                                          @Size(max=8) List<@jakarta.validation.Valid MarketSourceReference> macro) {}
+    public record MarketSourceReference(@NotBlank @Size(max=20) String canonicalInstrument, @NotBlank @Size(max=40) String provider,
+                                        @Size(max=80) String providerSymbol, @Size(max=40) String instrumentType,
+                                        @Size(max=40) String priceBasis, @Size(max=50) String observedAt,
+                                        @NotBlank @Size(max=50) String retrievedAt, @Size(max=20) String observationDate,
+                                        @NotBlank @Pattern(regexp="LIVE|INDICATIVE|DELAYED|CLOSE|STALE|MANUAL|UNAVAILABLE") String freshness,
+                                        @NotBlank @Pattern(regexp="USER_CONNECTED|OFFICIAL_PUBLIC|EDITORIAL_PUBLISHED|LICENSED_OPERATOR|DISPLAY_ONLY") String provenance,
+                                        @Size(max=2000) String sourceUrl, @Size(max=60) String availabilityReason) {}
     public record Response(int revision, JsonNode data) {}
 
     private void validateSession(String session) {
@@ -146,7 +161,11 @@ public class SessionReviewService {
             snapshot.put("revision", previous.revision() + 1);
             snapshot.put("focus", request.focus());
             snapshot.put("instruments", request.instruments());
-            snapshot.set("preparation", mapper.valueToTree(prep));
+            JsonNode preparationSnapshot = mapper.valueToTree(prep);
+            if (preparationSnapshot instanceof ObjectNode preparationObject && preparationObject.has("marketDataSnapshot")) {
+                preparationObject.set("marketDataSnapshot", sanitizeMarketDataSnapshot(preparationObject.path("marketDataSnapshot")));
+            }
+            snapshot.set("preparation", preparationSnapshot);
             if (data.has("strategyContext")) snapshot.set("strategyContext", data.get("strategyContext").deepCopy());
         }
         Set<UUID> seen = new HashSet<>();
@@ -171,5 +190,59 @@ public class SessionReviewService {
         int revision = previous.revision() + 1;
         jdbc.update("INSERT INTO session_review_revisions(id,user_id,account_id,session_date,revision,payload,session_key) VALUES (?,?,?,?,?,?::jsonb,?)", UUID.randomUUID(), user.getId(), accountId, date, revision, data.toString(), session);
         return new Response(revision, data);
+    }
+
+    private ObjectNode sanitizeMarketDataSnapshot(JsonNode supplied) {
+        ObjectNode clean = mapper.createObjectNode();
+        clean.put("capturedAt", OffsetDateTime.now(ZoneOffset.UTC).toString());
+        clean.put("retention", "PROVENANCE_ONLY_NO_MARKET_VALUES");
+        for (String listName : List.of("instruments", "macro")) {
+            var output = clean.putArray(listName);
+            JsonNode rows = supplied.path(listName);
+            if (!rows.isArray()) continue;
+            for (JsonNode row : rows) {
+                String provider = allowedText(row, "provider", Set.of("OANDA", "US_TREASURY"));
+                String canonical = allowedText(row, "canonicalInstrument", Set.of("GBPUSD", "EURUSD", "GER40", "NAS100", "XAUUSD", "USOIL", "DXY", "ES", "US2Y", "US10Y"));
+                String freshness = allowedText(row, "freshness", Set.of("LIVE", "INDICATIVE", "DELAYED", "CLOSE", "STALE", "MANUAL", "UNAVAILABLE"));
+                String provenance = allowedText(row, "provenance", Set.of("USER_CONNECTED", "OFFICIAL_PUBLIC", "EDITORIAL_PUBLISHED", "LICENSED_OPERATOR", "DISPLAY_ONLY"));
+                if (provider == null || canonical == null || freshness == null || provenance == null) continue;
+                ObjectNode item = output.addObject();
+                item.put("provider", provider);
+                item.put("canonicalInstrument", canonical);
+                item.put("freshness", freshness);
+                item.put("provenance", provenance);
+                copySafeText(item, row, "providerSymbol", 80);
+                copySafeText(item, row, "instrumentType", 40);
+                copySafeText(item, row, "priceBasis", 40);
+                copySafeText(item, row, "observedAt", 50);
+                copySafeText(item, row, "retrievedAt", 50);
+                copySafeText(item, row, "observationDate", 20);
+                copySafeText(item, row, "availabilityReason", 60);
+                copySafeUrl(item, row);
+            }
+        }
+        return clean;
+    }
+
+    private String allowedText(JsonNode row, String field, Set<String> allowed) {
+        String value = row.path(field).asText(null);
+        return value != null && allowed.contains(value) ? value : null;
+    }
+    private void copySafeText(ObjectNode target, JsonNode row, String field, int maxLength) {
+        String value = row.path(field).asText(null);
+        if ("availabilityReason".equals(field) && value != null && !Set.of("NO_PROVIDER", "NO_CREDENTIALS", "DISPLAY_NOT_AUTHORIZED", "SYMBOL_NOT_SUPPORTED", "MARKET_CLOSED", "RATE_LIMIT", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "NO_COMPLETED_REFERENCE", "NO_PUBLISHED_EVENT_DATA", "LICENSE_REQUIRED").contains(value)) return;
+        if ("observedAt".equals(field) || "retrievedAt".equals(field)) {
+            try { if (value != null) OffsetDateTime.parse(value); else return; }
+            catch (Exception ignored) { return; }
+        }
+        if ("observationDate".equals(field)) {
+            try { if (value != null) LocalDate.parse(value); else return; }
+            catch (Exception ignored) { return; }
+        }
+        if (value != null && value.length() <= maxLength && value.matches("[A-Za-z0-9_:+.\\-/ ]*")) target.put(field, value);
+    }
+    private void copySafeUrl(ObjectNode target, JsonNode row) {
+        String value = row.path("sourceUrl").asText(null);
+        if (value != null && value.length() <= 2000 && (value.startsWith("https://developer.oanda.com/") || value.startsWith("https://home.treasury.gov/"))) target.put("sourceUrl", value);
     }
 }

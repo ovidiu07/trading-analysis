@@ -23,6 +23,10 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import com.tradevault.service.backtest.OandaEnvironment;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Setter
@@ -55,6 +59,17 @@ public class BacktestProviderCredential {
 
     @Column(name = "provider_account_id", length = 128)
     private String providerAccountId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "environment", nullable = false, length = 16)
+    private OandaEnvironment environment;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "instrument_capabilities", nullable = false, columnDefinition = "jsonb")
+    private JsonNode instrumentCapabilities;
+
+    @Column(name = "instrument_capabilities_refreshed_at")
+    private OffsetDateTime instrumentCapabilitiesRefreshedAt;
 
     @Column(name = "last_tested_at")
     private OffsetDateTime lastTestedAt;

@@ -181,8 +181,8 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: 'GET' })
+export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return apiRequest<T>(path, { method: 'GET', signal })
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {

@@ -36,25 +36,13 @@ import MarketIntelligenceGrid from '../../components/trading-workspace/MarketInt
 import { PanelNumber, WorkstationCard } from '../../components/trading-workspace/WorkspacePrimitives'
 import { TodayRiskPanel } from '../risk/TodayRiskPanel'
 import type { SetupDirection, SetupItem } from '../../api/liveWorkspace'
+import { canonicalMarketInstrument, type AnalysisMetrics, type InstrumentQuote, type MacroObservation } from '../../api/marketData'
 
 const demoSetupLabelKeys = ['liquiditySweep', 'displacement', 'mssChoch', 'fvgImbalance', 'orderBlock', 'htfConfluence'] as const
 
 type EmotionalState = 'calm' | 'focused' | 'neutral' | 'anxious' | 'fomo'
 
-function canonicalMarketInstrument(chartSymbol: string, fallback: string) {
-  const chart = chartSymbol.toUpperCase()
-  if (chart.includes('DE30') || chart.includes('DAX') || chart.includes('GER40')) return 'GER40'
-  if (chart.includes('NAS100') || chart.includes('NASDAQ')) return 'NAS100'
-  if (chart.includes('ES1!') || chart.includes('CME_MINI:ES')) return 'ES'
-  if (chart.includes('XAUUSD')) return 'XAUUSD'
-  if (chart.includes('USOIL') || chart.includes('WTICO')) return 'USOIL'
-  if (chart.includes('DXY')) return 'DXY'
-  if (chart.includes('GBPUSD')) return 'GBPUSD'
-  if (chart.includes('EURUSD')) return 'EURUSD'
-  return fallback.trim().toUpperCase() || 'UNSET'
-}
-
-export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason }: {
+export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason, marketQuotes, macroObservations, marketAnalysis }: {
   date: string
   draft: SessionReview
   update: (value: Partial<SessionReview>) => void
@@ -77,6 +65,9 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
   maximumPermittedRiskPct?: number | null
   remainingTrades?: number | null
   capacityReason?: string | null
+  marketQuotes?: InstrumentQuote[]
+  macroObservations?: MacroObservation[]
+  marketAnalysis?: AnalysisMetrics | null
 }) {
   const { t } = useI18n()
   const [adopting, setAdopting] = useState(false)
@@ -155,6 +146,9 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
           thesis={draft.focus}
           date={date}
           selectedInstrument={canonicalMarketInstrument(p.chartSymbol, symbol)}
+          quotes={marketQuotes}
+          macroObservations={macroObservations}
+          analysis={marketAnalysis}
           briefing={<BriefingPanel coach date={date} preparation={p} onSelection={patch} onVersion={(id) => patch({ briefingId: id })} />}
           onAcknowledge={(checked) => patch({ contextAcknowledged: checked })}
           acknowledgeLabel={t('prepare.acknowledge')}

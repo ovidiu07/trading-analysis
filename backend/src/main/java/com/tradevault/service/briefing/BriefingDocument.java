@@ -23,7 +23,19 @@ public record BriefingDocument(
   @NotNull @Size(max=50) List<@NotNull @Valid Event> events,
   @NotNull @Size(max=20) List<@NotNull @Valid Macro> macro,
   @NotNull @Size(max=3) List<@NotNull @Valid Scenario> scenarios,
-  @NotBlank @Size(max=4000) String sourcesAndLimitations) {}
+  @NotBlank @Size(max=4000) String sourcesAndLimitations,
+  @Size(max=100) List<@NotNull @Valid Level> levels) {
+  public Translation(String title, List<String> summary, List<Fact> facts, List<News> news, List<Event> events,
+                     List<Macro> macro, List<Scenario> scenarios, String sourcesAndLimitations) {
+   this(title, summary, facts, news, events, macro, scenarios, sourcesAndLimitations, List.of());
+  }
+ }
+ public enum LevelLabel { BSL, SSL, SUPPORT, RESISTANCE, ORDER_BLOCK, FAIR_VALUE_GAP, LIQUIDITY_POOL }
+ public record Level(@NotBlank @Size(max=120) String id,
+  @Pattern(regexp="GBPUSD|EURUSD|GER40|NAS100|XAUUSD|USOIL|DXY|ES") @NotNull String instrument,
+  @NotNull LevelLabel label, @NotNull @DecimalMin("0.00000001") java.math.BigDecimal value,
+  @NotBlank @Size(max=50) String unit, @NotBlank @Size(max=200) String source,
+  @Size(max=2000) String sourceUrl, @NotBlank @Size(max=1000) String rationale) {}
  public record Fact(@NotBlank @Size(max=120) String id, Instant time,
   @NotBlank @Size(max=150) String topic, @NotBlank @Size(max=2000) String statement,
   @NotBlank @Size(max=200) String source, @Size(max=2000) String sourceUrl,

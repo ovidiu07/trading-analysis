@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -31,7 +32,7 @@ public class CandleDataService {
     @Value("${backtest.provider.cache-ttl-days:14}")
     private int providerCacheTtlDays;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BacktestCandle> getCandles(UUID userId,
                                            String providerRaw,
                                            String sourceIdRaw,
@@ -65,6 +66,7 @@ public class CandleDataService {
             if (!hasCoverage) {
                 backtestRateLimiterService.assertCanFetch(userId);
                 String token = backtestProviderService.requireOandaToken(userId);
+                OandaEnvironment environment = backtestProviderService.resolveOandaEnvironment(userId);
                 List<CanonicalCandle> fetched = oandaCandleProvider.getCandles(
                         token,
                         sourceId,
@@ -72,7 +74,8 @@ public class CandleDataService {
                         symbolDisplay,
                         timeframe,
                         from,
-                        to
+                        to,
+                        environment
                 );
                 candleChunkStoreService.saveCandles(
                         userId,

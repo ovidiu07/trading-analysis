@@ -1,11 +1,19 @@
 import { apiGet, apiPut } from './client'
 export type ReviewState = 'PREPARE' | 'TRADE' | 'REVIEW' | 'COMPLETE'
 export type Assessment = { tradeId: string; decision: 'FOLLOWED' | 'DEVIATED' | 'CANNOT_ASSESS'; note: string }
+export type MarketSourceReference = {
+  canonicalInstrument: string; provider: 'OANDA' | 'US_TREASURY'; providerSymbol?: string | null
+  instrumentType?: string | null; priceBasis?: string | null; observedAt?: string | null
+  retrievedAt: string; observationDate?: string | null
+  freshness: 'LIVE' | 'INDICATIVE' | 'DELAYED' | 'CLOSE' | 'STALE' | 'MANUAL' | 'UNAVAILABLE'
+  provenance: 'USER_CONNECTED' | 'OFFICIAL_PUBLIC'; sourceUrl?: string | null; availabilityReason?: string | null
+}
+export type MarketDataAuditSnapshot = { capturedAt: string; instruments: MarketSourceReference[]; macro: MarketSourceReference[] }
 export type Preparation = {
   briefingDate?: string; briefingId?: string; step: number; briefingSession: 'ASIA' | 'LONDON' | 'DAY_RECAP'; manualSession: boolean;
   bias: 'bullish' | 'bearish' | 'neutral' | 'mixed'; chartPlan: string; chartSymbol: string;
   chartInterval: string; observing: boolean; contextAcknowledged: boolean;
-  chartConfirmed: boolean; preparationConfirmed: boolean; checklist: boolean[];
+  chartConfirmed: boolean; preparationConfirmed: boolean; checklist: boolean[]; marketDataSnapshot?: MarketDataAuditSnapshot
 }
 export type SessionReview = {
   preparation?: Preparation;

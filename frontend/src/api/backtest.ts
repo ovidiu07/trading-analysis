@@ -118,6 +118,8 @@ export type ProviderConnectionStatus = {
   connected: boolean
   accountId?: string
   lastTestedAt?: string
+  environment?: 'PRACTICE' | 'LIVE'
+  supportedInstruments?: string[]
 }
 
 export type BacktestTrade = {
@@ -530,12 +532,12 @@ export async function getOandaProviderStatus() {
   return apiGet<ProviderConnectionStatus>('/backtest/providers/oanda/status')
 }
 
-export async function testOandaProvider(token: string) {
-  return apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/test', { token })
+export async function testOandaProvider(token: string, environment: 'PRACTICE' | 'LIVE' = 'PRACTICE') {
+  return apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/test', { token, environment })
 }
 
-export async function connectOandaProvider(token: string) {
-  return apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/connect', { token })
+export async function connectOandaProvider(token: string, environment: 'PRACTICE' | 'LIVE' = 'PRACTICE') {
+  return apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/connect', { token, environment })
 }
 
 export async function disconnectOandaProvider() {
