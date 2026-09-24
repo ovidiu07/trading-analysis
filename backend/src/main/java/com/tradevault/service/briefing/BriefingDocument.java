@@ -38,8 +38,9 @@ public record BriefingDocument(
   @NotBlank @Size(max=300) String name, @NotBlank @Size(max=200) String source,
   @Size(max=2000) String sourceUrl, @Size(max=100) String actual, @Size(max=100) String forecast,
   @Size(max=100) String previous, @Size(max=50) String unit, @Size(max=1000) String explanation,
-  @NotNull EventStatus status) {}
+  @NotNull EventStatus status, EventImpact impact) {}
  public enum EventStatus { RELEASED, UPCOMING, RESCHEDULED, CANCELLED }
+ public enum EventImpact { HIGH, MEDIUM, LOW }
  public record Macro(@NotBlank @Size(max=200) String instrument, @NotBlank @Size(max=100) String type,
   Double value, @NotBlank @Size(max=100) String unit, @NotNull Instant observedAt,
   @NotBlank @Size(max=200) String source, @Size(max=2000) String sourceUrl,

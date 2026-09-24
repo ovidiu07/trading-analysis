@@ -28,7 +28,6 @@ import { emptyReview, getSessionReview, getSessionReviewHistory, saveSessionRevi
 import { formatDateTime, formatSignedCurrency } from '../utils/format'
 import { formatNetResult, netResult } from '../utils/tradeMoney'
 import MarketTickerStrip from '../components/trading-workspace/MarketTickerStrip'
-import { demoMarketTicker } from '../features/trading-workspace/demoData'
 import type { SetupDirection, SetupItem } from '../api/liveWorkspace'
 
 function resolvePreparationInstrument(chartSymbol: string, instruments: string): { symbol: string; market: NonNullable<SetupItem['market']> } {
@@ -187,13 +186,13 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     {prep.chartSymbol === 'CME_MINI:ES1!' ? <Alert severity="warning" sx={{ m: 1.25 }}>{t('prepare.esWidgetLimit')}</Alert> : <TradingViewWidget symbol={prep.chartSymbol} interval={prep.chartInterval} height={chartExpanded ? '82dvh' : 548} minHeight={420} hideControls={false} allowSymbolChange={false} fallbackMessage={t('today.session.mentor.liveChartFallback')} fallbackLinkLabel={t('today.session.mentor.openOnTradingView')} />}
     <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.25, py: 0.75, borderTop: '1px solid', borderColor: 'divider' }}>
       <Button size="small" href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(prep.chartSymbol)}`} target="_blank" rel="noopener noreferrer">{t('prepare.personalIndicators')}</Button>
-      <Typography variant="caption" color="text.secondary">{t('prepare.widgetLimits')}</Typography>
+      <Typography variant="caption" color="text.secondary">{t('prepare.widgetLimits')} {t('prepare.chartFeedIndependent')}</Typography>
     </Stack>
   </Stack></CardContent></Card>
   if (saved.isError) return <Alert severity="error" action={<Button onClick={() => void saved.refetch()}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.loadError')}</Alert>
   if (!ready) return <Typography role="status">{t('dailyReview.loading')}</Typography>
   return <Stack component="fieldset" spacing={1.25} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
-    {draft.state === 'PREPARE' && <MarketTickerStrip items={demoMarketTicker} selectedSymbol={prep.chartSymbol} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
+    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
       {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} variant={draft.state === state ? 'contained' : 'outlined'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
       <Chip role="status" label={t(`dailyReview.save.${saveState}`)} />

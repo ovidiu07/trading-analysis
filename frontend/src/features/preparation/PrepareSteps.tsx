@@ -41,6 +41,19 @@ const demoSetupLabelKeys = ['liquiditySweep', 'displacement', 'mssChoch', 'fvgIm
 
 type EmotionalState = 'calm' | 'focused' | 'neutral' | 'anxious' | 'fomo'
 
+function canonicalMarketInstrument(chartSymbol: string, fallback: string) {
+  const chart = chartSymbol.toUpperCase()
+  if (chart.includes('DE30') || chart.includes('DAX') || chart.includes('GER40')) return 'GER40'
+  if (chart.includes('NAS100') || chart.includes('NASDAQ')) return 'NAS100'
+  if (chart.includes('ES1!') || chart.includes('CME_MINI:ES')) return 'ES'
+  if (chart.includes('XAUUSD')) return 'XAUUSD'
+  if (chart.includes('USOIL') || chart.includes('WTICO')) return 'USOIL'
+  if (chart.includes('DXY')) return 'DXY'
+  if (chart.includes('GBPUSD')) return 'GBPUSD'
+  if (chart.includes('EURUSD')) return 'EURUSD'
+  return fallback.trim().toUpperCase() || 'UNSET'
+}
+
 export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason }: {
   date: string
   draft: SessionReview
@@ -140,6 +153,8 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
         <MarketIntelligenceGrid
           preparation={p}
           thesis={draft.focus}
+          date={date}
+          selectedInstrument={canonicalMarketInstrument(p.chartSymbol, symbol)}
           briefing={<BriefingPanel coach date={date} preparation={p} onSelection={patch} onVersion={(id) => patch({ briefingId: id })} />}
           onAcknowledge={(checked) => patch({ contextAcknowledged: checked })}
           acknowledgeLabel={t('prepare.acknowledge')}

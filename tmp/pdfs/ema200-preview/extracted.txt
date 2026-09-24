@@ -1,0 +1,491 @@
+RAPORT SPECIAL • 2–5 ȘEDINȚE
+
+Top 3 acțiuni NASDAQ-100
+la testul EMA 200
+Selecție tactică în limba română, construită din datele ultimei ședințe americane încheiate: 18
+septembrie 2026.
+
+#1 • BKR
+
+#2 • MAR
+
+#3 • AVGO
+
+$57,25
+
+$338,92
+
+$357,61
+
+Confirmare peste
+$57,60–$58,00
+
+Confirmare peste
+$340,70–$342,30
+
+Confirmare peste
+$363,30–$364,00
+
+Ideea centrală
+Acestea sunt cele mai bune trei configurații relative din screeningul curent, nu cele mai sigure acțiuni din piață.
+Niciuna nu este tratată drept cumpărare automată: fiecare are un nivel de confirmare, ținte tactice și un nivel de
+invalidare.
+
+UNIVERS ANALIZAT
+
+101 titluri NASDAQ-100 • 99 eligibile • 681 ședințe • 10 titluri în banda ±2% față de
+EMA 200
+Acest material este educațional. Nu reprezintă consultanță financiară și nu ține cont de situația, toleranța la risc sau orizontul
+cititorului. Țintele sunt scenarii, nu garanții.
+
+NASDAQ-100 | TEST EMA 200 | EDIȚIA 21 SEPTEMBRIE 2026
+
+Rezumat executiv
+Cum se citește selecția
+Screeningul caută acțiunile NASDAQ-100 aflate la cel mult 2% de EMA 200. Apoi ordonează oportunitățile pe baza
+distanței, direcției mediei, reacției de preț, volumului, momentumului, lichidității și contextului fundamental. Pentru
+orizontul de 2–5 ședințe, am preferat reveniri cu volum și risc tehnic clar, nu doar acțiuni ieftine sau povești populare.
+
+Clasamentul de azi
+1. BKR — cel mai curat raport între suport, volum și distanță până la primele ținte.
+2. MAR — revenire pe volum foarte ridicat, cu volatilitate relativ controlabilă.
+3. AVGO — fundamentale excepționale, dar are nevoie de confirmare peste EMA 200; de aceea nu este pe
+primul loc.
+
+Toate cele 10 acțiuni care au trecut filtrul
+Rang
+
+Simbol
+
+Închidere
+
+EMA 200
+
+Distanță
+
+RSI 14
+
+Volum*
+
+Verdict
+
+1
+
+SHOP
+
+$128.50
+
+$129.13
+
+-0.49%
+
+40.5
+
+1.44×
+
+Observă
+
+2
+
+MAR
+
+$338.92
+
+$340.97
+
+-0.60%
+
+45.0
+
+2.87×
+
+Constructiv
+
+3
+
+DASH
+
+$192.94
+
+$194.27
+
+-0.69%
+
+35.0
+
+1.99×
+
+Observă
+
+4
+
+BKR
+
+$57.25
+
+$57.76
+
+-0.89%
+
+34.4
+
+2.89×
+
+Constructiv
+
+5
+
+MDLZ
+
+$60.85
+
+$60.24
+
++1.01%
+
+40.2
+
+2.45×
+
+Observă
+
+6
+
+CCEP
+
+$99.77
+
+$98.64
+
++1.14%
+
+33.6
+
+3.24×
+
+Neutru
+
+7
+
+MSTR
+
+$153.92
+
+$152.15
+
++1.16%
+
+66.1
+
+1.99×
+
+Evită acum
+
+8
+
+KLAC
+
+$176.99
+
+$173.98
+
++1.73%
+
+46.0
+
+2.26×
+
+Constructiv
+
+9
+
+AVGO
+
+$357.61
+
+$364.00
+
+-1.75%
+
+45.5
+
+1.72×
+
+Constructiv
+
+10
+
+PYPL
+
+$52.41
+
+$53.47
+
+-1.99%
+
+39.6
+
+2.35×
+
+Neutru
+
+* Raportul dintre volumul ultimei ședințe și media precedentelor 20 de ședințe.
+
+De ce nu am ales automat primele trei după distanța față de EMA
+SHOP și DASH sunt foarte aproape de EMA 200, dar se află sub mediile pe 20 și 50 de zile și nu au oferit încă o
+revenire la fel de clară. MSTR a avut o mișcare de +16,39% legată de Bitcoin, ceea ce crește riscul de reversare.
+KLAC rămâne constructiv, însă are rezistență imediată și volatilitate ridicată. Selecția BKR–MAR–AVGO urmărește
+un compromis mai bun între confirmare, lichiditate, context și disciplină de risc.
+
+Date până la închiderea din 18.09.2026 • Material educațional, nu recomandare personalizată
+
+2
+
+NASDAQ-100 | TEST EMA 200 | EDIȚIA 21 SEPTEMBRIE 2026
+
+#1 • BKR — Baker Hughes
+ÎNCHIDERE
+
+DISTANȚĂ
+
+VOLUM
+
+$57.25
+
+-0.89%
+
+2.89×
+
+EMA 200: $57.76
+
+RSI(14): 34.4
+
+față de media precedentelor 20
+zile
+
+Explicația simplă
+Prețul a revenit exact din zona EMA 200, iar volumul a fost de aproape trei ori peste normal. Asta arată interes real al
+cumpărătorilor, dar revenirea trebuie confirmată peste maximul ultimei ședințe.
+
+Plan tactic pentru următoarele 2–5 ședințe
+Confirmare
+
+Ținta 1
+
+Ținta 2
+
+Risc apropiat
+
+$57,60–$58,00
+
+$59,00
+
+$60,50–$61,00
+
+$55,40
+
+Scenariul devine activ numai dacă prețul ține peste $57,60–$58,00. Prima zonă de marcare este $59,00; dacă
+volumul rămâne bun, extensia este $60,50–$61,00. O închidere sub $55,40 slăbește imediat ideea; sub $52,00
+structura este invalidată.
+
+De ce este în Top 3
+Cea mai bună combinație din eșantion între supravânzare moderată, EMA 200 încă ascendentă, volum ridicat și
+ținte apropiate. Backlogul din energie/LNG oferă și un context fundamental rezonabil.
+
+Context fundamental și riscuri
+T2: venituri $6,74 mld., EBITDA ajustată $1,23 mld. și flux de numerar liber $1,11 mld. Riscurile principale sunt
+ciclicitatea serviciilor petroliere, Orientul Mijlociu și integrarea achizițiilor.
+Invalidare structurală: $52,00. Nivelul de risc apropiat nu este o recomandare universală de stop; dimensiunea poziției trebuie adaptată la
+volatilitate și la pierderea maximă acceptată.
+
+Date până la închiderea din 18.09.2026 • Material educațional, nu recomandare personalizată
+
+3
+
+NASDAQ-100 | TEST EMA 200 | EDIȚIA 21 SEPTEMBRIE 2026
+
+#2 • MAR — Marriott International
+ÎNCHIDERE
+
+DISTANȚĂ
+
+VOLUM
+
+$338.92
+
+-0.60%
+
+2.87×
+
+EMA 200: $340.97
+
+RSI(14): 45.0
+
+față de media precedentelor 20
+zile
+
+Explicația simplă
+Marriott a recuperat puternic de la suport, pe volum de aproape trei ori peste medie. Prețul este foarte aproape de
+EMA 200, deci o trecere clară peste $342 poate transforma revenirea într-un impuls de câteva zile.
+
+Plan tactic pentru următoarele 2–5 ședințe
+Confirmare
+
+Ținta 1
+
+Ținta 2
+
+Risc apropiat
+
+$340,70–$342,30
+
+$350,00
+
+$354,00
+
+$332,00
+
+Confirmarea este o închidere peste $340,70–$342,30. Prima țintă tactică este $350, iar zona $354 reprezintă
+rezistența mai importantă. Dacă prețul pierde $332, setup-ul pe termen scurt se deteriorează; sub $320, baza actuală
+este invalidată.
+
+De ce este în Top 3
+Revenire de +1,47% cu participare ridicată, suport apropiat și un model de afaceri asset-light. Volatilitatea este
+mai mică decât la acțiunile AI, ceea ce face planul mai ușor de explicat și controlat.
+
+Context fundamental și riscuri
+T2: venituri $7,07 mld., EPS ajustat $3,19, RevPAR +3,4% și EBITDA ajustată +13%. Riscul dominant este datoria
+ridicată, la care se adaugă sensibilitatea la călătorii și dobânzi.
+Invalidare structurală: $320,00. Nivelul de risc apropiat nu este o recomandare universală de stop; dimensiunea poziției trebuie adaptată la
+volatilitate și la pierderea maximă acceptată.
+
+Date până la închiderea din 18.09.2026 • Material educațional, nu recomandare personalizată
+
+4
+
+NASDAQ-100 | TEST EMA 200 | EDIȚIA 21 SEPTEMBRIE 2026
+
+#3 • AVGO — Broadcom
+ÎNCHIDERE
+
+DISTANȚĂ
+
+VOLUM
+
+$357.61
+
+-1.75%
+
+1.72×
+
+EMA 200: $364.00
+
+RSI(14): 45.5
+
+față de media precedentelor 20
+zile
+
+Explicația simplă
+Broadcom are cele mai puternice rezultate fundamentale din grup și a revenit aproape 3% pe volum peste medie.
+Totuși, EMA 200 este încă deasupra prețului; de aceea este pe locul trei până când recucerește zona $364.
+
+Plan tactic pentru următoarele 2–5 ședințe
+Confirmare
+
+Ținta 1
+
+Ținta 2
+
+Risc apropiat
+
+$363,30–$364,00
+
+$372,70–$376,60
+
+$379,80–$380,00
+
+$345,00
+
+Ideea se activează numai peste $363,30–$364. Prima zonă-țintă este $372,70–$376,60, iar extensia este
+$379,80–$380. Sub $345 impulsul se slăbește; o închidere sub $335 invalidează baza tehnică.
+
+De ce este în Top 3
+Creșterea din AI și fluxul mare de numerar oferă suport fundamental, iar revenirea tehnică are loc din zona
+$336–$351. Principalul minus este că prețul mai are de trecut prin două rezistențe apropiate.
+
+Context fundamental și riscuri
+T3 fiscal: venituri $29,59 mld. (+86%), venituri AI +221% la $16,7 mld. și FCF $13,67 mld. Riscurile sunt
+concentrarea clienților, încetinirea cheltuielilor AI, integrarea VMware și levierul.
+Invalidare structurală: $335,00. Nivelul de risc apropiat nu este o recomandare universală de stop; dimensiunea poziției trebuie adaptată la
+volatilitate și la pierderea maximă acceptată.
+
+Date până la închiderea din 18.09.2026 • Material educațional, nu recomandare personalizată
+
+5
+
+NASDAQ-100 | TEST EMA 200 | EDIȚIA 21 SEPTEMBRIE 2026
+
+Metodologie, utilizare și surse
+Reguli folosite
+1
+
+Univers
+
+Componența NASDAQ-100 disponibilă la 18.09.2026: 101 titluri reprezentând 100 de
+companii.
+
+2
+
+Istoric
+
+681 ședințe ajustate pentru acțiuni corporative; SPCX și HONA au fost excluse
+deoarece au doar 68, respectiv 67 ședințe.
+
+3
+
+Filtru
+
+Distanță inclusivă de ±2% față de EMA(200), calculată recursiv cu α = 2/201.
+
+4
+
+Selecție Top 3
+
+Nu doar distanță: direcția EMA, reacția ultimei ședințe, volum, RSI, suport/rezistență,
+lichiditate și context fundamental.
+
+5
+
+Ținte
+
+Niveluri tactice derivate din rezistențe recente și amplitudinea normală a mișcării; devin
+relevante numai după confirmare.
+
+Text scurt, gata de explicat comunității
+Pe scurt
+Astăzi nu căutăm acțiuni care doar par ieftine. Căutăm reacții verificabile în jurul EMA 200. BKR are cel mai bun
+echilibru între volum, suport și ținte apropiate; MAR oferă o revenire mai ordonată; AVGO are povestea
+fundamentală cea mai puternică, dar trebuie să depășească $364. Dacă nivelurile de confirmare nu sunt atinse,
+scenariul rămâne doar pe lista de observație.
+
+Surse principale
+Nasdaq — componența NASDAQ-100 • instantaneu 18.09.2026
+Yahoo Finance / yfinance — OHLCV ajustat și instantanee de piață • acces 21.09.2026
+Baker Hughes — rezultate T2 2026
+Marriott — rezultate T2 2026, document SEC
+Broadcom — rezultate T3 fiscal 2026
+
+Datele, valorile și concluziile sunt cele ale screeningului rulat înaintea deschiderii SUA din 21.09.2026 și folosesc ultima lumânare completă din
+18.09.2026. Țintele agregate pe 12 luni din raportul-sursă nu au fost folosite drept ținte pentru 2–5 zile.
+
+Avertisment important
+Acest raport este material educațional și editorial. Nu reprezintă recomandare de cumpărare/vânzare, consultanță
+financiară, promisiune de randament sau evaluare a adecvării pentru o persoană. Piețele pot deschide cu gap, pot
+traversa nivelurile fără execuție și pot reacționa la știri neprevăzute. Fiecare cititor trebuie să verifice datele curente,
+să decidă independent și, dacă este necesar, să consulte un profesionist autorizat.
+
+Date până la închiderea din 18.09.2026 • Material educațional, nu recomandare personalizată
+
+6
+
+

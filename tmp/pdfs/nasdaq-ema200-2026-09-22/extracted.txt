@@ -1,0 +1,728 @@
+RAPORT ZILNIC - 2-5 SEDINTE
+
+NASDAQ-100 la testul EMA 200
+Screening complet, analiza celor 8 calificari si Top 3 candidati tactici. Date pana la inchiderea din
+21 septembrie 2026.
+
+UNIVERS
+
+FILTRU
+
+TOP 3
+
+101 titluri
+
+8 calificari
+
+MAR - BKR - AVGO
+
+99 eligibile
+
+Banda inclusiva +/-2%
+
+AVGO necesita confirmare
+
+Mesajul principal
+MAR si BKR au inchis usor peste EMA 200. AVGO este foarte aproape, dar ramane candidat de monitorizat - fara
+intrare confirmata pana la inchidere peste $364. Niciun nivel nu este o garantie; fiecare scenariu are invalidare.
+
+Date: Nasdaq snapshot 21.09.2026; Yahoo Finance ajustat, 682 sedinte. Rulare pre-market
+22.09.2026. Cercetare educationala, nu recomandare personalizata.
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+Metodologie si tabel complet
+Universul curent Nasdaq-100 a fost verificat la Nasdaq. Preturile provin din Yahoo Finance si sunt ajustate pentru actiuni
+corporative. EMA foloseste formula recursiva cu alpha = 2/201, fara lumanarea partiala din 22 septembrie. Lichiditatea
+este media pe 20 zile a pretului de inchidere inmultit cu volumul.
+#
+
+Ticker
+
+1
+
+BKR
+
+2
+
+Companie
+
+Inchidere
+
+EMA 200
+
+Dist.
+
+Parte
+
+$ vol. 20z
+
+Baker Hughes
+
+$57.83
+
+$57.77
+
++0.11%
+
+Peste
+
+$489 mil.
+
+MDLZ
+
+Mondelez International
+
+$60.17
+
+$60.24
+
+-0.12%
+
+Sub
+
+$497 mil.
+
+3
+
+AVGO
+
+Broadcom
+
+$362.66
+
+$363.33
+
+-0.18%
+
+Sub
+
+$9.76 mld.
+
+4
+
+DASH
+
+DoorDash
+
+$193.83
+
+$194.27
+
+-0.22%
+
+Sub
+
+$800 mil.
+
+5
+
+MAR
+
+Marriott International
+
+$342.66
+
+$340.98
+
++0.49%
+
+Peste
+
+$547 mil.
+
+6
+
+TSLA
+
+Tesla
+
+$375.30
+
+$378.82
+
+-0.93%
+
+Sub
+
+$14.21 mld.
+
+7
+
+PYPL
+
+PayPal
+
+$52.62
+
+$53.47
+
+-1.58%
+
+Sub
+
+$719 mil.
+
+8
+
+CCEP
+
+Coca-Cola Europacific Partners
+
+$100.53
+
+$98.66
+
++1.89%
+
+Peste
+
+$180 mil.
+
+Excluderi
+SPCX: 69 sedinte; HONA: 68 sedinte. Ambele sunt sub pragul de 250 de sedinte. Nicio valoare indisponibila nu a fost
+inlocuita cu zero.
+
+Control de calitate
+Inchiderile Yahoo din 21 septembrie au coincis la cent cu Previous Close Nasdaq pentru toate cele opt calificari. Datele
+pre-market din 22 septembrie au fost excluse. AVGO este tratat pe seria ajustata pentru dividend; nu s-au identificat
+splituri sau schimbari de ticker noi intre calificari.
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+2
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+Top 3 candidati pe termen scurt (2-5 sedinte)
+Clasamentul combina confirmarea la EMA 200, structura scurta, momentum, volum, lichiditate, risc de gap, evenimente
+apropiate si calitate fundamentala. Nu este o lista de cumparare.
+Rang
+
+1
+
+2
+
+3
+
+Candidat
+
+MAR
+Marriott International
+
+BKR
+Baker Hughes
+
+AVGO
+Broadcom
+
+Statut
+
+Inchidere
+
+Confirmare
+
+T1
+
+T2
+
+Invalidare
+
+Incredere
+
+Confirmat conditionat
+
+$342.66
+
+$343,15
+
+$350.00
+
+$354.00
+
+$332.00
+
+Medie
+
+Confirmat conditionat
+
+$57.83
+
+$58,20
+
+$60.00
+
+$61.00
+
+$55.40
+
+Medie
+
+Monitorizare
+
+$362.66
+
+$364,00
+
+$375.90
+
+$380.00
+
+$353.50
+
+Medie
+
+#1 MAR - Marriott International - Medie
+A recuperat EMA 200 si SMA20; confirmarea finala este depasirea maximului de $343,15. Confirmare: $343,15. T1:
+$350.00 (+2.14%). T2: $354.00 (+3.31%). Risc apropiat: $332.00 (-3.11%).
+
+#2 BKR - Baker Hughes - Medie
+A trecut usor peste EMA 200 dupa o revenire sustinuta initial de volum foarte mare. Confirmare: $58,20. T1: $60.00
+(+3.75%). T2: $61.00 (+5.48%). Risc apropiat: $55.40 (-4.20%).
+
+#3 AVGO - Broadcom - Medie
+Fundamentele sunt cele mai puternice din grup, dar pretul trebuie sa inchida peste $364. Confirmare: $364,00. T1:
+$375.90 (+3.65%). T2: $380.00 (+4.78%). Risc apropiat: $353.50 (-2.53%).
+
+Evenimente apropiate
+FOMC a majorat rata pe 16 septembrie la 3,75%-4,00%, astfel incat sensibilitatea la randamente ramane ridicata. BEA
+publica tranzactiile internationale pe 24 septembrie; GDP si PCE sunt programate pe 30 septembrie, in afara ferestrei
+standard de cinci sedinte. Nu a fost identificata o raportare trimestriala confirmata de emitent pentru MAR, BKR sau AVGO
+in urmatoarele cinci sedinte. Plata dividendului AVGO pe 30 septembrie urmeaza dupa record date si nu este un nou
+ex-date in fereastra analizata.
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+3
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+BKR - Baker Hughes - Constructiv
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$57.83
+
+$57.77
+
+RSI 37.9
+
+21.09.2026
+
++0.11%
+
+Volum 0.99x
+
+1. Context tehnic - calcul derivat
+A inchis cu 0,11% peste EMA 200, iar media ramane ascendenta. Revenirea din 18 septembrie a avut volum foarte ridicat;
+pe 21 septembrie avansul de 1,01% a venit pe volum aproximativ normal. RSI 37,9 arata momentum inca slab, dar nu
+extrem. O inchidere peste $58,20 confirma trecerea; pierderea zonei $55,44 slabeste setup-ul.
+Suport: $56,60; apoi $55,44 si $52,08. Rezistenta: $58,20; apoi $60,50-$61,00 si $66,09. Invalidare structurala:
+$52,00.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2 2026: venituri $6,742 mld., EPS GAAP $0,68, EPS ajustat $0,64, EBITDA ajustata $1,231 mld. si FCF $1,109 mld.
+RPO a fost $40,1 mld. Cererea pentru LNG, turbine si infrastructura energetica sustine cazul, dar ciclicitatea OFSE,
+expunerea geopolitica si integrarea Chart Industries cresc riscul. Instantaneul Yahoo arata P/E forward 18,6x; numerarul si
+datoria de aproximativ $17,0/$16,3 mld. includ efecte de tranzactie si nu trebuie tratate ca lichiditate normalizata
+post-achizitie.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $58,20; T1 $60.00; T2 $61.00; risc apropiat $55.40.
+Consens Wall Street pe 12 luni: $72.30 (23 contributori; +25.0% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $45-$50 daca investitiile upstream scad; baza $60-$68 daca backlogul se
+converteste si marjele raman stabile; bull $75-$85 daca IET accelereaza si sinergiile se materializeaza.
+
+4. Verdict
+Constructiv
+A trecut usor peste EMA 200 dupa o revenire sustinuta initial de volum foarte mare. Nivel relevant: $58,20.
+Sursa primara pentru rezultatele financiare ale Baker Hughes
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+4
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+MDLZ - Mondelez International - De urmarit
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$60.17
+
+$60.24
+
+RSI 36.5
+
+21.09.2026
+
+-0.12%
+
+Volum 1.20x
+
+1. Context tehnic - calcul derivat
+Pretul a inchis cu 0,12% sub EMA 200 si a scazut 1,12% in ultima sedinta, pe 1,20x volumul normal. Este sub mediile pe
+20 si 50 de zile, iar RSI 36,5 confirma presiunea. EMA 200 ramane ascendenta, dar nu exista inca o reactie pozitiva: este
+necesara o recuperare peste $61,15 si apoi $62,40.
+Suport: $60,10; apoi $57,78. Rezistenta: $61,15; apoi $62,40 si $65,55. Invalidare structurala: $57,78.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2: venituri nete +4,1%, crestere organica +2,2%, volum/mix +0,7%, EPS diluat $1,20 si EPS ajustat $0,73, in scadere cu
+2,7% la curs constant. FCF semestrial a fost $0,7 mld. Yahoo indica P/E forward 17,9x, numerar $1,72 mld. si datorie
+$22,1 mld. Catalizatori: stabilizarea volumelor, pricing si relaxarea costului cacao; riscuri: elasticitate, inputuri si levier.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $61,15-$62,40; T1 $62.40; T2 $65.50; risc apropiat $57.78.
+Consens Wall Street pe 12 luni: $69.13 (23 contributori; +14.9% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $52-$56 la noi presiuni pe volume/costuri; baza $64-$69 cu crestere
+modesta si repararea marjei; bull $72-$78 cu volume mai bune si costuri cacao mai mici.
+
+4. Verdict
+De urmarit
+Apropierea de EMA nu este suficienta: ultima sedinta a confirmat presiune, nu revenire. Nivel relevant: $61,15-$62,40.
+Sursa primara pentru rezultatele financiare ale Mondelez International
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+5
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+AVGO - Broadcom - Constructiv - asteapta
+confirmarea
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$362.66
+
+$363.33
+
+RSI 49.0
+
+21.09.2026
+
+-0.18%
+
+Volum 0.98x
+
+1. Context tehnic - calcul derivat
+A doua sedinta consecutiva de revenire a dus pretul la numai 0,18% sub EMA 200, cu inchidere aproape de maximul zilei.
+Volumul a fost aproximativ normal, RSI 49,0, iar EMA s-a aplatizat usor. O inchidere peste $364 transforma testul in
+confirmare; pana atunci ramane candidat de monitorizat, nu intrare confirmata.
+Suport: $353,50; apoi $335,20. Rezistenta: $363,97-$364; apoi $375,91 si $380. Invalidare structurala: $335,20.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T3 fiscal: venituri $29,591 mld. (+86%), EPS GAAP $2,68, EPS non-GAAP $3,32 si FCF $13,665 mld., adica 46% din
+venituri. Veniturile din semiconductori AI au crescut 221% la $16,7 mld. Numerarul a fost $24,0 mld.; instantaneul Yahoo
+arata datorie $59,4 mld., P/E forward 18,7x si P/S 19,4x. Catalizatori: acceleratoare custom, networking si VMware; riscuri:
+concentrare, digestia capex AI, integrare si levier.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $364,00; T1 $375.90; T2 $380.00; risc apropiat $353.50.
+Consens Wall Street pe 12 luni: $531.85 (47 contributori; +46.7% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $290-$320 daca comenzile AI incetinesc; baza $390-$450 cu executia
+ghidajului si sinergii; bull $500-$580 daca ritmul AI ramane exceptional.
+
+4. Verdict
+Constructiv - asteapta confirmarea
+Fundamentele sunt cele mai puternice din grup, dar pretul trebuie sa inchida peste $364. Nivel relevant: $364,00.
+Sursa primara pentru rezultatele financiare ale Broadcom
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+6
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+DASH - DoorDash - De urmarit
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$193.83
+
+$194.27
+
+RSI 36.2
+
+21.09.2026
+
+-0.22%
+
+Volum 1.37x
+
+1. Context tehnic - calcul derivat
+Pretul este cu 0,22% sub EMA 200, dar mult sub mediile pe 20 si 50 de zile. RSI 36,2 si volumul 1,37x arata interes, insa
+lumanarea din 21 septembrie a testat $188,71 inainte sa revina. O inchidere peste $194,95 este primul pas; confirmarea
+mai buna apare peste $203,82-$205.
+Suport: $188,71; apoi $166,58. Rezistenta: $194,95; apoi $203,82 si $213,30. Invalidare structurala: $166,58.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2: venituri $4,454 mld. (+36%; +24% fara Deliveroo), profit net GAAP $200 mil., EBITDA ajustata $914 mil. (+40%) si
+FCF $742 mil. Yahoo arata numerar $5,35 mld., datorie $3,30 mld., P/E trailing 101x si P/S 5,3x. Catalizatori: DashPass,
+publicitate, platforma globala si servicii comerciale; riscuri: reglementare, costurile curierilor, Deliveroo si compresia
+multiplului.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $194,95; mai solid peste $203,82; T1 $203.80; T2 $213.30; risc apropiat $188.70.
+Consens Wall Street pe 12 luni: $256.26 (43 contributori; +32.2% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $155-$175 daca integrarea si competitia erodeaza marjele; baza
+$215-$245 cu crestere organica peste 20%; bull $280-$320 cu monetizare si unit economics mai bune.
+
+4. Verdict
+De urmarit
+A aparat minimul zilei, dar trendul scurt ramane descendent sub mediile de 20 si 50 zile. Nivel relevant: $194,95; mai
+solid peste $203,82.
+Sursa primara pentru rezultatele financiare ale DoorDash
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+7
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+MAR - Marriott International - Constructiv
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$342.66
+
+$340.98
+
+RSI 48.9
+
+21.09.2026
+
++0.49%
+
+Volum 0.73x
+
+1. Context tehnic - calcul derivat
+A inchis cu 0,49% peste EMA 200 si peste SMA20, dupa doua sedinte pozitive. RSI 48,9 este neutru, dar volumul ultimei
+sedinte a fost doar 0,73x. Trecerea peste $343,15 ar confirma impulsul; o inchidere inapoi sub $337 slabeste ideea, iar
+sub $320,91 baza este invalidata.
+Suport: $337,02; apoi $332,35 si $320,91. Rezistenta: $343,15; apoi $350, $354 si $363,39. Invalidare structurala:
+$320,91.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2: venituri aproximativ $7,07 mld., EPS raportat $2,90, EPS ajustat $3,19, RevPAR +3,4%, camere nete +4,5% si
+EBITDA ajustata $1,592 mld. Modelul asset-light sustine generarea de numerar, dar datoria de $16,9 mld. fata de $0,5
+mld. numerar si buybackurile sunt riscul principal. Yahoo indica P/E forward 26,0x. Catalizatori: Bonvoy/carduri, conversii
+si pipeline-ul de 629.000 camere.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $343,15; T1 $350.00; T2 $354.00; risc apropiat $332.00.
+Consens Wall Street pe 12 luni: $380.80 (25 contributori; +11.1% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $290-$315 la contractie RevPAR; baza $350-$385 cu RevPAR 3%-4% si
+crestere de camere 4,5%-5%; bull $410-$440 cu accelerarea taxelor si cardurilor.
+
+4. Verdict
+Constructiv
+A recuperat EMA 200 si SMA20; confirmarea finala este depasirea maximului de $343,15. Nivel relevant: $343,15.
+Sursa primara pentru rezultatele financiare ale Marriott International
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+8
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+TSLA - Tesla - De urmarit - volatilitate ridicata
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$375.30
+
+$378.82
+
+RSI 58.6
+
+21.09.2026
+
+-0.93%
+
+Volum 0.90x
+
+1. Context tehnic - calcul derivat
+Tesla a urcat 3,03% si a inchis cu 0,93% sub EMA 200, peste mediile pe 20 si 50 de zile. RSI 58,6 sustine momentum, dar
+volumul a fost doar 0,90x. Confirmarea necesita o inchidere peste $378,36-$379 si apoi $384. Sub $364 impulsul se
+deterioreaza; sub $342,53 structura recenta cedeaza.
+Suport: $364; apoi $354,05 si $342,53. Rezistenta: $378,36-$379; apoi $384,04. Invalidare structurala: $342,53.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2: venituri $28,236 mld. (+26%), profit net atribuibil $1,114 mld. si EPS diluat $0,32. In S1, fluxul operational $8,634 mld.
+aproape a fost absorbit de capex de $8,282 mld.; compania asteapta peste $25 mld. capex in 2026 pentru AI, fabrici si
+infrastructura. Numerar plus investitii pe termen scurt: $43,524 mld.; datorie aproximativ $9,08 mld. Yahoo indica P/E
+forward 170,8x. Catalizatori: livrari, autonomie, robotaxi si energie; riscuri: evaluare, capex, executie si volatilitate ridicata.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $379-$384; T1 $384.00; T2 $400.00; risc apropiat $364.00.
+Consens Wall Street pe 12 luni: $396.94 (38 contributori; +5.8% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $250-$300 daca marjele auto si monetizarea AI dezamagesc; baza
+$360-$430 cu livrari in crestere si progres gradual in autonomie; bull $500-$600 daca robotaxi/FSD se monetizeaza
+credibil.
+
+4. Verdict
+De urmarit - volatilitate ridicata
+Momentum bun, dar evaluarea si rezistenta EMA 200 cer confirmare stricta peste $379-$384. Nivel relevant:
+$379-$384.
+Sursa primara pentru rezultatele financiare ale Tesla
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+9
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+PYPL - PayPal - Neutru
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$52.62
+
+$53.47
+
+RSI 40.6
+
+21.09.2026
+
+-1.58%
+
+Volum 0.73x
+
+1. Context tehnic - calcul derivat
+Pretul este cu 1,58% sub EMA 200 si sub mediile pe 20/50 de zile. RSI 40,6 si volumul 0,73x nu confirma o revenire
+convingatoare. Este necesara o inchidere peste $53,47-$54,60; sub $50,80 riscul de reluare a scaderii creste.
+Suport: $52,24-$50,80; apoi $42,11. Rezistenta: $53,47-$54,60; apoi $56,56. Invalidare structurala: $42,11.
+
+2. Fundamentale - fapte raportate si instantanee terte
+T2: venituri $8,682 mld. (+5%), marja operationala GAAP 16,4% (-171 bps), EPS GAAP $1,25 (-3%) si FCF $1,775 mld.
+Numerar/investitii $15,3 mld. fata de datorie $13,4 mld.; P/E forward Yahoo 9,1x. Catalizatori: Venmo, stabilizarea
+checkoutului branded, Braintree si buybackuri; riscuri: compresia marjei, concurenta si executia noii conduceri. Plata
+dividendului pe 25 septembrie nu este ex-date si nu reprezinta in sine un eveniment de ajustare a pretului in acest orizont.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $53,47-$54,60; T1 $56.50; T2 $62.20; risc apropiat $50.80.
+Consens Wall Street pe 12 luni: $57.07 (32 contributori; +8.5% fata de inchidere). Sursa Yahoo accesata 22 septembrie;
+data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $42-$46 daca presiunea pe marja continua; baza $58-$65 cu stabilizarea
+checkoutului; bull $70-$80 cu reluarea cresterii EPS si monetizare Venmo.
+
+4. Verdict
+Neutru
+Evaluarea este redusa, dar pretul si volumul nu confirma inca revenirea de la EMA. Nivel relevant: $53,47-$54,60.
+Sursa primara pentru rezultatele financiare ale PayPal
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+10
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+CCEP - Coca-Cola Europacific Partners - Neutru
+INCHIDERE
+
+EMA 200
+
+MOMENTUM
+
+$100.53
+
+$98.66
+
+RSI 36.6
+
+21.09.2026
+
++1.89%
+
+Volum 0.88x
+
+1. Context tehnic - calcul derivat
+Pretul ramane cu 1,89% peste o EMA 200 ascendenta, dar sub mediile pe 20/50 de zile. RSI 36,6 si volumul 0,88x arata
+momentum slab. Este nevoie de recuperarea $101,07 si apoi $104; pierderea EMA la $98,66 muta atentia spre $95.
+Suport: $99,41-$98,66; apoi $95. Rezistenta: $101,07; apoi $104 si $105,54. Invalidare structurala: $95,00.
+
+2. Fundamentale - fapte raportate si instantanee terte
+H1: venituri aproximativ EUR10,7 mld., profit operational comparabil EUR1,5 mld. si EPS comparabil EUR2,20 (+10,6% la
+curs constant); FCF comparabil raportat anterior la EUR435 mil. Yahoo indica P/E forward 17,9x, numerar aproximativ
+$1,99 mld. si datorie $12,19 mld. Catalizatori: zero sugar, energy, mix si Asia-Pacific; riscuri: FX, consum, inputuri si levier.
+
+3. Tintele - trei categorii distincte
+Tehnic, 2-5 sedinte: confirmare $101,07; mai solid peste $104; T1 $104.00; T2 $105.50; risc apropiat $98.60.
+Consens Wall Street pe 12 luni: $110.01 (12 contributori; +9.4% fata de inchidere). Sursa Yahoo accesata 22
+septembrie; data fiecarei contributii nu este expusa.
+Scenarii proprii pe 12 luni, nu consens: Bear $86-$92 la presiune pe volume/FX; baza $105-$112 cu crestere moderata
+si marje stabile; bull $118-$125 cu mix mai bun si executie mai puternica in Asia-Pacific.
+
+4. Verdict
+Neutru
+EMA 200 tine, dar pretul ramane sub mediile scurte si necesita confirmare peste $101-$104. Nivel relevant: $101,07;
+mai solid peste $104.
+Sursa primara pentru rezultatele financiare ale Coca-Cola Europacific Partners
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+11
+
+NASDAQ-100 | EMA 200 | 22 SEPTEMBRIE 2026
+
+Surse, evenimente si avertisment
+Surse principale
+Nasdaq - lista companiilor NASDAQ-100 - snapshot intern API datat 21.09.2026
+Yahoo Finance - preturi zilnice ajustate, evaluari si consens - acces 22.09.2026
+Federal Reserve - declaratia FOMC din 16.09.2026
+BEA - calendarul comunicarilor economice
+BKR - rezultate emitent / document SEC
+MDLZ - rezultate emitent / document SEC
+AVGO - rezultate emitent / document SEC
+DASH - rezultate emitent / document SEC
+MAR - rezultate emitent / document SEC
+TSLA - rezultate emitent / document SEC
+PYPL - rezultate emitent / document SEC
+CCEP - rezultate emitent / document SEC
+
+Transparenta datelor
+Faptele financiare provin din comunicatele emitentilor sau SEC. Multiplii, bilanturile instantanee si consensul sunt date
+terte Yahoo, accesate pe 22 septembrie. Calculele EMA, distantele, RSI, volumul relativ si nivelurile tehnice sunt derivate
+in raport. Intervalele bear/base/bull sunt scenarii proprii, nu consens si nu prognoze garantate. Datele indisponibile nu au
+fost inlocuite cu zero.
+
+Avertisment educational
+Nu este recomandare personalizata
+Apropierea de EMA 200 este un filtru, nu un semnal automat. Preturile pot deschide cu gap si pot traversa nivelurile
+fara executie. Tintele pot fi gresite. Orice trader trebuie sa verifice datele curente, sa stabileasca pierderea maxima
+acceptata inaintea intrarii si sa respecte invalidarea. Raportul nu ofera marimi personalizate de pozitie si nu promite
+venit.
+
+Date pana la inchiderea din 21.09.2026 - material educational, nu recomandare personalizata
+
+12
+
+
