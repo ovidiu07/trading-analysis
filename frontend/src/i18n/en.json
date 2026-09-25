@@ -1,5 +1,37 @@
 {
+  "manualLevels": {
+    "manual": "Manual · private",
+    "scope": "Your levels are private to this account and session, for the exact instrument below. They are your own entries, not live quotes or automatic risk inputs.",
+    "empty": "No manual levels for this instrument.",
+    "pending": "Draft · timestamp assigned on save",
+    "edit": "Edit",
+    "remove": "Remove",
+    "kind": "Level type",
+    "value": "Price level",
+    "unit": "Unit / quote currency",
+    "note": "Your note",
+    "invalid": "Enter a positive price (up to 8 decimals) and a unit. Maximum 40 levels per session.",
+    "apply": "Apply level",
+    "cancel": "Cancel",
+    "add": "Add private level",
+    "exactRequired": "Select an instrument with its provider or exchange prefix first.",
+    "labels": {
+      "SUPPORT": "Support",
+      "RESISTANCE": "Resistance",
+      "INVALIDATION": "Invalidation",
+      "REFERENCE": "Reference"
+    }
+  },
+  "officialContext": {
+    "title": "Official daily FX references",
+    "boundary": "Daily ECB reference observations, quoted against EUR. Informational only; not live prices, candle levels or risk conversion rates.",
+    "source": "Source: ECB statistics",
+    "failed": "Official references could not be refreshed. Retained observations may be stale."
+  },
   "officialEvents": {
+    "importDate": "EIA suggestion staged for {date}. Select that briefing date to review it.",
+    "fetchEia": "Fetch published EIA weekly stocks",
+    "eiaBoundary": "The official JSON supplies the publication time and stock level. Refresh EIA for the latest vintage; review before adding to a draft. This is not a price or consensus estimate.",
     "sourceTimezone": "Source timezone",
     "title": "Official event suggestions",
     "reviewBoundary": "Imports are staged only. Review sources, dates and results, add selected events to the draft, then use the existing preview and publish review. No automatic publication. Update the briefing reference time before including newly retrieved results.",
@@ -4626,7 +4658,7 @@
     "nativeDisplayBoundary": "Native values come only from your connected provider. TradingView is a separate display-only chart.",
     "lastResponse": "Last server response",
     "awaitingResponse": "Waiting for a native data response",
-    "providerRequired": "Native market data is unavailable until a supported provider is connected and display authorization is enabled.",
+    "providerRequired": "Optional native prices and candle levels require an authorized provider connection. You can prepare with private manual levels and published official context without connecting a provider.",
     "displayAuthorizationRequired": "Your OANDA account is connected. TradeJAudit quote display remains disabled until the operator records written display authorization for this workflow.",
     "officialDailyReference": "Official daily close/reference",
     "source": "Source",

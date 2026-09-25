@@ -1,3 +1,4 @@
+import { ManualLevelList } from '../features/preparation/ManualLevels'
 import { EditorialComposition } from '../features/briefings/EditorialView'
 import { Composition, editorialDate } from '../features/briefings/model'
 import { apiGet } from '../api/client'
@@ -243,6 +244,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
       <Typography>{draft.readyContext.instruments} · {draft.readyContext.focus}</Typography>
       <Typography>{draft.readyContext.strategyContext?.name || t('prepare.observe')} · {draft.readyContext.strategyContext?.versionId?.slice(0, 8)}</Typography>
       <Typography sx={{ whiteSpace: 'pre-line' }}>{draft.readyContext.preparation.chartPlan}</Typography>
+      <ManualLevelList levels={draft.readyContext.preparation.manualLevels ?? []} timezone={timezone} />
       {draft.readyContext.briefing?.kind === 'EDITORIAL' && <EditorialComposition capture={draft.readyContext.briefing as Composition} />}
       <Typography variant="caption">{t('prepare.reference')}: {draft.readyContext.briefing?.asOf ? formatDateTime(draft.readyContext.briefing.asOf, timezone) : '—'} · {draft.readyContext.briefing?.id.slice(0, 8)}</Typography>
     </Stack></CardContent></Card>}
@@ -283,7 +285,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
       <Typography variant="caption">{t('dailyReview.historyLimit')}</Typography>
       {history.isLoading && <Typography>{t('dailyReview.loading')}</Typography>}
       {history.isError && <Alert severity="error">{t('dailyReview.loadError')}</Alert>}
-      {history.data?.map(item => <Card key={item.revision}><CardContent><Typography>{t('dailyReview.revision', { revision: item.revision })} · {item.data.state === 'COMPLETE' ? t('dailyReview.complete') : t(`dailyReview.states.${item.data.state}`)}</Typography><Typography variant="caption">{item.data.savedAt && formatDateTime(item.data.savedAt, timezone)}</Typography><Typography>{item.data.focus}</Typography><Typography>{item.data.nextFocus}</Typography>{item.data.assessments?.map(a => <Typography variant="body2" key={a.tradeId}>{t(`dailyReview.assessment.${a.decision}`)} · {a.note}</Typography>)}</CardContent></Card>)}
+      {history.data?.map(item => <Card key={item.revision}><CardContent><Typography>{t('dailyReview.revision', { revision: item.revision })} · {item.data.state === 'COMPLETE' ? t('dailyReview.complete') : t(`dailyReview.states.${item.data.state}`)}</Typography><Typography variant="caption">{item.data.savedAt && formatDateTime(item.data.savedAt, timezone)}</Typography><Typography>{item.data.focus}</Typography><Typography>{item.data.nextFocus}</Typography><ManualLevelList levels={item.data.preparation?.manualLevels ?? []} timezone={timezone} />{item.data.assessments?.map(a => <Typography variant="body2" key={a.tradeId}>{t(`dailyReview.assessment.${a.decision}`)} · {a.note}</Typography>)}</CardContent></Card>)}
     </Stack></DialogContent><DialogActions><Button onClick={() => setHistoryOpen(false)}>{t('common.close')}</Button></DialogActions></Dialog>
     <FindingEvidenceDialog finding={finding} onClose={() => setFinding(null)} />
     <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="sm"><DialogTitle>{selected?.symbol} · {t('dailyReview.reviewTrade')}</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>

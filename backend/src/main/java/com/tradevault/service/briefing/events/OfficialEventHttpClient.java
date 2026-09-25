@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class OfficialEventHttpClient {
     public String get(String url) {
+        if (url.equals(com.tradevault.service.marketdata.OfficialReferenceHttp.ECB) || url.equals(com.tradevault.service.marketdata.OfficialReferenceHttp.EIA))
+            return com.tradevault.service.marketdata.OfficialReferenceHttp.get(url);
         if(!(url.equals(OfficialEvent.Source.BLS.calendarUrl) || url.equals(OfficialEvent.Source.EUROSTAT.calendarUrl)
             || url.matches("https://api\\.bls\\.gov/publicAPI/v1/timeseries/data/[A-Z0-9]+")
             || url.startsWith("https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/une_rt_m?")))

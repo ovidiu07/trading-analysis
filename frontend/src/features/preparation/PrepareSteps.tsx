@@ -144,6 +144,7 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
         <Box id="today-chart" sx={{ minWidth: 0 }}>{chart}</Box>
         <MarketIntelligenceGrid
           preparation={p}
+          onManualLevelsChange={manualLevels => patch({ manualLevels })}
           isCurrentDate={isCurrentDate}
           displayTimezone={displayTimezone}
           thesis={draft.focus}

@@ -52,9 +52,9 @@ public record BriefingDocument(
   @Size(max=100) String previous, @Size(max=50) String unit, @Size(max=1000) String explanation,
   @NotNull EventStatus status, EventImpact impact, LocalDate scheduledDate, Instant publishedAt,
   @Valid EventEvidence official, @Size(max=2000) String forecastSourceUrl, @Size(max=2000) String previousSourceUrl) {}
- public record EventEvidence(@Pattern(regexp="BLS|EUROSTAT") @NotNull String sourceId,
+ public record EventEvidence(@Pattern(regexp="BLS|EUROSTAT|EIA") @NotNull String sourceId,
   @NotBlank @Size(max=500) String eventId, @NotBlank @Size(max=500) String sourceEventId,
-  @Pattern(regexp="SOURCE_UID|SCHEDULE_SIGNATURE") @NotNull String identityBasis, @NotNull UUID revisionId, @NotNull Instant retrievedAt,
+  @Pattern(regexp="SOURCE_UID|SCHEDULE_SIGNATURE|EXACT_SERIES_PERIOD") @NotNull String identityBasis, @NotNull UUID revisionId, @NotNull Instant retrievedAt,
   Integer sourceSequence, Instant sourceModifiedAt, Instant previousScheduledAt, LocalDate previousScheduledDate,
   @Size(max=2000) String publicationSourceUrl, @Size(max=2000) String resultSourceUrl,
   @Size(max=200) String seriesId, @Size(max=30) String referencePeriod, @Size(max=300) String measure, Instant resultRetrievedAt) {}

@@ -12,7 +12,7 @@ import java.time.*;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
-/** Opt-in, isolated PostgreSQL only. Apply V70 to the disposable QA schema before running. */
+/** Opt-in, isolated PostgreSQL only. Apply V70 and V71 to the disposable QA schema before running. */
 @EnabledIfEnvironmentVariable(named="OFFICIAL_EVENTS_TEST_DB",matches="jdbc:postgresql://localhost(?::[0-9]+)?/tradevault_events_qa_[a-z0-9_]+")
 class OfficialEventStoreTest {
     JdbcTemplate jdbc;OfficialEventStore store;TransactionTemplate tx;
@@ -66,4 +66,21 @@ class OfficialEventStoreTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode)document.path("translations").path("en").path("events").get(0)).put("actual","fabricated");
         assertThatThrownBy(()->store.verify(mapper.convertValue(document,BriefingDocument.class))).hasMessageContaining("provenance/value was changed");
     }
+    @Test void eiaExactPeriodStagesDeduplicatesAndRetainsRevisedActual() throws Exception {
+        var fixture=new EiaWeeklyParserTest().fixture;
+        var parser=new EiaWeeklyParser();var time=Instant.parse("2026-09-25T15:00:00Z");
+        var event=parser.parse(mapper.readTree(fixture),time);
+        UUID run=tx.execute(s->store.reserve(OfficialEvent.Source.EIA,"RESULT",UUID.randomUUID().toString(),actor,time));
+        assertThat(tx.<Integer>execute(s->store.stage(run,OfficialEvent.Source.EIA,List.of(event),false,null))).isEqualTo(1);
+        var first=store.list(LocalDate.of(2026,9,23)).stream().filter(r->r.event().sourceId()==OfficialEvent.Source.EIA).findFirst().orElseThrow();
+        assertThat(tx.<Integer>execute(s->store.stage(run,OfficialEvent.Source.EIA,List.of(event),false,null))).isZero();
+        var revised=parser.parse(mapper.readTree(fixture.replace("400000","400001")),time.plusSeconds(1));
+        assertThat(tx.<Integer>execute(s->store.stage(run,OfficialEvent.Source.EIA,List.of(revised),false,null))).isEqualTo(1);
+        assertThat(store.get(first.id()).event().actual()).isEqualTo("400000");
+        var last=store.list(LocalDate.of(2026,9,23)).stream().filter(r->r.event().sourceId()==OfficialEvent.Source.EIA).findFirst().orElseThrow();
+        assertThat(store.history(last.id())).hasSize(2);
+        var doc=mapper.createObjectNode();doc.putObject("translations").putObject("en").putArray("events").add(mapper.valueToTree(last.event().briefing(last.id())));
+        store.verify(mapper.convertValue(doc,BriefingDocument.class));
+    }
+
 }

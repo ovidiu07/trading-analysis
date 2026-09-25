@@ -7,8 +7,8 @@ export const slots = ['ASIA', 'LONDON', 'DAY_RECAP'] as const
 export type Slot = typeof slots[number]
 export const factSchema = z.object({ id: text, time: optionalTime, topic: text, statement: text, source: text, sourceUrl: url, availableAt: optionalTime, availabilityNotEstablished: text.nullable().optional(), relatedFactId: text.nullable().optional(), relationship: z.enum(['UPDATE','CORRECTION','CONTINUATION']).nullable().optional() }).strict()
 export const newsSchema = z.object({ headline: text, publishedAt: time, source: text, sourceUrl: url, summary: text, relevance: text }).strict()
-export const eventEvidenceSchema = z.object({ sourceId: z.enum(['BLS','EUROSTAT']), eventId: text, sourceEventId: text,
- identityBasis: z.enum(['SOURCE_UID','SCHEDULE_SIGNATURE']), revisionId: z.string().uuid(), retrievedAt: time,
+export const eventEvidenceSchema = z.object({ sourceId: z.enum(['BLS','EUROSTAT','EIA']), eventId: text, sourceEventId: text,
+ identityBasis: z.enum(['SOURCE_UID','SCHEDULE_SIGNATURE','EXACT_SERIES_PERIOD']), revisionId: z.string().uuid(), retrievedAt: time,
  resultRetrievedAt: optionalTime, sourceSequence: z.number().nullable().optional(), sourceModifiedAt: optionalTime, previousScheduledAt: optionalTime,
  previousScheduledDate: text.nullable().optional(), publicationSourceUrl: url, resultSourceUrl: url,
  seriesId: text.nullable().optional(), referencePeriod: text.nullable().optional(), measure: text.nullable().optional() }).strict()

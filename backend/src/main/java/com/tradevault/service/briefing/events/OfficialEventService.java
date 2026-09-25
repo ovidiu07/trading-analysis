@@ -26,9 +26,14 @@ public class OfficialEventService {
     public void link(UUID previousId,UUID revisedId){store.link(previousId,revisedId,users.getCurrentUser().getId());}
     public BriefingDocument.Event review(UUID id){return store.get(id).event().briefing(id);}
     public Object refresh(OfficialEvent.Source source) {
-        UUID run=store.reserve(source,"CALENDAR","calendar",users.getCurrentUser().getId(),clock.instant());
+        UUID run=store.reserve(source,source==OfficialEvent.Source.EIA?"RESULT":"CALENDAR","calendar",users.getCurrentUser().getId(),clock.instant());
         try {
             String text=http.get(source.calendarUrl);
+            if(source==OfficialEvent.Source.EIA) {
+                try {var event=new EiaWeeklyParser().parse(mapper.readTree(text),clock.instant());
+                    return Map.of("staged",store.stage(run,source,List.of(event),false,null),"date",event.scheduledDate().toString());}
+                catch(com.fasterxml.jackson.core.JsonProcessingException e) {throw new IllegalArgumentException("EIA JSON could not be parsed");}
+            }
             var events=new OfficialCalendarParser().parse(source,text,clock.instant());
             if(events.isEmpty())throw new IllegalArgumentException("Official calendar is empty; existing suggestions retained");
             return Map.of("staged",store.stage(run,source,events,true,null));

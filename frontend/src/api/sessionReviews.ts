@@ -9,7 +9,9 @@ export type MarketSourceReference = {
   provenance: 'USER_CONNECTED' | 'OFFICIAL_PUBLIC'; sourceUrl?: string | null; availabilityReason?: string | null
 }
 export type MarketDataAuditSnapshot = { capturedAt: string; instruments: MarketSourceReference[]; macro: MarketSourceReference[] }
+export type ManualLevel = { id: string; instrument: string; label: 'SUPPORT' | 'RESISTANCE' | 'INVALIDATION' | 'REFERENCE'; value: number; unit: string; note: string; updatedAt?: string; authorId?: string; provenance?: 'MANUAL' }
 export type Preparation = {
+  manualLevels?: ManualLevel[];
   briefingDate?: string; briefingId?: string; step: number; briefingSession: 'ASIA' | 'LONDON' | 'DAY_RECAP'; manualSession: boolean;
   bias: 'bullish' | 'bearish' | 'neutral' | 'mixed'; chartPlan: string; chartSymbol: string;
   chartInterval: string; observing: boolean; contextAcknowledged: boolean;

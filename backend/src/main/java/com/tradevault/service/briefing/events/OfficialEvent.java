@@ -13,7 +13,8 @@ public record OfficialEvent(Source sourceId, String eventId, String sourceEventI
         String resultSourceUrl, String seriesId, String referencePeriod, String measure, String notes, Instant resultRetrievedAt) {
     public enum Source {
         BLS("US", "America/New_York", "https://www.bls.gov/schedule/news_release/bls.ics"),
-        EUROSTAT("EU", "Europe/Luxembourg", "https://ec.europa.eu/eurostat/o/calendars/eventsIcal?theme=0&category=2");
+        EUROSTAT("EU", "Europe/Luxembourg", "https://ec.europa.eu/eurostat/o/calendars/eventsIcal?theme=0&category=2"),
+        EIA("US", "America/New_York", "https://ir.eia.gov/wpsr/psw00.json");
         public final String region, timezone, calendarUrl;
         Source(String region, String timezone, String url) { this.region=region; this.timezone=timezone; this.calendarUrl=url; }
         public boolean owns(String url) {
@@ -21,6 +22,7 @@ public record OfficialEvent(Source sourceId, String eventId, String sourceEventI
                 var uri=java.net.URI.create(url);
                 return "https".equals(uri.getScheme()) && uri.getUserInfo()==null && uri.getPort()==-1
                     && (this==BLS ? java.util.Set.of("www.bls.gov","api.bls.gov").contains(uri.getHost())
+                    : this==EIA ? java.util.Set.of("www.eia.gov","ir.eia.gov").contains(uri.getHost())
                     : "ec.europa.eu".equals(uri.getHost()) && uri.getPath().startsWith("/eurostat/"));
             } catch(Exception e) { return false; }
         }

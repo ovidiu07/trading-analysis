@@ -22,6 +22,7 @@ vi.mock('../components/charts/TradingViewWidget', () => ({ default: () => <div>T
 vi.mock('../api/marketData', async original => ({ ...await original<typeof import('../api/marketData')>(), fetchMarketWorkspace: vi.fn() }))
 vi.mock('../api/sessionReviews', async original => ({ ...await original<typeof import('../api/sessionReviews')>(), getSessionReview: vi.fn(), saveSessionReview: vi.fn(async (_a, _d, revision, data) => ({ revision: revision + 1, data })) }))
 vi.mock('../api/client', async original => ({ ...await original<typeof import('../api/client')>(), apiGet: vi.fn(async (path: string) => {
+  if (path === '/market-workspace/official-context') return []
   if (path.includes('withdrawals')) return []
   const time = new Date(Date.now() - 60000).toISOString()
   const selected = { id: path.includes('/today/briefing/version/') ? 'captured-publication' : 'new-publication', publishedAt: time, firstPublishedAt: time, revision: 1,
@@ -55,6 +56,23 @@ describe('authenticated Today Prepare market integration', () => {
     await waitFor(() => expect(fetchMarketWorkspace).toHaveBeenCalledWith('a1', 'GBPUSD', expect.any(String), expect.any(AbortSignal)))
     expect(screen.queryByText('18,765.4321 EUR')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Market context' })).toHaveAttribute('href', '#market-context')
+  })
+  it('keeps manual levels exact, saves them privately and carries them into Ready without a price connection', async () => {
+    vi.mocked(fetchMarketWorkspace).mockResolvedValue({ retrievedAt: new Date().toISOString(), selectedInstrument: 'GER40', quotes: [], macroObservations: [] })
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add private level' }))
+    fireEvent.change(screen.getByLabelText('Price level'), { target: { value: '18500.25' } })
+    fireEvent.change(screen.getByLabelText('Unit / quote currency'), { target: { value: 'EUR' } })
+    fireEvent.change(screen.getByLabelText('Your note'), { target: { value: 'Private thesis level' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply level' }))
+    expect(screen.getByText('18,500.25 EUR')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^GBPUSD\./ }))
+    expect(screen.queryByText('18,500.25 EUR')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ready — Start session' }))
+    await waitFor(() => expect(saveSessionReview).toHaveBeenCalled())
+    const request=vi.mocked(saveSessionReview).mock.calls.at(-1)![3]
+    expect(request.preparation?.manualLevels?.[0]).toMatchObject({ instrument: 'OANDA:DE30EUR', value: 18500.25, unit: 'EUR', note: 'Private thesis level' })
+    expect(request.preparation?.marketDataSnapshot?.instruments).toEqual([])
   })
   it('does not display expired numbers on the active route', async () => {
     const data = await vi.mocked(fetchMarketWorkspace).getMockImplementation()!('a1','GER40','2026-09-25')

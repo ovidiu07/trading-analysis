@@ -49,7 +49,13 @@ public class SessionReviewService {
         @Size(max=10) String chartInterval, boolean observing,
         boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
         @Size(max=20) List<Boolean> checklist, UUID briefingId, LocalDate briefingDate,
-        @jakarta.validation.Valid MarketDataAuditSnapshot marketDataSnapshot) {
+        @jakarta.validation.Valid MarketDataAuditSnapshot marketDataSnapshot,
+        @Size(max=40) List<@jakarta.validation.Valid ManualLevel> manualLevels) {
+        public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
+          String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
+          List<Boolean> checklist, UUID briefingId, LocalDate briefingDate, MarketDataAuditSnapshot marketDataSnapshot) {
+          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,briefingDate,marketDataSnapshot,null);
+        }
         public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
           String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
           List<Boolean> checklist, UUID briefingId) {
@@ -61,6 +67,12 @@ public class SessionReviewService {
           this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,briefingDate,null);
         }
     }
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown=true)
+    public record ManualLevel(@NotNull UUID id,
+        @NotBlank @Size(max=100) @Pattern(regexp="[A-Z0-9_]+:[A-Z0-9_!.\\-]+") String instrument,
+        @NotNull @Pattern(regexp="SUPPORT|RESISTANCE|INVALIDATION|REFERENCE") String label,
+        @NotNull @DecimalMin(value="0",inclusive=false) @Digits(integer=12,fraction=8) java.math.BigDecimal value,
+        @NotBlank @Size(max=30) String unit, @Size(max=500) String note) {}
     public record MarketDataAuditSnapshot(@NotNull OffsetDateTime capturedAt, @Size(max=12) List<@jakarta.validation.Valid MarketSourceReference> instruments,
                                           @Size(max=8) List<@jakarta.validation.Valid MarketSourceReference> macro) {}
     public record MarketSourceReference(@NotBlank @Size(max=20) String canonicalInstrument, @NotBlank @Size(max=40) String provider,
@@ -122,6 +134,7 @@ public class SessionReviewService {
         if (previous.data().hasNonNull("timezone")) timezone = previous.data().path("timezone").asText();
         ZoneId zone = ZoneId.of(timezone);
         ObjectNode data = mapper.valueToTree(request);
+        normalizeManualLevels(data, previous.data(), user.getId());
         data.put("timezone", timezone);
         data.put("sessionKey", session);
         data.put("savedAt", OffsetDateTime.now().toString());
@@ -161,7 +174,7 @@ public class SessionReviewService {
             snapshot.put("revision", previous.revision() + 1);
             snapshot.put("focus", request.focus());
             snapshot.put("instruments", request.instruments());
-            JsonNode preparationSnapshot = mapper.valueToTree(prep);
+            JsonNode preparationSnapshot = data.path("preparation").deepCopy();
             if (preparationSnapshot instanceof ObjectNode preparationObject && preparationObject.has("marketDataSnapshot")) {
                 preparationObject.set("marketDataSnapshot", sanitizeMarketDataSnapshot(preparationObject.path("marketDataSnapshot")));
             }
@@ -190,6 +203,33 @@ public class SessionReviewService {
         int revision = previous.revision() + 1;
         jdbc.update("INSERT INTO session_review_revisions(id,user_id,account_id,session_date,revision,payload,session_key) VALUES (?,?,?,?,?,?::jsonb,?)", UUID.randomUUID(), user.getId(), accountId, date, revision, data.toString(), session);
         return new Response(revision, data);
+    }
+
+    private void normalizeManualLevels(ObjectNode data, JsonNode previous, UUID userId) {
+        if (!(data.get("preparation") instanceof ObjectNode prep)) return;
+        JsonNode incoming = prep.get("manualLevels");
+        // Old clients omit this field. An explicit empty array clears it.
+        if (incoming == null || incoming.isNull()) {
+            prep.set("manualLevels", previous.path("preparation").path("manualLevels").isArray()
+                ? previous.path("preparation").path("manualLevels").deepCopy() : mapper.createArrayNode());
+            return;
+        }
+        if (!incoming.isArray() || incoming.size()>40) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Too many manual levels");
+        Set<String> ids = new HashSet<>();
+        for (JsonNode node : incoming) {
+            ObjectNode level = (ObjectNode) node;
+            if (!ids.add(level.path("id").asText())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Duplicate manual level");
+            JsonNode prior = null;
+            for (JsonNode candidate : previous.path("preparation").path("manualLevels")) {
+                if (candidate.path("id").equals(level.path("id"))) { prior=candidate; break; }
+            }
+            boolean same = prior != null;
+            for (String field : List.of("instrument","label","value","unit","note"))
+                same &= prior != null && Objects.equals(prior.get(field),level.get(field));
+            level.put("updatedAt", same && prior.hasNonNull("updatedAt") ? prior.path("updatedAt").asText() : Instant.now().toString());
+            level.put("authorId",userId.toString());
+            level.put("provenance","MANUAL");
+        }
     }
 
     private ObjectNode sanitizeMarketDataSnapshot(JsonNode supplied) {

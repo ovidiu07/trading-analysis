@@ -41,3 +41,16 @@ describe('official event admin review', () => {
    expect(screen.getByRole('button', { name: 'officialEvents.review' })).toBeInTheDocument()
  })
 })
+
+it('stages the official EIA release without publishing and uses its review boundary', async () => {
+ vi.mocked(apiPost).mockResolvedValue({staged:1,date:'2026-09-23'})
+ vi.mocked(apiGet).mockResolvedValue({suggestions:[{id:'eia-r1',revision:1,event:{...event,sourceId:'EIA',identityBasis:'EXACT_SERIES_PERIOD',status:'RELEASED'}}],runs:[],measures:[]})
+ const use=vi.fn();render(<OfficialEventInbox date="2026-09-25" disabled={false} onUse={use} />)
+ fireEvent.click(await screen.findByRole('button',{name:'officialEvents.fetchEia'}))
+ await screen.findByText('officialEvents.importDate')
+ expect(apiPost).toHaveBeenCalledWith('/admin/official-events/refresh/EIA',{})
+ expect(use).not.toHaveBeenCalled()
+ fireEvent.click(screen.getByRole('button',{name:'officialEvents.review'}))
+ expect(screen.getByText('officialEvents.eiaBoundary')).toBeInTheDocument()
+ expect(screen.queryByRole('button',{name:'officialEvents.fetchResult'})).not.toBeInTheDocument()
+})

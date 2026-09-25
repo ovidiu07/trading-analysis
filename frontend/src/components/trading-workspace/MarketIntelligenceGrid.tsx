@@ -1,3 +1,4 @@
+import OfficialReferenceCard from './OfficialReferenceCard'
 import { useRef, useState, type ReactNode } from 'react'
 import { Alert, Box, Button, Chip, Link as MuiLink, Stack, Typography } from '@mui/material'
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined'
@@ -13,9 +14,11 @@ import { editorialDate, type Composition, type Selection, type Translation } fro
 import type { AnalysisMetrics, InstrumentQuote, MacroObservation } from '../../api/marketData'
 import { nativeQuoteDisplay, scopedNativeAnalysis } from '../../features/trading-workspace/nativeMarketDisplay'
 import { WorkstationCard } from './WorkspacePrimitives'
+import ManualLevels from '../../features/preparation/ManualLevels'
+import type { ManualLevel } from '../../api/sessionReviews'
 import { useI18n } from '../../i18n'
 
-export default function MarketIntelligenceGrid({ preparation, thesis, briefing, onAcknowledge, acknowledgeLabel, date, selectedInstrument, quotes = [], macroObservations = [], analysis, isCurrentDate = false, displayTimezone = 'Europe/Bucharest' }: {
+export default function MarketIntelligenceGrid({ preparation, thesis, briefing, onAcknowledge, acknowledgeLabel, date, selectedInstrument, quotes = [], macroObservations = [], analysis, onManualLevelsChange, isCurrentDate = false, displayTimezone = 'Europe/Bucharest' }: {
   preparation: Preparation
   thesis: string
   briefing: ReactNode
@@ -26,6 +29,7 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
   quotes?: InstrumentQuote[]
   macroObservations?: MacroObservation[]
   analysis?: AnalysisMetrics | null
+  onManualLevelsChange?: (levels: ManualLevel[]) => void
   isCurrentDate?: boolean
   displayTimezone?: string
 }) {
@@ -87,7 +91,7 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
       {eventsQuery.isError ? <Alert severity="warning">{t('workstation.eventRefreshFailed')}</Alert> : null}
     </WorkstationCard>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
-      <WorkstationCard title={t('workstation.keyLevels')} icon={GpsFixedRoundedIcon}><Typography variant="caption" color="text.secondary">{selectedInstrument} · {t('workstation.exactInstrumentScope')}</Typography>{metric(`${t('workstation.mechanicalLevels')} · ${t('workstation.metrics.previousDayHigh')}`, selectedAnalysis?.previousDayHigh)}{metric(`${t('workstation.mechanicalLevels')} · ${t('workstation.metrics.previousDayLow')}`, selectedAnalysis?.previousDayLow)}{selectedAnalysis?.previousDayDate ? <Typography variant="caption" display="block" color="text.secondary">{selectedAnalysis.previousDayDate} · {selectedAnalysis.provider} · {selectedAnalysis.providerSymbol} · {selectedAnalysis.dailyAlignment}</Typography> : null}{editorialLevels.length ? editorialLevels.map(level=><Stack key={level.id} direction="row" justifyContent="space-between" spacing={1} sx={{py:.65,borderBottom:'1px solid',borderColor:'divider'}}><Box sx={{minWidth:0}}><Typography variant="caption" sx={{fontWeight:700}}>{t(`workstation.levelLabels.${level.label}`)}</Typography><Typography display="block" variant="caption" color="text.secondary">{level.rationale} · {level.source}</Typography>{level.sourceUrl ? <MuiLink href={level.sourceUrl} target="_blank" rel="noreferrer" variant="caption">{t('workstation.source')}</MuiLink> : null}</Box><Typography variant="caption" sx={{fontWeight:700,whiteSpace:'nowrap'}}>{new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(level.value)} {level.unit}</Typography></Stack>):unavailable(t('workstation.publishedLevels'))}{unavailable(t('workstation.manualLevels'))}</WorkstationCard>
+      <WorkstationCard title={t('workstation.keyLevels')} icon={GpsFixedRoundedIcon}><Typography variant="caption" color="text.secondary">{selectedInstrument} · {t('workstation.exactInstrumentScope')}</Typography>{metric(`${t('workstation.mechanicalLevels')} · ${t('workstation.metrics.previousDayHigh')}`, selectedAnalysis?.previousDayHigh)}{metric(`${t('workstation.mechanicalLevels')} · ${t('workstation.metrics.previousDayLow')}`, selectedAnalysis?.previousDayLow)}{selectedAnalysis?.previousDayDate ? <Typography variant="caption" display="block" color="text.secondary">{selectedAnalysis.previousDayDate} · {selectedAnalysis.provider} · {selectedAnalysis.providerSymbol} · {selectedAnalysis.dailyAlignment}</Typography> : null}{editorialLevels.length ? editorialLevels.map(level=><Stack key={level.id} direction="row" justifyContent="space-between" spacing={1} sx={{py:.65,borderBottom:'1px solid',borderColor:'divider'}}><Box sx={{minWidth:0}}><Typography variant="caption" sx={{fontWeight:700}}>{t(`workstation.levelLabels.${level.label}`)}</Typography><Typography display="block" variant="caption" color="text.secondary">{level.rationale} · {level.source}</Typography>{level.sourceUrl ? <MuiLink href={level.sourceUrl} target="_blank" rel="noreferrer" variant="caption">{t('workstation.source')}</MuiLink> : null}</Box><Typography variant="caption" sx={{fontWeight:700,whiteSpace:'nowrap'}}>{new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(level.value)} {level.unit}</Typography></Stack>):unavailable(t('workstation.publishedLevels'))}{onManualLevelsChange ? <ManualLevels key={preparation.chartSymbol} instrument={preparation.chartSymbol} levels={preparation.manualLevels ?? []} onChange={onManualLevelsChange} timezone={displayTimezone} /> : unavailable(t('workstation.manualLevels'))}</WorkstationCard>
       <WorkstationCard title={t('workstation.sessionRange')} icon={TimelineRoundedIcon}>
         <Box sx={{ pb: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" color="text.secondary">{selectedInstrument} · {t('workstation.currentQuote')}</Typography>
@@ -132,5 +136,6 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
         })}
       </WorkstationCard>
     </Box>
+    {isCurrentDate && <OfficialReferenceCard timezone={displayTimezone} />}
   </Stack>
 }

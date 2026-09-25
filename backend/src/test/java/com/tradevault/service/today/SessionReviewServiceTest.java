@@ -12,6 +12,42 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.*;
 
 class SessionReviewServiceTest {
+    @Test void manualLevelsArePrivateValidatedAndCapturedWithServerProvenance() throws Exception {
+        var prep=mapper.readValue("""
+          {"step":0,"briefingSession":"ASIA","bias":"neutral","chartSymbol":"OANDA:DE30EUR",
+           "observing":true,"contextAcknowledged":true,"chartConfirmed":true,"preparationConfirmed":true,
+           "manualLevels":[{"id":"11111111-1111-4111-8111-111111111111","instrument":"OANDA:DE30EUR","label":"SUPPORT","value":18500.25,"unit":"EUR","note":"My thesis","authorId":"forged","updatedAt":"2099-01-01T00:00:00Z","provenance":"LIVE"}]}
+          """,SessionReviewService.Preparation.class);
+        var req=new SessionReviewService.Request(0,"TRADE","GER40",null,"Observe","",null,List.of(),prep);
+        var result=service.save(accountId,date,req);
+        var level=result.data().path("preparation").path("manualLevels").get(0);
+        assertThat(level.path("authorId").asText()).isEqualTo(userId.toString());
+        assertThat(level.path("provenance").asText()).isEqualTo("MANUAL");
+        assertThat(level.path("updatedAt").asText()).doesNotStartWith("2099");
+        assertThat(result.data().path("readyContext").path("preparation").path("manualLevels").get(0)).isEqualTo(level);
+        assertThatThrownBy(()->service.save(UUID.randomUUID(),date,req)).isInstanceOf(jakarta.persistence.EntityNotFoundException.class);
+        try(var factory=jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            var bad=new SessionReviewService.ManualLevel(UUID.randomUUID(),"GER40","SUPPORT",new java.math.BigDecimal("-1"),"","");
+            assertThat(factory.getValidator().validate(bad)).hasSizeGreaterThanOrEqualTo(3);
+        }
+    }
+    @Test void omittedManualLevelsRetainPriorWhileEmptyArrayClearsAndReadyRemainsFrozen() throws Exception {
+        var previous=mapper.readTree("""
+          {"preparation":{"manualLevels":[{"id":"a","instrument":"OANDA:DE30EUR","label":"SUPPORT","value":18000,"unit":"EUR","note":"","updatedAt":"2026-09-25T12:00:00Z"}]},"readyContext":{"preparation":{"manualLevels":[{"value":17000}]}}}
+          """);
+        var omitted=mapper.createObjectNode();omitted.putObject("preparation");
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeManualLevels",omitted,previous,userId);
+        assertThat(omitted.path("preparation").path("manualLevels")).isEqualTo(previous.path("preparation").path("manualLevels"));
+        var cleared=mapper.createObjectNode();cleared.putObject("preparation").putArray("manualLevels");
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeManualLevels",cleared,previous,userId);
+        assertThat(cleared.path("preparation").path("manualLevels")).isEmpty();
+        assertThat(previous.path("readyContext").path("preparation").path("manualLevels").get(0).path("value").asInt()).isEqualTo(17000);
+        var same=mapper.createObjectNode();same.set("preparation",previous.path("preparation").deepCopy());
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeManualLevels",same,previous,userId);
+        assertThat(same.path("preparation").path("manualLevels").get(0).path("updatedAt").asText()).isEqualTo("2026-09-25T12:00:00Z");
+        ((com.fasterxml.jackson.databind.node.ArrayNode)same.path("preparation").path("manualLevels")).add(same.path("preparation").path("manualLevels").get(0).deepCopy());
+        assertThatThrownBy(()->org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"normalizeManualLevels",same,previous,userId)).hasMessageContaining("Duplicate");
+    }
     @Test void readyRejectsDisplayOnlySourcesAndRetainsFailureReasonsWithoutNumbers() throws Exception {
         var raw=mapper.readTree("""
           {"instruments":[

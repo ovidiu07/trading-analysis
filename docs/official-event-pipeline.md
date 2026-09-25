@@ -12,7 +12,7 @@ Reviewed 2026-09-25. This feature extends the typed V67 session-briefing workflo
 | Revisions | Append-only source revisions; explicit cancellations; reviewed reschedules; older sequenced updates ignored | Feed disappearance never means cancellation; no fuzzy event matching |
 | Admin | Import inbox, source status, history, result review, explicit identity linking, add selected revision to draft | Existing save → preview → review → publish flow remains the only publication path |
 | Today | Shared event display with source links, units, source timezone, retrieval/publication times and unavailable forecasts | Current-day Prepare refreshes latest published events; historical Prepare uses its capture. Imports never replace published or Ready/history content |
-| Other sources | BEA, ECB, Destatis and Federal Reserve assessed below | Not wired into imports until exact schedule/result mappings are reviewed and tested |
+| Other sources | ECB daily FX references and EIA published petroleum stocks are narrowly integrated; BEA, Destatis and Federal Reserve remain candidates | See [free official context](free-official-context.md) for exact scope and evidence |
 
 ## Source contracts and reuse review
 
@@ -34,12 +34,12 @@ Reviewed 2026-09-25. This feature extends the typed V67 session-briefing workflo
 - Live evidence: the official subscription feed and the filtered public statistics API responded successfully. The current subscription emits literal escaped CRLF separators and date-only events; the parser handles that format without inventing an hour. Source timezone is Europe/Luxembourg.
 - The observed feed generates different native UIDs across identical requests. Canonical identity therefore uses an exact name/date/instant/timezone signature while retaining the native UID on meaningful revisions. Unchanged fetches do not generate duplicates. A moved/renamed event with a different signature is a separate candidate until an admin explicitly links its revision to the prior event. Both original records and the reviewed link remain immutable; subsequent fetches use that link. No disappearance or similar name is treated as proof of cancellation/reschedule.
 
-### Additional official sources evaluated, not enabled
+### Additional official sources evaluated
 
 | Agency | Stable official interface and reuse basis | Decision |
 | --- | --- | --- |
 | BEA | [Calendar subscription](https://www.bea.gov/news/schedule/icalendar) provides ICS and a machine-readable JSON schedule. [Developer API](https://www.bea.gov/resources/for-developers) requires a user key. [Reuse FAQ](https://www.bea.gov/help/faq/147) explains public-domain use and attribution. | Good schedule candidate; no result API integration or key creation in this task. |
-| ECB | [Data API overview](https://data.ecb.europa.eu/help/api/overview) documents SDMX access. [Statistics usage policy](https://www.ecb.europa.eu/stats/ecb_statistics/governance_and_quality_framework/html/usage_policy.en.html) covers reuse of public ESCB statistics with attribution and exceptions. | Candidate for exact statistical series. A verified release-to-series/publication-time mapping is still required; not a general policy-event calendar adapter. Direct documentation access also returned a transient 503 in this environment. |
+| ECB | [Data API overview](https://data.ecb.europa.eu/help/api/overview) documents SDMX access. [Statistics usage policy](https://www.ecb.europa.eu/stats/ecb_statistics/governance_and_quality_framework/html/usage_policy.en.html) covers reuse of public ESCB statistics with attribution and exceptions. | Daily EUR/USD and EUR/GBP reference observations now use the official daily XML download in a separate context card. General policy-event calendars and additional SDMX series remain unimplemented; see [scoped implementation](free-official-context.md). |
 | Destatis | [GENESIS API documentation](https://www.destatis.de/DE/Service/OpenData/genesis-api-webservice-oberflaeche.html) describes free access without registration and Data Licence Germany attribution 2.0; [official interface introduction](https://genesis.destatis.de/datenbank/online/docs/GENESIS-Webservices_Introduction.pdf). | Candidate only. Current REST contract and exact dataset/release mapping need a dedicated adapter and tests. |
 | Federal Reserve | [Official data directory](https://www.federalreserve.gov/data.htm) exposes Data Download Program releases; [disclaimer](https://www.federalreserve.gov/disclaimer.htm) describes public-domain material and third-party exceptions. | No HTML extraction. No adapter until stable schedule/result contracts and precise publication semantics are verified. |
 
@@ -48,7 +48,7 @@ No source is approved for automatic publication. Consensus, forecast, impact and
 ## Publication and history rules
 
 1. Admin refresh stages normalized calendar revisions. It does not change any briefing.
-2. To fetch a result, the admin explicitly chooses the supported measure/reference month and records an official publication URL and UTC/offset instant after checking the release. A required checkbox confirms that review. The API itself does not establish publication permission or time.
+2. For BLS/Eurostat results, the admin explicitly chooses the supported measure/reference month and records an official publication URL and UTC/offset instant after checking the release. A required checkbox confirms that review. The API itself does not establish publication permission or time.
 3. Future publication times, publication before the scheduled date/instant, cancelled events, wrong agencies, non-official URLs and future reference periods are rejected **before** the data request. API/parse failures do not produce observations.
 4. The retrieved result remains a suggestion. The admin selects its latest revision and adds it to the current language's draft, previews it, and uses the existing publication controls. There is no implicit cross-language translation.
 5. Publication requires the official retrieval time and actual's publication time to be at or before the briefing's reference time. This prevents fetching a revised dataset now and backdating it into an earlier briefing. Source evidence and values must match the stored suggestion exactly.
@@ -60,7 +60,7 @@ Calendar-only events remain scheduled until a result is reviewed; elapsed time d
 
 V70 adds a fixed source registry, import-run ledger, append-only event revisions and immutable reviewed identity aliases. It reuses V67's immutability trigger function. No existing migration was rewritten.
 
-Imports are admin-only at controller and service boundaries. Fixed HTTPS endpoints, exact host/path allowlists, no redirects, four-second connection/six-second request timeout, two-megabyte payload bounds, a maximum 5,000 calendar events and no recurrence expansion bound remote work. Unknown/ambiguous formats fail closed. The parser uses IANA timezone rules and rejects nonexistent or ambiguous local instants rather than choosing an offset.
+Imports are admin-only at controller and service boundaries. Fixed HTTPS endpoints, exact host/path allowlists, no arbitrary redirects, four-second connection/six-second request timeout, two-megabyte payload bounds, a maximum 5,000 calendar events and no recurrence expansion bound remote work. Unknown/ambiguous formats fail closed. The parser uses IANA timezone rules and rejects nonexistent or ambiguous local instants rather than choosing an offset.
 
 Database source locks serialize budget reservation and revision writes across application instances. The same calendar or series/month request has a one-hour cooldown; result requests have a 20-attempt rolling 24-hour per-source budget, including failures. This leaves headroom under BLS's unregistered 25-query limit, but other software sharing the egress IP is outside this ledger. There are no automatic retries. Failed runs are recorded and retain earlier suggestions. Missing entries never delete or cancel prior observations. Result writes use an expected revision to reject concurrent stale edits. An interrupted run remains STARTED and still counts against budgets.
 
@@ -73,3 +73,10 @@ The opt-in store suite accepts only an isolated `jdbc:postgresql://localhost[:po
 Validation on 2026-09-25: 82 backend tests across event, briefing and native-watchlist regression suites passed (including four opt-in PostgreSQL tests, no skips); 50 unique frontend tests passed across event/admin, briefing capture, Today and watchlist suites. TypeScript, targeted ESLint and `git diff --check` passed. The final Vite production bundle was generated outside the workspace at `/tmp/tradejaudit-events-build-20260925-final`; existing bundle-size and tool deprecation warnings remain. Today tests emitted network-error logs for ancillary unmocked requests while their assertions passed; these are not evidence of authenticated integration.
 
 Subsequent Today integration checks and evidence boundaries are recorded in [Today market integration](today-market-integration.md).
+
+
+## EIA extension (V71)
+
+The admin inbox can fetch the published US commercial crude oil stock level (excluding SPR) from the public Weekly Petroleum Status Report JSON. It stages a suggestion, with the release date shown to help the admin find it in the correct date's inbox. The exact `WCESTUS1` series and reference week identify an event. Publication time comes from the official metadata interpreted in `America/New_York`, not from retrieval or a guessed weekly schedule. Future publication, suppressed/missing values, changed units and mismatched series fail closed. No forecast, prior value, weekly change or oil price is generated. Re-fetching unchanged data deduplicates; changed actuals create immutable revisions. The original scheduled instant is unknown and stays absent.
+
+V71 extends only the fixed source registry. The existing review, provenance validation and immutable publication rules apply unchanged. EIA requests use the result budget (20 attempts/day/source) plus a one-hour cooldown. Its public download currently redirects to a signed download on the same official host: only that exact secure path is allowed once, with three-second connect/five-second read limits and a two-megabyte cap. Signed URLs are never stored as source evidence. Full source/reuse links and current validation are in [free official context](free-official-context.md).

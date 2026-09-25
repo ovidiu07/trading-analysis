@@ -1,5 +1,37 @@
 {
+  "manualLevels": {
+    "manual": "Manual · privat",
+    "scope": "Nivelurile tale sunt private pentru acest cont și această sesiune, pentru instrumentul exact de mai jos. Sunt introduse de tine, nu sunt cotații live sau date folosite automat la calculul riscului.",
+    "empty": "Niciun nivel manual pentru acest instrument.",
+    "pending": "Ciornă · ora este atribuită la salvare",
+    "edit": "Editează",
+    "remove": "Elimină",
+    "kind": "Tipul nivelului",
+    "value": "Nivel de preț",
+    "unit": "Unitate / moneda cotației",
+    "note": "Nota ta",
+    "invalid": "Introdu un preț pozitiv (maximum 8 zecimale) și o unitate. Maximum 40 de niveluri pe sesiune.",
+    "apply": "Aplică nivelul",
+    "cancel": "Anulează",
+    "add": "Adaugă nivel privat",
+    "exactRequired": "Selectează mai întâi un instrument cu prefixul furnizorului sau al bursei.",
+    "labels": {
+      "SUPPORT": "Suport",
+      "RESISTANCE": "Rezistență",
+      "INVALIDATION": "Invalidare",
+      "REFERENCE": "Referință"
+    }
+  },
+  "officialContext": {
+    "title": "Referințe valutare oficiale zilnice",
+    "boundary": "Observații zilnice de referință BCE, cotate față de EUR. Doar informative; nu sunt prețuri live, niveluri din lumânări sau cursuri pentru calculul riscului.",
+    "source": "Sursă: statistici BCE",
+    "failed": "Referințele oficiale nu au putut fi actualizate. Observațiile păstrate pot fi învechite."
+  },
   "officialEvents": {
+    "importDate": "Sugestia EIA a fost importată pentru {date}. Selectează acea dată a briefingului pentru verificare.",
+    "fetchEia": "Importă stocurile săptămânale publicate de EIA",
+    "eiaBoundary": "Fișierul JSON oficial furnizează ora publicării și nivelul stocurilor. Reîmprospătează EIA pentru ultima versiune; verifică înainte de a adăuga în ciornă. Nu este un preț sau o estimare de consens.",
     "sourceTimezone": "Fusul orar al sursei",
     "title": "Sugestii din surse oficiale",
     "reviewBoundary": "Importurile sunt doar propuneri. Verifică sursele, datele și rezultatele, adaugă evenimentele selectate în ciornă, apoi folosește previzualizarea și verificarea pentru publicare. Nu există publicare automată. Actualizează momentul de referință al informării înainte de a include rezultate nou preluate.",
@@ -4625,7 +4657,7 @@
     "nativeDisplayBoundary": "Valorile native provin exclusiv de la furnizorul conectat. TradingView este un grafic separat, doar pentru afișare.",
     "lastResponse": "Ultimul răspuns al serverului",
     "awaitingResponse": "Se așteaptă un răspuns cu date native",
-    "providerRequired": "Datele native de piață sunt indisponibile până când conectezi un furnizor compatibil și activezi autorizarea de afișare.",
+    "providerRequired": "Prețurile native și nivelurile din lumânări sunt opționale și necesită o conexiune autorizată la furnizor. Poți pregăti sesiunea cu niveluri manuale private și context oficial publicat fără un furnizor conectat.",
     "displayAuthorizationRequired": "Contul OANDA este conectat. Afișarea cotațiilor în TradeJAudit rămâne dezactivată până când operatorul înregistrează autorizarea scrisă pentru acest flux.",
     "officialDailyReference": "Închidere/referință zilnică oficială",
     "source": "Sursă",
