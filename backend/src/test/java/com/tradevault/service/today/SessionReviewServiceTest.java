@@ -12,6 +12,19 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.*;
 
 class SessionReviewServiceTest {
+    @Test void readyRejectsDisplayOnlySourcesAndRetainsFailureReasonsWithoutNumbers() throws Exception {
+        var raw=mapper.readTree("""
+          {"instruments":[
+           {"provider":"TradingView","canonicalInstrument":"GER40","freshness":"LIVE","provenance":"DISPLAY_ONLY","mid":19999},
+           {"provider":"OANDA","canonicalInstrument":"GER40","freshness":"LIVE","provenance":"DISPLAY_ONLY","mid":19999},
+           {"provider":"OANDA","canonicalInstrument":"GER40","freshness":"STALE","provenance":"USER_CONNECTED","availabilityReason":"STALE_QUOTE","mid":18888,"bid":18887,"high":20000}
+          ]}
+          """);
+        com.fasterxml.jackson.databind.JsonNode clean=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"sanitizeMarketDataSnapshot",raw);
+        assertThat(clean.path("instruments")).hasSize(1);
+        assertThat(clean.path("instruments").get(0).path("availabilityReason").asText()).isEqualTo("STALE_QUOTE");
+        assertThat(clean.toString()).doesNotContain("19999","18888","18887","20000","TradingView","DISPLAY_ONLY");
+    }
     AccountRepository accounts = mock(AccountRepository.class);
     TradeRepository trades = mock(TradeRepository.class);
     UserStrategyRepository strategies = mock(UserStrategyRepository.class);

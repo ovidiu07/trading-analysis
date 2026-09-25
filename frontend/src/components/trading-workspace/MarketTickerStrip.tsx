@@ -2,6 +2,7 @@ import { Box, ButtonBase, Chip, Stack, Typography } from '@mui/material'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../i18n'
 import type { InstrumentQuote } from '../../api/marketData'
+import { nativeQuoteDisplay } from '../../features/trading-workspace/nativeMarketDisplay'
 
 const watchlist = [
   ['GBPUSD', 'workstation.instruments.gbpusd', 'OANDA:GBPUSD'],
@@ -35,7 +36,7 @@ export default function MarketTickerStrip({
 }) {
   const { t, locale } = useI18n()
   const quoteBySymbol = new Map(quotes.map(quote => [quote.canonicalInstrument, quote]))
-  const hasAvailable = quotes.some(quote => quote.mid != null && quote.freshness !== 'UNAVAILABLE')
+  const hasAvailable = quotes.some(quote => nativeQuoteDisplay(quote).value != null)
   const reason = error ? 'CONNECTION_LOST' : quotes.find(quote => quote.availabilityReason)?.availabilityReason
   return (
     <Box component="section" aria-label={t('workstation.marketPreview')} sx={{ minWidth: 0 }}>
@@ -54,19 +55,19 @@ export default function MarketTickerStrip({
           const item = { symbol, labelKey, tradingViewSymbol }
           const selected = selectedSymbol === tradingViewSymbol
           const quote = quoteBySymbol.get(symbol)
-          const value = quote?.mid == null ? null : new Intl.NumberFormat(locale, { maximumFractionDigits: 5 }).format(quote.mid)
-          const tooOld = quote?.observedAt ? Date.now() - new Date(quote.observedAt).getTime() > 15_000 : false
-          const state = tooOld && quote?.mid != null ? 'STALE' : quote?.freshness || 'UNAVAILABLE'
+          const display = nativeQuoteDisplay(quote)
+          const value = display.value == null ? null : new Intl.NumberFormat(locale, { maximumFractionDigits: 5 }).format(display.value)
+          const state = display.freshness
           const stateLabel = t(`workstation.freshness.${state}`)
-          const reasonLabel = t(`workstation.availability.${quote?.availabilityReason || (error ? 'CONNECTION_LOST' : ['DXY', 'ES'].includes(symbol) ? 'SYMBOL_NOT_SUPPORTED' : 'NO_PROVIDER')}`)
-          const detail = quote?.mid != null ? `${quote.provider} · ${quote.providerSymbol} · ${quote.priceBasis} · ${quote.observedAt || ''} · ${quote.retrievedAt}` : reasonLabel
-          const accessible = `${symbol}. ${value ?? stateLabel}. ${stateLabel}. ${quote?.provider || t('workstation.noAuthorizedSource')}. ${quote?.mid == null || quote?.availabilityReason ? reasonLabel : ''}`
-          return <ButtonBase key={symbol} onClick={() => onSelect(item)} aria-pressed={selected} aria-label={accessible} title={`${stateLabel} · ${detail}`} sx={{ display: 'block', minWidth: 0, textAlign: 'left', border: '1px solid', borderColor: selected ? 'primary.main' : 'divider', borderRadius: 1.25, bgcolor: selected ? 'action.selected' : 'background.paper', px: 1.5, py: 1.1, '&:hover': { bgcolor: 'action.hover', borderColor: selected ? 'primary.main' : 'text.disabled' } }}>
+          const reasonLabel = t(`workstation.availability.${display.reason && quote ? display.reason : (error ? 'CONNECTION_LOST' : ['DXY', 'ES'].includes(symbol) ? 'SYMBOL_NOT_SUPPORTED' : 'NO_PROVIDER')}`)
+          const detail = display.value != null && quote ? `${quote.provider} · ${quote.providerSymbol} · ${quote.priceBasis} · ${quote.observedAt || ''} · ${quote.retrievedAt}` : reasonLabel
+          const accessible = `${symbol}. ${value ?? stateLabel}. ${stateLabel}. ${quote?.provider || t('workstation.noAuthorizedSource')}. ${display.value == null ? reasonLabel : ''}`
+          return <ButtonBase key={symbol} onClick={() => onSelect(item)} aria-pressed={selected} aria-label={accessible} title={`${stateLabel} · ${detail}`} sx={{ display: 'block', minWidth: 0, textAlign: 'left', border: '1px solid', borderColor: selected ? 'primary.main' : 'divider', borderRadius: 1.25, bgcolor: selected ? 'action.selected' : 'background.paper', px: 1.5, py: 1.1, overflowWrap: 'anywhere', '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 }, '&:hover': { bgcolor: 'action.hover', borderColor: selected ? 'primary.main' : 'text.disabled' } }}>
             <Typography variant="caption" sx={{ display: 'block', color: selected ? 'primary.main' : 'text.secondary', fontWeight: 700 }}>{symbol}</Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>{loading && !quote ? '…' : value ?? t('workstation.unavailable')}</Typography>
             <Typography variant="caption" display="block" color="text.secondary">{stateLabel} · {quote?.provider || 'OANDA'} {quote?.providerSymbol || ''}</Typography>
             {quote?.instrumentType ? <Typography variant="caption" display="block" color="text.secondary">{quote.instrumentType} · {quote.priceBasis}{quote.unit ? ` · ${quote.unit}` : ''}</Typography> : null}
-            {quote?.mid == null || quote?.availabilityReason ? <Typography variant="caption" display="block">{reasonLabel}</Typography> : null}
+            {display.value == null ? <Typography variant="caption" display="block">{reasonLabel}</Typography> : null}
             {quote?.observedAt ? <Typography component="time" dateTime={quote.observedAt} variant="caption" display="block" color="text.secondary">{t('workstation.observedAt')}: {quote.observedAt}</Typography> : null}
           </ButtonBase>
         })}

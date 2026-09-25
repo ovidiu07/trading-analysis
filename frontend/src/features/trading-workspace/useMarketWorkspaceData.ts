@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../auth/AuthContext'
 import { ApiError } from '../../api/client'
 import { fetchMarketWorkspace, providerConnectionChanged, type MarketWorkspaceResponse } from '../../api/marketData'
+import { nativeQuoteDisplay } from './nativeMarketDisplay'
 
 const keyRoot = ['marketWorkspace'] as const
 const visible = () => typeof document !== 'undefined' && document.visibilityState === 'visible'
@@ -83,12 +84,13 @@ export function useMarketWorkspaceData(accountId: string, selectedInstrument: st
     const heartbeatLost = query.isError || now - query.dataUpdatedAt > 15_000
     return { ...query.data, quotes: query.data.quotes.map(q => {
       if (denied) return { ...q, mid: null, bid: null, ask: null, spread: null, freshness: 'UNAVAILABLE' as const, availabilityReason: 'PROVIDER_DISCONNECTED' as const }
-      if (q.mid == null) return q
-      const age = q.observedAt ? now - new Date(q.observedAt).getTime() : Infinity
-      if (heartbeatLost || !Number.isFinite(age) || age > 15_000 || age < -5_000)
-        return { ...q, freshness: 'STALE' as const, availabilityReason: heartbeatLost ? 'CONNECTION_LOST' as const : q.availabilityReason }
+      const checked = nativeQuoteDisplay(q, now)
+      const lost = heartbeatLost && q.mid != null
+      if (checked.value == null || lost) return { ...q, mid: null, bid: null, ask: null, spread: null,
+        freshness: lost ? 'STALE' as const : checked.freshness,
+        availabilityReason: lost ? 'CONNECTION_LOST' as const : checked.reason }
       return q
-    }), analysis: heartbeatLost ? null : query.data.analysis }
+    }), analysis: heartbeatLost || denied ? null : query.data.analysis }
   }, [active, isAuthenticated, now, query.data, query.dataUpdatedAt, query.error, query.isError, user?.id])
 
   return { ...query, data, refetch, heartbeatAt: query.dataUpdatedAt || undefined }

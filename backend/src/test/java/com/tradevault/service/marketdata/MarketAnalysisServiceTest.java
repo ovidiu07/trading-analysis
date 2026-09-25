@@ -66,6 +66,23 @@ class MarketAnalysisServiceTest {
         verify(oanda, times(2)).getCandles(anyString(), anyString(), eq("GBPUSD"), eq("GBPUSD"), any(), any(), any(), eq(OandaEnvironment.LIVE));
     }
 
+    @Test void staleOrOtherInstrumentQuoteCannotContaminateCompletedCandleReferences() {
+        ReflectionTestUtils.setField(service, "derivationsEnabled", true);
+        var previous = date.minusDays(2).atStartOfDay().atOffset(ZoneOffset.UTC);
+        when(oanda.getCandles(anyString(), anyString(), anyString(), anyString(), eq(BacktestTimeframe.M5), any(), any(), any())).thenReturn(List.of());
+        when(oanda.getCandles(anyString(), anyString(), anyString(), anyString(), eq(BacktestTimeframe.D1), any(), any(), any()))
+            .thenReturn(List.of(candle("GBP_USD", BacktestTimeframe.D1, previous,"1","2","1","1.5")));
+        for(var quote : List.of(
+            new OandaCandleProvider.OandaQuote("GBP_USD",new BigDecimal("9"),new BigDecimal("10"),OffsetDateTime.now().minusMinutes(1),true,"MID"),
+            new OandaCandleProvider.OandaQuote("EUR_USD",new BigDecimal("9"),new BigDecimal("10"),OffsetDateTime.now(),true,"MID"),
+            new OandaCandleProvider.OandaQuote("GBP_USD",new BigDecimal("9"),new BigDecimal("10"),OffsetDateTime.now(),false,"CLOSEOUT_MID"))) {
+            var result=service.analyze(UUID.randomUUID(),UUID.randomUUID(),"token","account",OandaEnvironment.PRACTICE,"GBPUSD","GBP_USD",date,quote);
+            assertThat(result.changePercent()).isNull();
+            assertThat(result.previousDailyClose()).isEqualByComparingTo("1.5");
+            assertThat(result.priceBasis()).isEqualTo("MID");
+        }
+    }
+
     private CanonicalCandle candle(String providerSymbol, BacktestTimeframe timeframe, OffsetDateTime timestamp,
                                    String open, String high, String low, String close) {
         return new CanonicalCandle(BacktestCandleSource.OANDA, "account-ref", "GBPUSD", providerSymbol, timeframe,

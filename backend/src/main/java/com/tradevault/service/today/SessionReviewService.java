@@ -206,6 +206,8 @@ public class SessionReviewService {
                 String freshness = allowedText(row, "freshness", Set.of("LIVE", "INDICATIVE", "DELAYED", "CLOSE", "STALE", "MANUAL", "UNAVAILABLE"));
                 String provenance = allowedText(row, "provenance", Set.of("USER_CONNECTED", "OFFICIAL_PUBLIC", "EDITORIAL_PUBLISHED", "LICENSED_OPERATOR", "DISPLAY_ONLY"));
                 if (provider == null || canonical == null || freshness == null || provenance == null) continue;
+                if ("OANDA".equals(provider) && !"USER_CONNECTED".equals(provenance)
+                        || "US_TREASURY".equals(provider) && !"OFFICIAL_PUBLIC".equals(provenance)) continue;
                 ObjectNode item = output.addObject();
                 item.put("provider", provider);
                 item.put("canonicalInstrument", canonical);
@@ -230,7 +232,7 @@ public class SessionReviewService {
     }
     private void copySafeText(ObjectNode target, JsonNode row, String field, int maxLength) {
         String value = row.path(field).asText(null);
-        if ("availabilityReason".equals(field) && value != null && !Set.of("NO_PROVIDER", "NO_CREDENTIALS", "DISPLAY_NOT_AUTHORIZED", "SYMBOL_NOT_SUPPORTED", "MARKET_CLOSED", "RATE_LIMIT", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "NO_COMPLETED_REFERENCE", "NO_PUBLISHED_EVENT_DATA", "LICENSE_REQUIRED").contains(value)) return;
+        if ("availabilityReason".equals(field) && value != null && !Set.of("NO_PROVIDER", "NO_CREDENTIALS", "PROVIDER_DISCONNECTED", "NO_QUOTE", "STALE_QUOTE", "CONNECTION_LOST", "DISPLAY_NOT_AUTHORIZED", "SYMBOL_NOT_SUPPORTED", "MARKET_CLOSED", "RATE_LIMIT", "UPSTREAM_TIMEOUT", "UPSTREAM_ERROR", "NO_COMPLETED_REFERENCE", "NO_PUBLISHED_EVENT_DATA", "LICENSE_REQUIRED").contains(value)) return;
         if ("observedAt".equals(field) || "retrievedAt".equals(field)) {
             try { if (value != null) OffsetDateTime.parse(value); else return; }
             catch (Exception ignored) { return; }

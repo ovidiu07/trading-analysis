@@ -214,6 +214,9 @@ public class OandaCandleProvider {
 
         try {
             JsonNode root = objectMapper.readTree(payload);
+            if (!instrument.equals(root.path("instrument").asText()) || !granularity.equals(root.path("granularity").asText())) {
+                throw new IllegalArgumentException("Candle response does not match the requested instrument and timeframe");
+            }
             JsonNode candles = root.path("candles");
             if (!candles.isArray()) {
                 return List.of();
@@ -221,7 +224,7 @@ public class OandaCandleProvider {
 
             List<CanonicalCandle> rows = new ArrayList<>();
             for (JsonNode item : candles) {
-                if (!item.path("complete").asBoolean(true)) {
+                if (!item.path("complete").isBoolean() || !item.path("complete").booleanValue()) {
                     continue;
                 }
                 OffsetDateTime timestamp = parseTime(item.path("time").asText(null));

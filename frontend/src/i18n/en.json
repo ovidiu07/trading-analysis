@@ -1,5 +1,6 @@
 {
   "officialEvents": {
+    "sourceTimezone": "Source timezone",
     "title": "Official event suggestions",
     "reviewBoundary": "Imports are staged only. Review sources, dates and results, add selected events to the draft, then use the existing preview and publish review. No automatic publication. Update the briefing reference time before including newly retrieved results.",
     "refresh": "Fetch calendar:",
@@ -4617,6 +4618,10 @@
     "demoMetrics": "Reference metrics",
     "marketPreview": "Market preview",
     "watchlist": "Instrument watchlist",
+    "eventUpdatesBoundary": "Latest published event updates. Your acknowledged briefing and Ready history remain unchanged; review Market Context to switch context.",
+    "eventsCheckedAt": "Published events last checked",
+    "eventRefreshFailed": "Event refresh failed. Any retained events reflect the last successful check.",
+    "quoteChangeBasis": "Fresh native midpoint versus the same provider’s previous completed daily close.",
     "nativeWatchlist": "Native instrument watchlist",
     "nativeDisplayBoundary": "Native values come only from your connected provider. TradingView is a separate display-only chart.",
     "lastResponse": "Last server response",
@@ -4637,7 +4642,7 @@
     "levelLabels": { "BSL": "Buy-side liquidity", "SSL": "Sell-side liquidity", "SUPPORT": "Support", "RESISTANCE": "Resistance", "ORDER_BLOCK": "Order block", "FAIR_VALUE_GAP": "Fair value gap", "LIQUIDITY_POOL": "Liquidity pool" },
     "manualLevels": "Preparation plan levels",
     "eventActual": "Actual",
-    "eventForecast": "Forecast",
+    "eventForecast": "Forecast / consensus",
     "eventPrevious": "Previous",
     "currentQuote": "Current provider quote",
     "observedAt": "Observed",
@@ -4645,6 +4650,7 @@
     "freshness": { "LIVE": "Live", "INDICATIVE": "Indicative", "DELAYED": "Delayed", "CLOSE": "Close / non-tradeable", "STALE": "Stale", "MANUAL": "Manual", "UNAVAILABLE": "Unavailable" },
     "availability": {
       "PROVIDER_DISCONNECTED": "Provider access was rejected. Reconnect in provider settings.",
+      "STALE_QUOTE": "Quote expired. Waiting for a fresh provider observation.",
       "NO_QUOTE": "No valid quote was returned for this exact instrument.",
       "CONNECTION_LOST": "Connection lost. Waiting for a new response; previous quotes are stale.",
 
@@ -4660,7 +4666,7 @@
       "NO_PUBLISHED_EVENT_DATA": "No published event data is available",
       "LICENSE_REQUIRED": "Display authorization is required"
     },
-    "eventStatus": { "RELEASED": "Released", "UPCOMING": "Upcoming", "RESCHEDULED": "Rescheduled", "CANCELLED": "Cancelled" },
+    "eventStatus": { "RELEASED": "Released", "UPCOMING": "Scheduled", "RESCHEDULED": "Rescheduled", "CANCELLED": "Cancelled" },
     "analysisWindows": { "ASIA": "Asia", "LONDON": "London", "ASIA_AND_LONDON": "Asia and London", "OUTSIDE_ANALYSIS_WINDOWS": "Outside analysis windows" },
     "rangeStates": { "UPCOMING": "Upcoming", "IN_PROGRESS": "In progress", "COMPLETE": "Complete", "UNAVAILABLE": "Unavailable" },
     "searchInstruments": "Search instruments…",
@@ -4668,7 +4674,7 @@
     "marketContext": "Market context",
     "contextEmpty": "Add your own session thesis in Trade Plan. Published context stays separate from your personal bias.",
     "openScenarios": "Open published market scenarios",
-    "upcomingEvents": "Upcoming events",
+    "upcomingEvents": "Events and released results",
     "calendar": "Calendar",
     "keyLevels": "Key levels",
     "sessionRange": "Session range",

@@ -42,7 +42,7 @@ const demoSetupLabelKeys = ['liquiditySweep', 'displacement', 'mssChoch', 'fvgIm
 
 type EmotionalState = 'calm' | 'focused' | 'neutral' | 'anxious' | 'fomo'
 
-export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason, marketQuotes, macroObservations, marketAnalysis }: {
+export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason, marketQuotes, macroObservations, marketAnalysis, displayTimezone = 'Europe/Bucharest' }: {
   date: string
   draft: SessionReview
   update: (value: Partial<SessionReview>) => void
@@ -67,6 +67,7 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
   capacityReason?: string | null
   marketQuotes?: InstrumentQuote[]
   macroObservations?: MacroObservation[]
+  displayTimezone?: string
   marketAnalysis?: AnalysisMetrics | null
 }) {
   const { t } = useI18n()
@@ -143,6 +144,8 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
         <Box id="today-chart" sx={{ minWidth: 0 }}>{chart}</Box>
         <MarketIntelligenceGrid
           preparation={p}
+          isCurrentDate={isCurrentDate}
+          displayTimezone={displayTimezone}
           thesis={draft.focus}
           date={date}
           selectedInstrument={canonicalMarketInstrument(p.chartSymbol, symbol)}

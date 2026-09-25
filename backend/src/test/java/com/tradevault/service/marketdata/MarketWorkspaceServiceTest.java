@@ -119,6 +119,12 @@ class MarketWorkspaceServiceTest {
         quotes(OffsetDateTime.now().minusMinutes(1));
         var result = service.snapshot(userId, accountId, "GBPUSD");
         assertThat(result.quotes().get(0).freshness()).isEqualTo(MarketWorkspaceResponse.Freshness.STALE);
+        assertThat(result.quotes().get(0).mid()).isNull();
+        assertThat(result.quotes().get(0).bid()).isNull();
+        assertThat(result.quotes().get(0).ask()).isNull();
+        assertThat(result.quotes().get(0).spread()).isNull();
+        assertThat(result.quotes().get(0).observedAt()).isNotNull();
+        assertThat(result.quotes().get(0).availabilityReason()).isEqualTo(AvailabilityReason.STALE_QUOTE);
         assertThat(result.quotes().get(2).availabilityReason()).isEqualTo(AvailabilityReason.NO_QUOTE);
     }
 

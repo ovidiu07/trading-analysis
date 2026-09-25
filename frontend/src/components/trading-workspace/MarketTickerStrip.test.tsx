@@ -29,12 +29,14 @@ describe('Today instrument watchlist', () => {
     expect(screen.getByText(/workstation.nativeDisplayBoundary/)).toHaveTextContent('PRACTICE')
     expect(screen.getByRole('button', { name: /GBPUSD/ })).toHaveTextContent('FX · MID')
   })
-  it('displays old quotes as stale with visible provenance and observation time', () => {
+  it('hides old numeric quotes as stale with visible provenance and observation time', () => {
     const observedAt = new Date(Date.now() - 60_000).toISOString()
     const quote = { canonicalInstrument: 'GBPUSD', provider: 'OANDA', providerSymbol: 'GBP_USD', instrumentType: 'FX', priceBasis: 'MID' as const, unit: 'USD', retrievedAt: observedAt, observedAt, mid: 1.25, freshness: 'LIVE' as const, provenance: 'USER_CONNECTED' }
     render(<MemoryRouter><MarketTickerStrip selectedSymbol="OANDA:GBPUSD" onSelect={vi.fn()} quotes={[quote]} /></MemoryRouter>)
     const card = screen.getByRole('button', { name: /GBPUSD/ })
     expect(card).toHaveTextContent('workstation.freshness.STALE')
+    expect(card).not.toHaveTextContent('1.25')
+    expect(card).toHaveTextContent('workstation.availability.STALE_QUOTE')
     expect(card).toHaveTextContent(observedAt)
     expect(card).toHaveTextContent('OANDA GBP_USD')
   })

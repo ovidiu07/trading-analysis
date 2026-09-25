@@ -86,7 +86,9 @@ public class MarketAnalysisService {
         BigDecimal changePercent = null;
         BigDecimal currentMid = quote == null || quote.bid() == null || quote.ask() == null ? null
                 : quote.bid().add(quote.ask()).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
-        if (quote != null && "MID".equals(quote.priceBasis()) && quote.tsUtc() != null && currentMid != null
+        if (quote != null && providerSymbol.equals(quote.instrument()) && "MID".equals(quote.priceBasis()) && quote.tsUtc() != null && currentMid != null
+                && !Boolean.FALSE.equals(quote.tradeable()) && !quote.tsUtc().isAfter(now.plusSeconds(5))
+                && Duration.between(quote.tsUtc(), now).compareTo(Duration.ofSeconds(15)) <= 0
                 && previousClose != null && previousClose.signum() != 0) {
             changePercent = currentMid.subtract(previousClose).multiply(BigDecimal.valueOf(100))
                     .divide(previousClose, 6, RoundingMode.HALF_UP);
@@ -95,7 +97,7 @@ public class MarketAnalysisService {
         var asia = range(AnalysisWindowCalculator.calculate(AnalysisWindowCalculator.ASIA, date, m5, now.toInstant()));
         var london = range(AnalysisWindowCalculator.calculate(AnalysisWindowCalculator.LONDON, date, m5, now.toInstant()));
         return new AnalysisMetrics(canonical, "OANDA", providerSymbol, "https://developer.oanda.com/rest-live-v20/instrument-ep/",
-                quote == null ? null : quote.priceBasis(),
+                "MID",
                 ALIGNMENT, openBar == null ? null : openBar.open(), openBar == null ? null : openBar.timestamp(),
                 previousClose, previousDaily == null ? null : previousDaily.tsUtc(), changePercent,
                 previousDaily == null ? null : previousDaily.high(), previousDaily == null ? null : previousDaily.low(),

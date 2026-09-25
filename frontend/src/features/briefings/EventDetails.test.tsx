@@ -28,7 +28,7 @@ describe('official event display', () => {
  it('labels released values with units and the official publication time', () => {
    render(<EventDetails event={event} referenceTime="2026-09-01T10:00:00Z" />)
    expect(screen.getByText('workstation.eventActual: 6.1 %')).toBeInTheDocument()
-   expect(screen.getByText('editorial.publishedAt: 2026-09-01T09:00:00Z')).toBeInTheDocument()
+   expect(screen.getAllByTitle('2026-09-01T09:00:00Z')[1]).toHaveAttribute('datetime', '2026-09-01T09:00:00Z')
    expect(screen.getByRole('link', { name: 'Eurostat' })).toHaveAttribute('href', event.sourceUrl)
  })
 })

@@ -153,8 +153,9 @@ public class MarketWorkspaceService {
         return quotes.stream().map(q -> q.mid() == null || (q.observedAt() != null
                 && Duration.between(q.observedAt(), now).compareTo(STALE_AFTER) <= 0) ? q
                 : new InstrumentQuote(q.canonicalInstrument(), q.provider(), q.providerSymbol(), q.instrumentType(),
-                    q.priceBasis(), q.bid(), q.ask(), q.mid(), q.spread(), q.unit(), q.observedAt(), q.retrievedAt(),
-                    Freshness.STALE, q.tradeable(), q.provenance(), q.sourceUrl(), q.delayDescription(), q.availabilityReason())).toList();
+                    q.priceBasis(), null, null, null, null, q.unit(), q.observedAt(), q.retrievedAt(),
+                    Freshness.STALE, q.tradeable(), q.provenance(), q.sourceUrl(), q.delayDescription(),
+                    q.availabilityReason() == null ? AvailabilityReason.STALE_QUOTE : q.availabilityReason())).toList();
     }
 
     private boolean validQuote(OandaCandleProvider.OandaQuote quote, String symbol, OffsetDateTime now) {

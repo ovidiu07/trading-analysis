@@ -1,5 +1,6 @@
 {
   "officialEvents": {
+    "sourceTimezone": "Fusul orar al sursei",
     "title": "Sugestii din surse oficiale",
     "reviewBoundary": "Importurile sunt doar propuneri. Verifică sursele, datele și rezultatele, adaugă evenimentele selectate în ciornă, apoi folosește previzualizarea și verificarea pentru publicare. Nu există publicare automată. Actualizează momentul de referință al informării înainte de a include rezultate nou preluate.",
     "refresh": "Preia calendarul:",
@@ -4616,6 +4617,10 @@
     "demoMetrics": "Metrici de referință",
     "marketPreview": "Previzualizare piață",
     "watchlist": "Listă de instrumente",
+    "eventUpdatesBoundary": "Ultimele actualizări publicate ale evenimentelor. Briefingul confirmat și istoricul Ready rămân neschimbate; deschide Contextul pieței pentru a schimba contextul.",
+    "eventsCheckedAt": "Ultima verificare a evenimentelor publicate",
+    "eventRefreshFailed": "Actualizarea evenimentelor a eșuat. Evenimentele păstrate reflectă ultima verificare reușită.",
+    "quoteChangeBasis": "Cotația medie nativă actuală față de închiderea zilnică finalizată a aceluiași furnizor.",
     "nativeWatchlist": "Lista instrumentelor · date native",
     "nativeDisplayBoundary": "Valorile native provin exclusiv de la furnizorul conectat. TradingView este un grafic separat, doar pentru afișare.",
     "lastResponse": "Ultimul răspuns al serverului",
@@ -4636,7 +4641,7 @@
     "levelLabels": { "BSL": "Lichiditate deasupra maximelor", "SSL": "Lichiditate sub minime", "SUPPORT": "Suport", "RESISTANCE": "Rezistență", "ORDER_BLOCK": "Order block", "FAIR_VALUE_GAP": "Zonă de dezechilibru", "LIQUIDITY_POOL": "Pool de lichiditate" },
     "manualLevels": "Niveluri din planul de pregătire",
     "eventActual": "Realizat",
-    "eventForecast": "Prognoză",
+    "eventForecast": "Prognoză / consens",
     "eventPrevious": "Anterior",
     "currentQuote": "Cotație curentă de la furnizor",
     "observedAt": "Observat",
@@ -4644,6 +4649,7 @@
     "freshness": { "LIVE": "Live", "INDICATIVE": "Indicativ", "DELAYED": "Întârziat", "CLOSE": "Închidere / netranzacționabil", "STALE": "Învechit", "MANUAL": "Manual", "UNAVAILABLE": "Indisponibil" },
     "availability": {
       "PROVIDER_DISCONNECTED": "Accesul la furnizor a fost respins. Reconectează contul din setări.",
+      "STALE_QUOTE": "Cotația a expirat. Se așteaptă o observație nouă de la furnizor.",
       "NO_QUOTE": "Nu a fost returnată o cotație validă pentru acest instrument exact.",
       "CONNECTION_LOST": "Conexiune întreruptă. Se așteaptă un răspuns nou; cotațiile anterioare sunt învechite.",
 
@@ -4659,7 +4665,7 @@
       "NO_PUBLISHED_EVENT_DATA": "Nu sunt disponibile evenimente publicate",
       "LICENSE_REQUIRED": "Este necesară autorizarea afișării datelor"
     },
-    "eventStatus": { "RELEASED": "Publicat", "UPCOMING": "Viitor", "RESCHEDULED": "Reprogramat", "CANCELLED": "Anulat" },
+    "eventStatus": { "RELEASED": "Publicat", "UPCOMING": "Programat", "RESCHEDULED": "Reprogramat", "CANCELLED": "Anulat" },
     "analysisWindows": { "ASIA": "Asia", "LONDON": "Londra", "ASIA_AND_LONDON": "Asia și Londra", "OUTSIDE_ANALYSIS_WINDOWS": "În afara ferestrelor de analiză" },
     "rangeStates": { "UPCOMING": "Urmează", "IN_PROGRESS": "În desfășurare", "COMPLETE": "Încheiat", "UNAVAILABLE": "Indisponibil" },
     "searchInstruments": "Caută instrumente…",
@@ -4667,7 +4673,7 @@
     "marketContext": "Context de piață",
     "contextEmpty": "Adaugă propria teză de sesiune în Planul tranzacției. Contextul publicat rămâne separat de direcția ta personală.",
     "openScenarios": "Deschide scenariile de piață publicate",
-    "upcomingEvents": "Evenimente viitoare",
+    "upcomingEvents": "Evenimente și rezultate publicate",
     "calendar": "Calendar",
     "keyLevels": "Niveluri-cheie",
     "sessionRange": "Intervalul sesiunii",

@@ -60,7 +60,7 @@ describe('native quote lifecycle', () => {
     await waitFor(() => expect(hook.result.current.data?.quotes[0].freshness).toBe('LIVE'))
     vi.mocked(fetchMarketWorkspace).mockRejectedValue(new Error('offline'))
     await act(async () => { await hook.result.current.refetch() })
-    await waitFor(() => expect(hook.result.current.data?.quotes[0]).toMatchObject({ freshness: 'STALE', availabilityReason: 'CONNECTION_LOST' }))
+    await waitFor(() => expect(hook.result.current.data?.quotes[0]).toMatchObject({ freshness: 'STALE', availabilityReason: 'CONNECTION_LOST', mid: null, bid: null, ask: null, spread: null }))
     vi.mocked(fetchMarketWorkspace).mockResolvedValue(response(1.3))
     await act(async () => { await hook.result.current.refetch() })
     await waitFor(() => expect(hook.result.current.data?.quotes[0]).toMatchObject({ freshness: 'LIVE', mid: 1.3 }))
@@ -72,6 +72,7 @@ describe('native quote lifecycle', () => {
     vi.spyOn(Date, 'now').mockReturnValue(future)
     act(() => document.dispatchEvent(new Event('visibilitychange')))
     await waitFor(() => expect(hook.result.current.data?.quotes[0].freshness).toBe('STALE'))
+    expect(hook.result.current.data?.quotes[0].mid).toBeNull()
   })
   it('removes retained numeric prices when access is denied', async () => {
     const hook = mount()
