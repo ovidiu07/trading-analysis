@@ -1,14 +1,14 @@
 import { apiGet } from './client'
 
 export type MarketFreshness = 'LIVE' | 'INDICATIVE' | 'DELAYED' | 'CLOSE' | 'STALE' | 'MANUAL' | 'UNAVAILABLE'
-export type MarketAvailabilityReason = 'NO_PROVIDER' | 'NO_CREDENTIALS' | 'DISPLAY_NOT_AUTHORIZED' | 'SYMBOL_NOT_SUPPORTED' | 'MARKET_CLOSED' | 'RATE_LIMIT' | 'UPSTREAM_TIMEOUT' | 'UPSTREAM_ERROR' | 'NO_COMPLETED_REFERENCE' | 'NO_PUBLISHED_EVENT_DATA' | 'LICENSE_REQUIRED'
+export type MarketAvailabilityReason = 'NO_PROVIDER' | 'NO_CREDENTIALS' | 'PROVIDER_DISCONNECTED' | 'NO_QUOTE' | 'CONNECTION_LOST' | 'DISPLAY_NOT_AUTHORIZED' | 'SYMBOL_NOT_SUPPORTED' | 'MARKET_CLOSED' | 'RATE_LIMIT' | 'UPSTREAM_TIMEOUT' | 'UPSTREAM_ERROR' | 'NO_COMPLETED_REFERENCE' | 'NO_PUBLISHED_EVENT_DATA' | 'LICENSE_REQUIRED'
 
 export type InstrumentQuote = {
   canonicalInstrument: string
   provider: string
   providerSymbol?: string | null
   instrumentType: string
-  priceBasis: 'MID' | 'BID' | 'ASK' | 'CLOSE'
+  priceBasis: 'MID' | 'BID' | 'ASK' | 'CLOSE' | 'CLOSEOUT_MID'
   bid?: number | null
   ask?: number | null
   mid?: number | null
@@ -87,19 +87,29 @@ export type AnalysisMetrics = {
 }
 
 export function canonicalMarketInstrument(chartSymbol: string, fallback: string) {
-  const chart = chartSymbol.toUpperCase()
-  if (chart.includes('DE30') || chart.includes('DAX') || chart.includes('GER40')) return 'GER40'
-  if (chart.includes('NAS100') || chart.includes('NASDAQ')) return 'NAS100'
-  if (chart.includes('ES1!') || chart.includes('CME_MINI:ES')) return 'ES'
-  if (chart.includes('XAUUSD')) return 'XAUUSD'
-  if (chart.includes('USOIL') || chart.includes('WTICO')) return 'USOIL'
-  if (chart.includes('DXY')) return 'DXY'
-  if (chart.includes('GBPUSD')) return 'GBPUSD'
-  if (chart.includes('EURUSD')) return 'EURUSD'
-  return fallback.trim().toUpperCase() || 'UNSET'
+  // Cash indices and stocks must never silently select an OANDA CFD.
+  const identities: Record<string, string> = {
+    'OANDA:GBPUSD': 'GBPUSD', 'OANDA:EURUSD': 'EURUSD', 'OANDA:DE30EUR': 'GER40',
+    'OANDA:NAS100USD': 'NAS100', 'OANDA:XAUUSD': 'XAUUSD', 'TVC:USOIL': 'USOIL',
+    'OANDA:WTICOUSD': 'USOIL', 'TVC:DXY': 'DXY', 'CME_MINI:ES1!': 'ES'
+  }
+  const chart = chartSymbol.trim().toUpperCase()
+  if (identities[chart]) return identities[chart]
+  if (['GBPUSD', 'EURUSD', 'GER40', 'NAS100', 'XAUUSD', 'USOIL', 'DXY', 'ES'].includes(chart)) return chart
+  return 'UNSET'
 }
 
 export function fetchMarketWorkspace(accountId: string, selectedInstrument: string, date: string, signal?: AbortSignal) {
   const query = new URLSearchParams({ accountId, selectedInstrument, date })
   return apiGet<MarketWorkspaceResponse>(`/market-workspace?${query}`, signal)
+}
+
+export const providerConnectionChanged = 'tradejaudit:provider-connection-changed'
+export function announceProviderConnectionChanged() {
+  window.dispatchEvent(new Event(providerConnectionChanged))
+  if (typeof BroadcastChannel !== 'undefined') {
+    const channel = new BroadcastChannel(providerConnectionChanged)
+    channel.postMessage('changed')
+    channel.close()
+  }
 }

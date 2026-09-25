@@ -7,7 +7,24 @@ export const slots = ['ASIA', 'LONDON', 'DAY_RECAP'] as const
 export type Slot = typeof slots[number]
 export const factSchema = z.object({ id: text, time: optionalTime, topic: text, statement: text, source: text, sourceUrl: url, availableAt: optionalTime, availabilityNotEstablished: text.nullable().optional(), relatedFactId: text.nullable().optional(), relationship: z.enum(['UPDATE','CORRECTION','CONTINUATION']).nullable().optional() }).strict()
 export const newsSchema = z.object({ headline: text, publishedAt: time, source: text, sourceUrl: url, summary: text, relevance: text }).strict()
-export const eventSchema = z.object({ id: text, scheduledAt: time, timezone: text, region: text, name: text, source: text, sourceUrl: url, actual: text.nullable().optional(), forecast: text.nullable().optional(), previous: text.nullable().optional(), unit: text.nullable().optional(), explanation: text.nullable().optional(), status: z.enum(['RELEASED','UPCOMING','RESCHEDULED','CANCELLED']), impact: z.enum(['HIGH','MEDIUM','LOW']).nullable().optional() }).strict()
+export const eventEvidenceSchema = z.object({ sourceId: z.enum(['BLS','EUROSTAT']), eventId: text, sourceEventId: text,
+ identityBasis: z.enum(['SOURCE_UID','SCHEDULE_SIGNATURE']), revisionId: z.string().uuid(), retrievedAt: time,
+ resultRetrievedAt: optionalTime, sourceSequence: z.number().nullable().optional(), sourceModifiedAt: optionalTime, previousScheduledAt: optionalTime,
+ previousScheduledDate: text.nullable().optional(), publicationSourceUrl: url, resultSourceUrl: url,
+ seriesId: text.nullable().optional(), referencePeriod: text.nullable().optional(), measure: text.nullable().optional() }).strict()
+export const eventSchema = z.object({ id: text, scheduledAt: optionalTime, scheduledDate: text.nullable().optional(), publishedAt: optionalTime,
+ timezone: text, region: text, name: text, source: text, sourceUrl: url, actual: text.nullable().optional(), forecast: text.nullable().optional(),
+ forecastSourceUrl: url, previous: text.nullable().optional(), previousSourceUrl: url, unit: text.nullable().optional(), explanation: text.nullable().optional(),
+ status: z.enum(['RELEASED','UPCOMING','RESCHEDULED','CANCELLED']), impact: z.enum(['HIGH','MEDIUM','LOW']).nullable().optional(), official: eventEvidenceSchema.nullable().optional() }).strict()
+export type BriefingEvent = z.infer<typeof eventSchema>
+export function canShowEventActual(event: BriefingEvent, referenceTime?: string, now = Date.now()) {
+ const published = event.publishedAt ? Date.parse(event.publishedAt) : NaN
+ const cutoff = referenceTime ? Math.min(now, Date.parse(referenceTime)) : now
+ return event.status === 'RELEASED' && Number.isFinite(published) && published <= cutoff
+   && (!event.scheduledAt || Date.parse(event.scheduledAt) <= cutoff)
+   && (!event.official || Date.parse(event.official.retrievedAt) <= cutoff)
+   && (!event.official?.resultRetrievedAt || Date.parse(event.official.resultRetrievedAt) <= cutoff)
+}
 export const macroSchema = z.object({ instrument: text, type: text, value: z.number().nullable().optional(), unit: text, observedAt: time, source: text, sourceUrl: url, referenceValue: z.number().nullable().optional(), referenceAt: optionalTime, availability: text }).strict()
 export const scenarioSchema = z.object({ market: z.enum(['DAX','NASDAQ_100','ES']), instrument: text, source: text, type: text, contract: text.nullable().optional(), context: text, bias: z.enum(['bullish','bearish','neutral','mixed']), main: text, alternative: text, invalidation: text, risks: text, limitations: text }).strict()
 export const levelSchema = z.object({ id: text, instrument: z.enum(['GBPUSD','EURUSD','GER40','NAS100','XAUUSD','USOIL','DXY','ES']), label: z.enum(['BSL','SSL','SUPPORT','RESISTANCE','ORDER_BLOCK','FAIR_VALUE_GAP','LIQUIDITY_POOL']), value: z.number().positive(), unit: text, source: text, sourceUrl: url, rationale: text }).strict()

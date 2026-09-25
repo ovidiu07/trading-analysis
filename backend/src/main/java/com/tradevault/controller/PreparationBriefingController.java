@@ -30,7 +30,7 @@ public class PreparationBriefingController {
     public JsonNode version(@PathVariable UUID id) {
         var rows=jdbc.queryForList("SELECT payload::text FROM preparation_briefings WHERE id=? AND user_id=?",String.class,id,users.getCurrentUser().getId());
         if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Briefing not found");
-        try { return mapper.readTree(rows.get(0)); } catch(Exception ex) { throw new IllegalStateException(ex); }
+        try { return com.tradevault.service.briefing.EventPublicationGuard.safeCopy(mapper.readTree(rows.get(0)),Instant.now()); } catch(Exception ex) { throw new IllegalStateException(ex); }
     }
     @PostMapping("/{date}")
     public synchronized JsonNode load(@PathVariable LocalDate date, @RequestParam String session, @RequestParam(defaultValue="false") boolean refresh) {

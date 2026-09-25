@@ -20,9 +20,11 @@ public class SessionBriefingService {
  private final ObjectMapper mapper;
  private final CurrentUserService users;
  private final BriefingValidator validator;
+ private final com.tradevault.service.briefing.events.OfficialEventStore officialEvents;
  public record Edit(int version, JsonNode document) {}
  public record Publish(int version, UUID requestId) {}
  private JsonNode json(String value) { try{return mapper.readTree(value);}catch(Exception ex){throw new IllegalStateException(ex);} }
+ private JsonNode publicJson(String value) {return EventPublicationGuard.safeCopy(json(value),Instant.now());}
  private UUID actor(){return users.getCurrentUser().getId();}
  private void conflict(String message){throw new ResponseStatusException(HttpStatus.CONFLICT,message);}
  @PreAuthorize("hasRole('ADMIN')")
@@ -64,7 +66,7 @@ public class SessionBriefingService {
   return draft(id);
  }
  @PreAuthorize("hasRole('ADMIN')")
- public JsonNode preview(JsonNode raw) {validator.parse(raw,true,Instant.now());return raw;}
+ public JsonNode preview(JsonNode raw) {var doc=validator.parse(raw,true,Instant.now());officialEvents.verify(doc);return raw;}
  @PreAuthorize("hasRole('ADMIN')") @Transactional
  public JsonNode publish(UUID id,Publish request) {
   actor(); if(request.requestId()==null)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"requestId required");
@@ -76,6 +78,7 @@ public class SessionBriefingService {
   var same=jdbc.queryForList("SELECT id FROM session_briefing_revision WHERE briefing_id=? AND draft_version=?",UUID.class,id,request.version());
   if(!same.isEmpty())return revision(same.get(0));
   var doc=validator.parse(draft.path("document"),true,Instant.now());
+  officialEvents.verify(doc);
   // An unchanged ID is a reference to the same fact, never an implicit correction.
   for(var entry:doc.translations().entrySet()) {
    var localFacts=entry.getValue().facts();
@@ -121,18 +124,18 @@ public class SessionBriefingService {
  private JsonNode revision(UUID id){return json(jdbc.queryForObject(REVISION_SQL+"WHERE r.id=?",String.class,id));}
  public static Slot preferred(Instant now) {var t=now.atZone(ZoneId.of("Europe/Berlin")).toLocalTime();return t.isBefore(LocalTime.of(16,15))?Slot.ASIA:t.isBefore(LocalTime.of(22,30))?Slot.LONDON:Slot.DAY_RECAP;}
  public List<JsonNode> publications(LocalDate date) {
-  actor();return jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND b.editorial_date=? AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id ORDER BY revision DESC LIMIT 1) ORDER BY CASE b.slot WHEN 'ASIA' THEN 0 WHEN 'LONDON' THEN 1 ELSE 2 END",String.class,date).stream().map(this::json).toList();
+  actor();return jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND b.editorial_date=? AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id ORDER BY revision DESC LIMIT 1) ORDER BY CASE b.slot WHEN 'ASIA' THEN 0 WHEN 'LONDON' THEN 1 ELSE 2 END",String.class,date).stream().map(this::publicJson).toList();
  }
  public ObjectNode selection(LocalDate date,Slot slot) {
   actor();Instant now=Instant.now();
   if(slot==null)slot=preferred(now);
   var root=mapper.createObjectNode();root.put("requestedDate",date.toString());root.put("requestedSlot",slot.name());root.put("editorialTimezone","Europe/Bucharest");root.put("selectionTimezone","Europe/Berlin");
   var rows=jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND r.published_at<=? AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id ORDER BY revision DESC LIMIT 1) AND (b.editorial_date<? OR (b.editorial_date=? AND CASE b.slot WHEN 'ASIA' THEN 0 WHEN 'LONDON' THEN 1 ELSE 2 END<=?)) ORDER BY b.editorial_date DESC, CASE b.slot WHEN 'DAY_RECAP' THEN 2 WHEN 'LONDON' THEN 1 ELSE 0 END DESC LIMIT 1",String.class,java.sql.Timestamp.from(now),date,date,slot.ordinal());
-  if(!rows.isEmpty())root.set("selected",json(rows.get(0)));
+  if(!rows.isEmpty())root.set("selected",publicJson(rows.get(0)));
   var selected=root.path("selected");root.put("missingPreferred",!selected.path("document").path("editorialDate").asText().equals(date.toString()) || !selected.path("document").path("slot").asText().equals(slot.name()));
   root.set("available",mapper.valueToTree(publications(date)));
   var prior=jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND b.editorial_date<? AND b.slot='DAY_RECAP' AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id ORDER BY revision DESC LIMIT 1) ORDER BY b.editorial_date DESC LIMIT 1",String.class,date);
-  if(!prior.isEmpty())root.set("previousRecap",json(prior.get(0)));
+  if(!prior.isEmpty())root.set("previousRecap",publicJson(prior.get(0)));
   return root;
  }
  @Transactional(isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
@@ -143,11 +146,11 @@ public class SessionBriefingService {
   if(selected.has("id")) {
    var doc=selected.path("document");var rank=Slot.valueOf(doc.path("slot").asText()).ordinal();
    var rows=jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND b.editorial_date=? AND CASE b.slot WHEN 'ASIA' THEN 0 WHEN 'LONDON' THEN 1 ELSE 2 END<=? AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id AND published_at<=? AND reference_time<=? ORDER BY revision DESC LIMIT 1) ORDER BY CASE b.slot WHEN 'ASIA' THEN 0 WHEN 'LONDON' THEN 1 ELSE 2 END",String.class,LocalDate.parse(doc.path("editorialDate").asText()),rank,OffsetDateTime.parse(selected.path("publishedAt").asText()),InstantTimestamp(doc.path("referenceTime").asText()));
-   rows.forEach(row->composition.add(json(row)));
+   rows.forEach(row->composition.add(publicJson(row)));
    // Previous-day context obeys the same knowledge cutoff, even for a historical selection.
    result.remove("previousRecap");
    var prior=jdbc.queryForList(REVISION_SQL+"WHERE NOT b.withdrawn AND b.editorial_date<? AND b.slot='DAY_RECAP' AND r.id=(SELECT id FROM session_briefing_revision WHERE briefing_id=b.id AND published_at<=? AND reference_time<=? ORDER BY revision DESC LIMIT 1) ORDER BY b.editorial_date DESC LIMIT 1",String.class,LocalDate.parse(doc.path("editorialDate").asText()),OffsetDateTime.parse(selected.path("publishedAt").asText()),InstantTimestamp(doc.path("referenceTime").asText()));
-   if(!prior.isEmpty())result.set("previousRecap",json(prior.get(0)));
+   if(!prior.isEmpty())result.set("previousRecap",publicJson(prior.get(0)));
 
   }
   result.remove("available");

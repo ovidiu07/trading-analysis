@@ -222,7 +222,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   if (saved.isError) return <Alert severity="error" action={<Button onClick={() => void saved.refetch()}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.loadError')}</Alert>
   if (!ready) return <Typography role="status">{t('dailyReview.loading')}</Typography>
   return <Stack component="fieldset" spacing={1.25} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
-    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} quotes={marketQuotes} loading={marketWorkspace.isLoading} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
+    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} quotes={marketQuotes} loading={marketWorkspace.isLoading} error={marketWorkspace.isError} heartbeatAt={marketWorkspace.heartbeatAt} environment={marketWorkspace.data?.providerEnvironment} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
       {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} variant={draft.state === state ? 'contained' : 'outlined'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
       <Chip role="status" label={t(`dailyReview.save.${saveState}`)} />

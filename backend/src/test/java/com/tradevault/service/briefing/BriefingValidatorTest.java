@@ -26,4 +26,19 @@ class BriefingValidatorTest {
  @Test void missingTranslationCannotMasqueradeAsRomanian() throws Exception {var d=document();d.put("contentLanguage","ro");assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("translation is missing");}
  @Test void completeCoverageCannotExceedReference() throws Exception {var d=document();d.put("coverageEnd","2026-09-07T12:00:00Z");assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("coverageEnd");}
  @Test void unsupportedMetricsCannotBeImported() throws Exception {var d=document();d.putObject("ath").put("referencePrice",95).put("allTimeHigh",100);assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("ath");}
+ @Test void actualRequiresOfficialPublicationTimeWithinReference() throws Exception {
+  var d=document();var e=((com.fasterxml.jackson.databind.node.ArrayNode)d.path("translations").path("en").path("events")).addObject();
+  e.put("id","result").put("scheduledAt","2026-09-07T05:00:00Z").put("timezone","America/New_York").put("region","US").put("name","Result").put("source","BLS").put("status","RELEASED").put("actual","4.1");
+  assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("publication time required");
+  e.put("publishedAt","2026-09-07T07:00:00Z");assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("publishedAt");
+  e.put("publishedAt","2026-09-07T05:00:00Z");assertThat(validator.parse(d,true,now).translations().get("en").events()).hasSize(1);
+  e.put("forecast","4.0");assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("forecast source required");
+ }
+ @Test void dateOnlyEventDoesNotNeedAnInventedTimestamp() throws Exception {
+  var d=document();var e=((com.fasterxml.jackson.databind.node.ArrayNode)d.path("translations").path("en").path("events")).addObject();
+  e.put("id","date-only").put("scheduledDate","2026-09-08").put("timezone","Europe/Luxembourg").put("region","EU").put("name","Release").put("source","Eurostat").put("status","UPCOMING");
+  assertThat(validator.parse(d,true,now).translations().get("en").events().getFirst().scheduledAt()).isNull();
+  e.put("status","RELEASED").put("actual","6.1").put("publishedAt","2026-09-07T05:00:00Z");
+  assertThatThrownBy(()->validator.parse(d,true,now)).hasMessageContaining("publication precedes scheduled date");
+ }
 }

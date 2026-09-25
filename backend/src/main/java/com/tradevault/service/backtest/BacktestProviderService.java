@@ -29,6 +29,7 @@ public class BacktestProviderService {
     private final BacktestTokenCipherService tokenCipherService;
     private final OandaCandleProvider oandaCandleProvider;
     private final ObjectMapper objectMapper;
+    private final BacktestRateLimiterService rateLimiter;
 
     @Transactional(readOnly = true)
     public ProviderConnectionStatusResponse getOandaStatus(UUID userId) {
@@ -133,6 +134,55 @@ public class BacktestProviderService {
         credentialRepository.save(credential);
         return instruments;
     }
+
+    // Native quotes use one credential snapshot, so reconnects cannot mix token/account/environment.
+    // Expired capabilities are refreshed in memory; reading Today must not update credentials.
+    private final java.util.Map<String, MarketCapabilities> marketCapabilities = new java.util.LinkedHashMap<>();
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public OandaMarketConnection marketConnection(UUID userId, boolean discoverCapabilities) {
+        var credential = credentialRepository.findByUser_IdAndProvider(userId, BacktestCandleSource.OANDA)
+                .orElseThrow(ProviderNotConnectedException::oandaNoCredentials);
+        String account = normalizeOptionalText(credential.getProviderAccountId());
+        if (account == null) throw ProviderNotConnectedException.oandaNoCredentials();
+        OandaEnvironment environment = credential.getEnvironment() == null ? OandaEnvironment.PRACTICE : credential.getEnvironment();
+        String version;
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update(credential.getTokenIv());
+            version = java.util.HexFormat.of().formatHex(digest.digest(credential.getEncryptedToken()));
+        } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
+        if (!discoverCapabilities) return new OandaMarketConnection(null, account, environment, List.of(), version);
+        String token = tokenCipherService.decrypt(credential.getTokenIv(), credential.getEncryptedToken());
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        List<String> instruments;
+        var refreshed = credential.getInstrumentCapabilitiesRefreshedAt();
+        if (refreshed != null && !refreshed.isAfter(now) && Duration.between(refreshed, now).toHours() < 24) {
+            instruments = resolveCapabilities(credential.getInstrumentCapabilities());
+        } else {
+            String key = userId + "|" + account + "|" + environment + "|" + version;
+            MarketCapabilities cached;
+            synchronized (marketCapabilities) {
+                marketCapabilities.entrySet().removeIf(e -> Duration.between(e.getValue().at(), now).toHours() >= 24);
+                cached = marketCapabilities.get(key);
+            }
+            if (cached == null) {
+                rateLimiter.assertCanFetch(userId);
+                instruments = oandaCandleProvider.listInstruments(token, account, environment);
+                synchronized (marketCapabilities) {
+                    if (marketCapabilities.size() >= 256) marketCapabilities.remove(marketCapabilities.keySet().iterator().next());
+                    marketCapabilities.put(key, new MarketCapabilities(now, List.copyOf(instruments)));
+                }
+            } else instruments = cached.instruments();
+        }
+        return new OandaMarketConnection(token, account, environment, List.copyOf(instruments), version);
+    }
+
+    public record OandaMarketConnection(String token, String accountId, OandaEnvironment environment,
+                                        List<String> instruments, String version) {
+        @Override public String toString() { return "OandaMarketConnection[redacted]"; }
+    }
+    private record MarketCapabilities(OffsetDateTime at, List<String> instruments) {}
 
     private ProviderConnectionStatusResponse toResponse(BacktestProviderCredential credential) {
         return ProviderConnectionStatusResponse.builder()

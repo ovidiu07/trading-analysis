@@ -111,13 +111,13 @@ public class OandaCandleProvider {
         String payload = executeGet(url, token);
         try {
             JsonNode instruments = objectMapper.readTree(payload == null ? "{}" : payload).path("instruments");
-            if (!instruments.isArray()) return List.of();
+            if (!instruments.isArray()) throw new IllegalArgumentException("Missing instruments");
             List<String> names = new ArrayList<>();
             for (JsonNode item : instruments) {
                 String name = trimToNull(item.path("name").asText(null));
                 if (name != null && name.matches("[A-Z0-9]{2,16}_[A-Z0-9]{2,16}")) names.add(name);
             }
-            return List.copyOf(names);
+            return names.stream().distinct().sorted().toList();
         } catch (Exception ex) {
             throw new BacktestDomainException(BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
                     "Could not parse OANDA instrument capabilities", "Retest the OANDA connection.",
@@ -138,7 +138,7 @@ public class OandaCandleProvider {
         try {
             JsonNode prices = objectMapper.readTree(payload == null ? "{}" : payload).path("prices");
             Map<String, OandaQuote> result = new LinkedHashMap<>();
-            if (!prices.isArray()) return result;
+            if (!prices.isArray()) throw new IllegalArgumentException("Missing prices");
             for (JsonNode price : prices) {
                 String instrument = price.path("instrument").asText("");
                 BigDecimal bid = firstPrice(price.path("bids"));
@@ -149,10 +149,13 @@ public class OandaCandleProvider {
                     ask = parseDecimal(price.path("closeoutAsk").asText(null));
                 }
                 OffsetDateTime observedAt = parseTime(price.path("time").asText(null));
-                if (symbols.contains(instrument) && bid != null && ask != null && observedAt != null) {
+                if (symbols.contains(instrument) && bid != null && ask != null && bid.signum() > 0 && ask.compareTo(bid) >= 0 && observedAt != null) {
                     String providerStatus = price.path("status").asText("");
+                    if ("invalid".equalsIgnoreCase(providerStatus)) continue;
+                    Boolean tradeable = price.path("tradeable").isBoolean() ? price.path("tradeable").booleanValue()
+                            : providerStatus.isBlank() ? null : "tradeable".equalsIgnoreCase(providerStatus);
                     result.put(instrument, new OandaQuote(instrument, bid, ask, observedAt,
-                            providerStatus.isBlank() ? null : "tradeable".equalsIgnoreCase(providerStatus), closePrice ? "CLOSE" : "MID"));
+                            tradeable, closePrice ? "CLOSEOUT_MID" : "MID"));
                 }
             }
             return result;

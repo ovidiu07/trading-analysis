@@ -1,3 +1,4 @@
+import { announceProviderConnectionChanged } from './marketData'
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart } from './client'
 
 export type BacktestCandle = {
@@ -537,11 +538,15 @@ export async function testOandaProvider(token: string, environment: 'PRACTICE' |
 }
 
 export async function connectOandaProvider(token: string, environment: 'PRACTICE' | 'LIVE' = 'PRACTICE') {
-  return apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/connect', { token, environment })
+  const result = await apiPost<ProviderConnectionStatus>('/backtest/providers/oanda/connect', { token, environment })
+  announceProviderConnectionChanged()
+  return result
 }
 
 export async function disconnectOandaProvider() {
-  return apiDelete('/backtest/providers/oanda')
+  const result = await apiDelete('/backtest/providers/oanda')
+  announceProviderConnectionChanged()
+  return result
 }
 
 export async function createBacktestDatasetSet(payload: {

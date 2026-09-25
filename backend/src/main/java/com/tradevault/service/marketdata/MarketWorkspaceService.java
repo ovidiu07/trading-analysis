@@ -1,6 +1,5 @@
 package com.tradevault.service.marketdata;
 
-import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.dto.market.MarketWorkspaceResponse;
 import com.tradevault.dto.market.MarketWorkspaceResponse.AvailabilityReason;
 import com.tradevault.dto.market.MarketWorkspaceResponse.Freshness;
@@ -10,7 +9,6 @@ import com.tradevault.exception.BacktestDomainException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
-import com.tradevault.service.backtest.OandaEnvironment;
 import com.tradevault.service.backtest.BacktestRateLimiterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,14 +23,10 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -50,7 +44,8 @@ public class MarketWorkspaceService {
     private final TreasuryYieldProvider treasury;
     private final MarketAnalysisService analysis;
     private final BacktestRateLimiterService rateLimiter;
-    private final Map<String, CachedResponse> quoteCache = new ConcurrentHashMap<>();
+    private final Map<String, CachedResponse> quoteCache = new java.util.LinkedHashMap<>();
+    private java.time.Clock clock = java.time.Clock.systemUTC();
 
     @Value("${marketdata.user-connected-oanda-display-enabled:false}")
     private boolean displayAuthorized;
@@ -59,93 +54,113 @@ public class MarketWorkspaceService {
     @Value("${marketdata.oanda-candle-derivations-enabled:false}")
     private boolean candleDerivationsEnabled;
 
+    // Fixed stripes serialize concurrent requests without an unbounded map of user locks.
+    private final Object[] userLocks = java.util.stream.IntStream.range(0, 64).mapToObj(i -> new Object()).toArray();
+
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public MarketWorkspaceResponse snapshot(UUID userId, UUID accountId, String selectedInstrument, LocalDate workspaceDate) {
-        if (accountId == null || !accounts.findByIdAndUserId(accountId, userId).isPresent())
+        if (accountId == null || accounts.findByIdAndUserId(accountId, userId).isEmpty())
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Trading account not found");
-        String selected = normalizeSelected(selectedInstrument);
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        synchronized (userLocks[Math.floorMod(userId.hashCode(), userLocks.length)]) {
+            return ownedSnapshot(userId, accountId, normalizeSelected(selectedInstrument), workspaceDate);
+        }
+    }
+
+    private MarketWorkspaceResponse ownedSnapshot(UUID userId, UUID accountId, String selected, LocalDate workspaceDate) {
+        OffsetDateTime now = OffsetDateTime.now(clock);
         LocalDate effectiveDate = workspaceDate == null ? now.toLocalDate() : workspaceDate;
-        quoteCache.entrySet().removeIf(entry -> Duration.between(entry.getValue().createdAt(), now).compareTo(Duration.ofMinutes(2)) > 0);
         List<MarketWorkspaceResponse.MacroObservation> macro = treasury.latest();
-        String token;
+        BacktestProviderService.OandaMarketConnection connection;
         try {
-            token = providers.requireOandaToken(userId);
-        } catch (ProviderNotConnectedException ex) {
-            return unavailable(now, selected, null, AvailabilityReason.NO_CREDENTIALS, macro);
-        }
-
-        OandaEnvironment environment = providers.resolveOandaEnvironment(userId);
-        String providerAccount = providers.resolveOandaSourceId(userId);
-        if (providerAccount == null || providerAccount.isBlank())
-            return unavailable(now, selected, environment.name(), AvailabilityReason.NO_CREDENTIALS, macro);
-        if (!displayAuthorized)
-            return unavailable(now, selected, environment.name(), AvailabilityReason.LICENSE_REQUIRED, macro);
-
-        List<String> capabilities;
-        try {
-            capabilities = providers.resolveFreshOandaInstruments(userId);
+            connection = providers.marketConnection(userId, displayAuthorized);
         } catch (RuntimeException ex) {
-            AvailabilityReason reason = availabilityReason(ex);
-            List<InstrumentQuote> failed = WATCHLIST.stream().map(symbol -> unavailableQuote(symbol, CANDIDATES.get(symbol), now, reason)).toList();
-            return new MarketWorkspaceResponse(now, selected, environment.name(), failed, macro);
+            return unavailable(now, selected, null, availabilityReason(ex), macro);
         }
-        List<String> canonical = WATCHLIST.stream().filter(CANDIDATES::containsKey)
-                .filter(symbol -> capabilities.contains(CANDIDATES.get(symbol))).toList();
-        List<String> providerSymbols = canonical.stream().map(CANDIDATES::get).sorted().toList();
-        String cacheKey = userId + "|" + accountId + "|OANDA|" + environment + "|" + providerAccount + "|"
-                + selected + "|" + effectiveDate + "|" + String.join(",", providerSymbols);
-        CachedResponse cached = quoteCache.get(cacheKey);
-        if (cached != null && Duration.between(cached.createdAt(), now).toMillis() < Math.max(0, cacheTtlMs))
-            return new MarketWorkspaceResponse(now, selected, environment.name(), cached.response().quotes(), macro);
-
-        Map<String, OandaCandleProvider.OandaQuote> fetched;
-        try {
-            rateLimiter.assertCanFetch(userId);
-            fetched = oanda.getQuotes(token, providerAccount, environment, providerSymbols);
-        } catch (RuntimeException ex) {
-            AvailabilityReason reason = availabilityReason(ex);
-            List<InstrumentQuote> failed = WATCHLIST.stream().map(symbol -> unavailableQuote(symbol, null,
-                    now, reason)).toList();
-            return new MarketWorkspaceResponse(now, selected, environment.name(), failed, macro);
+        String environment = connection.environment().name();
+        if (!displayAuthorized) return unavailable(now, selected, environment, AvailabilityReason.LICENSE_REQUIRED, macro);
+        List<String> capabilities = connection.instruments();
+        List<String> symbols = CANDIDATES.values().stream().filter(capabilities::contains).sorted().toList();
+        // Only quotes are cached: selected-instrument analysis is composed for every response.
+        String key = userId + "|" + accountId + "|" + environment + "|" + connection.accountId() + "|"
+                + connection.version() + "|" + String.join(",", symbols);
+        CachedResponse cached;
+        OffsetDateTime cacheCheckedAt = OffsetDateTime.now(clock);
+        synchronized (quoteCache) {
+            quoteCache.entrySet().removeIf(e -> !e.getValue().expiresAt().isAfter(cacheCheckedAt));
+            cached = quoteCache.get(key);
         }
-        List<InstrumentQuote> observations = new ArrayList<>();
-        OandaCandleProvider.OandaQuote selectedQuote = null;
-        for (String symbol : WATCHLIST) {
-            String providerSymbol = CANDIDATES.get(symbol);
-            if (providerSymbol == null || !capabilities.contains(providerSymbol)) {
-                observations.add(unavailableQuote(symbol, providerSymbol, now, AvailabilityReason.SYMBOL_NOT_SUPPORTED));
-                continue;
+        List<InstrumentQuote> observations;
+        if (cached != null) observations = cached.quotes();
+        else {
+            AvailabilityReason failure = null;
+            Map<String, OandaCandleProvider.OandaQuote> fetched = Map.of();
+            if (!symbols.isEmpty()) {
+                try {
+                    rateLimiter.assertCanFetch(userId);
+                    fetched = oanda.getQuotes(connection.token(), connection.accountId(), connection.environment(), symbols);
+                } catch (RuntimeException ex) { failure = availabilityReason(ex); }
             }
-            OandaCandleProvider.OandaQuote quote = fetched.get(providerSymbol);
-            if (quote == null) {
-                observations.add(unavailableQuote(symbol, providerSymbol, now, AvailabilityReason.MARKET_CLOSED));
-                continue;
+            OffsetDateTime received = OffsetDateTime.now(clock);
+            List<InstrumentQuote> rows = new ArrayList<>();
+            for (String symbol : WATCHLIST) {
+                String providerSymbol = CANDIDATES.get(symbol);
+                if (providerSymbol == null || !capabilities.contains(providerSymbol)) {
+                    rows.add(unavailableQuote(symbol, providerSymbol, received, AvailabilityReason.SYMBOL_NOT_SUPPORTED));
+                    continue;
+                }
+                if (failure != null) { rows.add(unavailableQuote(symbol, providerSymbol, received, failure)); continue; }
+                var quote = fetched.get(providerSymbol);
+                if (!validQuote(quote, providerSymbol, received)) {
+                    rows.add(unavailableQuote(symbol, providerSymbol, received, AvailabilityReason.NO_QUOTE));
+                    continue;
+                }
+                BigDecimal mid = quote.bid().add(quote.ask()).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+                Freshness freshness = Duration.between(quote.tsUtc(), received).compareTo(STALE_AFTER) > 0 ? Freshness.STALE
+                        : "CLOSE".equals(quote.priceBasis()) || Boolean.FALSE.equals(quote.tradeable()) ? Freshness.CLOSE
+                        : Boolean.TRUE.equals(quote.tradeable()) && "MID".equals(quote.priceBasis()) ? Freshness.LIVE : Freshness.INDICATIVE;
+                rows.add(new InstrumentQuote(symbol, "OANDA", providerSymbol, instrumentType(symbol), quote.priceBasis(),
+                        quote.bid(), quote.ask(), mid, quote.ask().subtract(quote.bid()), unit(symbol), quote.tsUtc(), received,
+                        freshness, quote.tradeable(), "USER_CONNECTED", SOURCE_URL, null,
+                        Boolean.FALSE.equals(quote.tradeable()) ? AvailabilityReason.MARKET_CLOSED : null));
             }
-            if (selected.equals(symbol)) selectedQuote = quote;
-            BigDecimal bid = quote.bid();
-            BigDecimal ask = quote.ask();
-            BigDecimal mid = bid.add(ask).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
-            BigDecimal spread = ask.subtract(bid).setScale(8, RoundingMode.HALF_UP);
-            Freshness freshness = Boolean.FALSE.equals(quote.tradeable()) ? Freshness.CLOSE
-                    : Duration.between(quote.tsUtc(), now).abs().compareTo(STALE_AFTER) <= 0 ? Freshness.LIVE : Freshness.STALE;
-            observations.add(new InstrumentQuote(symbol, BacktestCandleSource.OANDA.name(), providerSymbol,
-                    instrumentType(symbol), quote.priceBasis(), bid, ask, mid, spread, unit(symbol), quote.tsUtc(), now,
-                    freshness, quote.tradeable(), "USER_CONNECTED", SOURCE_URL, null, null));
+            observations = List.copyOf(rows);
+            long ttl = failure == AvailabilityReason.RATE_LIMIT ? 60_000 : failure != null ? 15_000 : Math.clamp(cacheTtlMs, 1200, 5000);
+            synchronized (quoteCache) {
+                if (quoteCache.size() >= 256) quoteCache.remove(quoteCache.keySet().iterator().next());
+                quoteCache.put(key, new CachedResponse(received.plusNanos(ttl * 1_000_000), observations));
+            }
         }
-        MarketWorkspaceResponse.AnalysisMetrics metrics;
+        observations = ageQuotes(observations, OffsetDateTime.now(clock));
         String selectedProvider = CANDIDATES.get(selected);
-        if (selectedProvider == null || !capabilities.contains(selectedProvider)) {
+        var selectedQuote = observations.stream().filter(q -> selected.equals(q.canonicalInstrument())).findFirst().orElse(null);
+        MarketWorkspaceResponse.AnalysisMetrics metrics;
+        if (selectedProvider == null || !capabilities.contains(selectedProvider))
             metrics = analysis.unavailable(selected, selectedProvider, now, AvailabilityReason.SYMBOL_NOT_SUPPORTED);
-        } else if (!candleDerivationsEnabled) {
+        else if (!candleDerivationsEnabled)
             metrics = analysis.unavailable(selected, selectedProvider, now, AvailabilityReason.LICENSE_REQUIRED);
-        } else {
-            metrics = analysis.analyze(userId, accountId, token, providerAccount, environment, selected, selectedProvider,
-                    effectiveDate, selectedQuote);
-        }
-        MarketWorkspaceResponse response = new MarketWorkspaceResponse(now, selected, environment.name(), List.copyOf(observations), macro, metrics);
-        quoteCache.put(cacheKey, new CachedResponse(now, response));
-        return response;
+        else if (selectedQuote.mid() == null || selectedQuote.freshness() == Freshness.STALE)
+            metrics = analysis.unavailable(selected, selectedProvider, now,
+                    selectedQuote.availabilityReason() == null ? AvailabilityReason.NO_QUOTE : selectedQuote.availabilityReason());
+        else metrics = analysis.analyze(userId, accountId, connection.token(), connection.accountId(), connection.environment(),
+                    selected, selectedProvider, effectiveDate,
+                    new OandaCandleProvider.OandaQuote(selectedProvider, selectedQuote.bid(), selectedQuote.ask(),
+                            selectedQuote.observedAt(), selectedQuote.tradeable(), selectedQuote.priceBasis()));
+        OffsetDateTime completedAt = OffsetDateTime.now(clock);
+        return new MarketWorkspaceResponse(completedAt, selected, environment, ageQuotes(observations, completedAt), macro, metrics);
+    }
+
+    private List<InstrumentQuote> ageQuotes(List<InstrumentQuote> quotes, OffsetDateTime now) {
+        return quotes.stream().map(q -> q.mid() == null || (q.observedAt() != null
+                && Duration.between(q.observedAt(), now).compareTo(STALE_AFTER) <= 0) ? q
+                : new InstrumentQuote(q.canonicalInstrument(), q.provider(), q.providerSymbol(), q.instrumentType(),
+                    q.priceBasis(), q.bid(), q.ask(), q.mid(), q.spread(), q.unit(), q.observedAt(), q.retrievedAt(),
+                    Freshness.STALE, q.tradeable(), q.provenance(), q.sourceUrl(), q.delayDescription(), q.availabilityReason())).toList();
+    }
+
+    private boolean validQuote(OandaCandleProvider.OandaQuote quote, String symbol, OffsetDateTime now) {
+        return quote != null && symbol.equals(quote.instrument()) && quote.tsUtc() != null
+                && !quote.tsUtc().isAfter(now.plusSeconds(5)) && quote.bid() != null && quote.ask() != null
+                && quote.bid().signum() > 0 && quote.ask().compareTo(quote.bid()) >= 0;
     }
 
     public MarketWorkspaceResponse snapshot(UUID userId, UUID accountId, String selectedInstrument) {
@@ -155,7 +170,8 @@ public class MarketWorkspaceService {
     private MarketWorkspaceResponse unavailable(OffsetDateTime now, String selected, String environment, AvailabilityReason reason,
                                                 List<MarketWorkspaceResponse.MacroObservation> macro) {
         return new MarketWorkspaceResponse(now, selected, environment,
-                WATCHLIST.stream().map(symbol -> unavailableQuote(symbol, CANDIDATES.get(symbol), now, reason)).toList(), macro,
+                WATCHLIST.stream().map(symbol -> unavailableQuote(symbol, CANDIDATES.get(symbol), now,
+                        CANDIDATES.containsKey(symbol) ? reason : AvailabilityReason.SYMBOL_NOT_SUPPORTED)).toList(), macro,
                 analysis.unavailable(selected, CANDIDATES.get(selected), now, reason));
     }
 
@@ -168,7 +184,7 @@ public class MarketWorkspaceService {
     private String normalizeSelected(String raw) {
         if (raw == null || raw.isBlank()) return "GBPUSD";
         String value = raw.trim().toUpperCase();
-        if (!WATCHLIST.contains(value)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported canonical instrument");
+        if (!WATCHLIST.contains(value) && !"UNSET".equals(value)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported canonical instrument");
         return value;
     }
 
@@ -192,12 +208,14 @@ public class MarketWorkspaceService {
     }
 
     private AvailabilityReason availabilityReason(RuntimeException error) {
+        if (error instanceof ProviderNotConnectedException) return AvailabilityReason.NO_CREDENTIALS;
         if (error instanceof BacktestDomainException domain) {
+            if (domain.getStatus().value() == 401 || domain.getStatus().value() == 403) return AvailabilityReason.PROVIDER_DISCONNECTED;
             if (domain.getStatus().value() == 429 || "RATE_LIMITED".equals(domain.getCode())) return AvailabilityReason.RATE_LIMIT;
-            if (domain.getStatus().is5xxServerError()) return AvailabilityReason.UPSTREAM_TIMEOUT;
+            if (domain.getStatus().value() == 504) return AvailabilityReason.UPSTREAM_TIMEOUT;
         }
         return AvailabilityReason.UPSTREAM_ERROR;
     }
 
-    private record CachedResponse(OffsetDateTime createdAt, MarketWorkspaceResponse response) {}
+    private record CachedResponse(OffsetDateTime expiresAt, List<InstrumentQuote> quotes) {}
 }

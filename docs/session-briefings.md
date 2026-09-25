@@ -72,3 +72,8 @@ Prose is treated as plain text and React-escaped, including literal HTML/entitie
 ## Verification evidence
 
 See `outputs/editorial-briefings/` for API results, screenshots, real iframe dimension measurements, migration proof and final check summaries. The API harness is `backend/scripts/verify_editorial_local.py` and deliberately rejects non-local API hosts. It uses synthetic QA users and should only be run against an isolated QA database. Browser tests used actual authenticated Admin and ordinary-user sessions. No production deployment or hosted browser run was performed.
+
+
+## Official event suggestions (V70)
+
+The admin editor now includes an official BLS/Eurostat suggestion inbox. Calendar refreshes and reviewed exact-observation requests only stage immutable source revisions. Adding a suggestion to a draft still requires the existing preview, language review and explicit publication. Imported provenance is checked against its original revision. Date-only schedules do not invent instants; actuals require a verified publication time and cannot be backdated before retrieval. Today uses the existing preparation capture for its event card. See [source contracts, review workflow and validation limits](official-event-pipeline.md).

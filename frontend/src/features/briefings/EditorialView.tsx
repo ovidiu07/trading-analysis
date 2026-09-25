@@ -1,3 +1,4 @@
+import EventDetails from './EventDetails'
 import { Alert, Box, Chip, Link, Stack, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../../api/client'
@@ -24,7 +25,7 @@ export function EditorialDocument({ document: d, scenariosOnly=false }: { docume
  <Typography sx={{whiteSpace:'pre-wrap'}}>{f.statement}</Typography>{source(f.source,f.sourceUrl)}
  <Typography variant="caption" display="block">{t('editorial.availableAt')}: {f.availableAt || f.availabilityNotEstablished}</Typography></Box>))}
  {detail('news',content.news.map((n,i)=><Box key={i}><Typography fontWeight={600}>{n.headline}</Typography><Typography variant="caption">{n.publishedAt}</Typography><Typography>{n.summary}</Typography><Typography>{n.relevance}</Typography>{source(n.source,n.sourceUrl)}</Box>))}
- {detail('events',content.events.map(e=><Box key={e.id}><Typography>{e.name} · {e.region} · {t(`editorial.${e.status}`)}</Typography><Typography variant="caption">{e.scheduledAt} · {e.timezone} · {e.id}</Typography><Typography>{t('editorial.actual')}: {e.actual ?? '—'} · {t('editorial.forecast')}: {e.forecast ?? '—'} · {t('editorial.previous')}: {e.previous ?? '—'} {e.unit}</Typography><Typography>{e.explanation}</Typography>{source(e.source,e.sourceUrl)}</Box>))}
+ {detail('events',content.events.map(e=><EventDetails key={e.id} event={e} referenceTime={d.referenceTime}/>))}
  {detail('macro',<><Alert severity="info">{t('editorial.snapshot')}</Alert>{content.macro.map((m,i)=><Box key={i}><Typography>{m.instrument} · {m.type}: {m.value ?? '—'} {m.unit}</Typography><Typography variant="caption">{m.observedAt} · {m.availability}</Typography>{m.referenceValue!=null && <Typography variant="body2">{t('editorial.referenceValue')}: {m.referenceValue} · {m.referenceAt}</Typography>}{m.type.toUpperCase()==='YIELD' && m.value!=null && m.referenceValue!=null && <Typography variant="body2">Δ {((m.value-m.referenceValue)*100).toFixed(2)} bp</Typography>}{source(m.source,m.sourceUrl)}</Box>)}</>)}
  </>}
  {(scenariosOnly || content.scenarios.length>0) && <><Typography fontWeight={600}>{t('editorial.publishedAnalysis')}</Typography>{content.scenarios.length===0 && <Typography>{t('editorial.noScenarios')}</Typography>}{content.scenarios.map(s=><Box key={s.market} sx={{p:1.5,border:1,borderColor:'divider',borderRadius:1}}><Typography component="h4">{s.instrument} · {s.source} · {s.type} {s.contract}</Typography><Chip size="small" label={t(`prepare.${s.bias}`)} />{(['context','main','alternative','invalidation','risks','limitations'] as const).map(k=><Typography key={k} sx={{whiteSpace:'pre-wrap'}}><strong>{t(`editorial.${k}`)}: </strong>{s[k]}</Typography>)}</Box>)}</>}

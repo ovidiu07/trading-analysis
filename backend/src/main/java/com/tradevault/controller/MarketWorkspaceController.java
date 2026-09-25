@@ -26,6 +26,6 @@ public class MarketWorkspaceController {
             @RequestParam(required = false) String selectedInstrument,
             @RequestParam(required = false) LocalDate date) {
         UUID userId = currentUserService.getCurrentUser().getId();
-        return ResponseEntity.ok(marketWorkspaceService.snapshot(userId, accountId, selectedInstrument, date));
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(marketWorkspaceService.snapshot(userId, accountId, selectedInstrument, date));
     }
 }

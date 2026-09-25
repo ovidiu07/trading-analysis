@@ -45,12 +45,19 @@ public record BriefingDocument(
  public record News(@NotBlank @Size(max=300) String headline, @NotNull Instant publishedAt,
   @NotBlank @Size(max=200) String source, @NotBlank @Size(max=2000) String sourceUrl,
   @NotBlank @Size(max=1500) String summary, @NotBlank @Size(max=1000) String relevance) {}
- public record Event(@NotBlank @Size(max=120) String id, @NotNull Instant scheduledAt,
+ public record Event(@NotBlank @Size(max=120) String id, Instant scheduledAt,
   @NotBlank @Size(max=80) String timezone, @NotBlank @Size(max=100) String region,
   @NotBlank @Size(max=300) String name, @NotBlank @Size(max=200) String source,
   @Size(max=2000) String sourceUrl, @Size(max=100) String actual, @Size(max=100) String forecast,
   @Size(max=100) String previous, @Size(max=50) String unit, @Size(max=1000) String explanation,
-  @NotNull EventStatus status, EventImpact impact) {}
+  @NotNull EventStatus status, EventImpact impact, LocalDate scheduledDate, Instant publishedAt,
+  @Valid EventEvidence official, @Size(max=2000) String forecastSourceUrl, @Size(max=2000) String previousSourceUrl) {}
+ public record EventEvidence(@Pattern(regexp="BLS|EUROSTAT") @NotNull String sourceId,
+  @NotBlank @Size(max=500) String eventId, @NotBlank @Size(max=500) String sourceEventId,
+  @Pattern(regexp="SOURCE_UID|SCHEDULE_SIGNATURE") @NotNull String identityBasis, @NotNull UUID revisionId, @NotNull Instant retrievedAt,
+  Integer sourceSequence, Instant sourceModifiedAt, Instant previousScheduledAt, LocalDate previousScheduledDate,
+  @Size(max=2000) String publicationSourceUrl, @Size(max=2000) String resultSourceUrl,
+  @Size(max=200) String seriesId, @Size(max=30) String referencePeriod, @Size(max=300) String measure, Instant resultRetrievedAt) {}
  public enum EventStatus { RELEASED, UPCOMING, RESCHEDULED, CANCELLED }
  public enum EventImpact { HIGH, MEDIUM, LOW }
  public record Macro(@NotBlank @Size(max=200) String instrument, @NotBlank @Size(max=100) String type,

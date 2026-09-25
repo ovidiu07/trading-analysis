@@ -8,7 +8,8 @@ import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../../api/client'
 import type { Preparation } from '../../api/sessionReviews'
-import type { Selection, Translation } from '../../features/briefings/model'
+import EventDetails from '../../features/briefings/EventDetails'
+import type { Composition, Selection, Translation } from '../../features/briefings/model'
 import type { AnalysisMetrics, InstrumentQuote, MacroObservation } from '../../api/marketData'
 import { WorkstationCard } from './WorkspacePrimitives'
 import { useI18n } from '../../i18n'
@@ -26,9 +27,11 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
   analysis?: AnalysisMetrics | null
 }) {
   const { t, locale, language } = useI18n()
-  const eventsQuery = useQuery({
-    queryKey: ['published-market-events', date],
-    queryFn: () => apiGet<Selection>(`/session-briefings?date=${encodeURIComponent(date)}`),
+  const eventsQuery = useQuery<Selection | Composition>({
+    queryKey: preparation.briefingId ? ['preparationBriefingVersion', preparation.briefingId] : ['published-market-events', preparation.briefingDate || date, preparation.briefingSession],
+    queryFn: () => preparation.briefingId
+      ? apiGet<Composition>(`/today/briefing/version/${preparation.briefingId}`)
+      : apiGet<Selection>(`/session-briefings?date=${encodeURIComponent(preparation.briefingDate || date)}${preparation.manualSession ? `&slot=${preparation.briefingSession}` : ''}`),
     staleTime: 60_000
   })
   const publication = eventsQuery.data?.selected
@@ -61,15 +64,7 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
     </WorkstationCard>
     <WorkstationCard title={t('workstation.upcomingEvents')} icon={CalendarMonthOutlinedIcon} action={<Button size="small" href="#market-context">{t('workstation.marketContext')}</Button>}>
       {eventsQuery.isLoading ? <Typography variant="body2" role="status">{t('common.loading')}</Typography> : events.length ? <Stack spacing={0.25}>
-        {events.map(event => {
-          const scheduled = new Date(event.scheduledAt)
-          const displayTime = new Intl.DateTimeFormat(locale === 'ro' ? 'ro-RO' : 'en-GB', { timeZone: 'Europe/Bucharest', dateStyle: 'short', timeStyle: 'short' }).format(scheduled)
-          const released = event.status === 'RELEASED' && scheduled.getTime() <= Date.now()
-          return <Stack key={event.id} direction="row" alignItems="flex-start" spacing={1} sx={{ py: 0.65, borderBottom: '1px solid', borderColor: 'divider' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ width: 104, flexShrink: 0 }}>{displayTime}</Typography>
-            <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="caption" sx={{ fontWeight: 700 }}>{event.name}</Typography><Typography display="block" variant="caption" color="text.secondary">{event.region} · {t(`workstation.eventStatus.${event.status}`)} · {event.timezone}</Typography>{event.sourceUrl ? <MuiLink href={event.sourceUrl} target="_blank" rel="noreferrer" variant="caption">{event.source}</MuiLink> : <Typography variant="caption" color="text.secondary">{event.source}</Typography>}{event.impact ? <Chip size="small" label={t(`workstation.impact.${event.impact.toLowerCase()}`)} variant="outlined" sx={{ ml: 0.75, height: 18 }} /> : null}{released && (event.actual || event.forecast || event.previous) ? <Typography display="block" variant="caption">{[event.actual && `${t('workstation.eventActual')}: ${event.actual}`, event.forecast && `${t('workstation.eventForecast')}: ${event.forecast}`, event.previous && `${t('workstation.eventPrevious')}: ${event.previous}`].filter(Boolean).join(' · ')}</Typography> : null}</Box>
-          </Stack>
-        })}
+        {events.map(event => <EventDetails key={event.id} event={event} referenceTime={publication?.document.referenceTime}/>)}
         <Typography variant="caption" color="text.secondary">{t('workstation.publishedBriefingSource')} · {publication?.publishedAt}</Typography>
       </Stack> : <Alert severity="info">{t('workstation.noPublishedEvents')}</Alert>}
       {eventsQuery.isError ? <Alert severity="warning">{t('workstation.noPublishedEvents')}</Alert> : null}

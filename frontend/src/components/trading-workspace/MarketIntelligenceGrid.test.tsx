@@ -17,10 +17,10 @@ const publication = {
 afterEach(cleanup)
 beforeEach(() => vi.mocked(apiGet).mockResolvedValue({ selected: publication } as never))
 
-function show(analysis?: unknown) {
+function show(analysis?: unknown, briefingId?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}><MarketIntelligenceGrid
-    preparation={{ bias: 'neutral', contextAcknowledged: false } as never}
+    preparation={{ bias: 'neutral', contextAcknowledged: false, briefingId } as never}
     thesis=""
     briefing={null}
     onAcknowledge={vi.fn()}
@@ -32,6 +32,13 @@ function show(analysis?: unknown) {
 }
 
 describe('Today market information', () => {
+  it('uses the preparation capture for events instead of a newer publication', async () => {
+    vi.mocked(apiGet).mockClear()
+    show(undefined, 'frozen-capture')
+    expect(await screen.findByText('CPI release')).toBeInTheDocument()
+    expect(apiGet).toHaveBeenCalledTimes(1)
+    expect(apiGet).toHaveBeenCalledWith('/today/briefing/version/frozen-capture')
+  })
   it('uses only the published briefing selection for events and leaves missing native values unavailable', async () => {
     show()
     expect(await screen.findByText('CPI release')).toBeInTheDocument()
@@ -54,7 +61,7 @@ describe('Today market information', () => {
     vi.mocked(apiGet).mockResolvedValue({ selected: futureActual } as never)
     show()
     await screen.findByText('CPI release')
-    expect(screen.queryByText(/workstation.eventActual/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/3.7%/)).not.toBeInTheDocument()
   })
 
   it('never renders another instrument analysis after the selection changes', async () => {

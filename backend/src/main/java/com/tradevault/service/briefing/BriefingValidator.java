@@ -44,8 +44,21 @@ public class BriefingValidator {
    for(var e:t.events()) {
     if(!ids.add(e.id())) fail(locale+".events: duplicate id "+e.id());
     try { ZoneId.of(e.timezone()); } catch(Exception ex) { fail(locale+".events."+e.id()+".timezone: invalid"); }
+    if(e.scheduledAt()==null && e.scheduledDate()==null)fail(locale+".events."+e.id()+": schedule instant or explicit date required");
     if(e.status()==BriefingDocument.EventStatus.RELEASED) past(e.scheduledAt(),doc.referenceTime(),locale+".events."+e.id());
     if(e.status()!=BriefingDocument.EventStatus.RELEASED && e.actual()!=null && !e.actual().isBlank()) fail(locale+".events."+e.id()+": actual only allowed for RELEASED");
+    if(e.actual()!=null && !e.actual().isBlank()) {
+     if(e.publishedAt()==null)fail(locale+".events."+e.id()+": official publication time required for actual");
+     past(e.publishedAt(),doc.referenceTime(),locale+".events."+e.id()+".publishedAt");
+     if(e.scheduledAt()!=null && e.publishedAt().isBefore(e.scheduledAt()))fail(locale+".events."+e.id()+": publication precedes schedule");
+     if(e.scheduledDate()!=null && e.publishedAt().atZone(ZoneId.of(e.timezone())).toLocalDate().isBefore(e.scheduledDate()))fail(locale+".events."+e.id()+": publication precedes scheduled date");
+    }
+    if(e.official()!=null) {
+     past(e.official().retrievedAt(),doc.referenceTime(),locale+".events."+e.id()+".retrievedAt");
+     past(e.official().resultRetrievedAt(),doc.referenceTime(),locale+".events."+e.id()+".resultRetrievedAt");
+    }
+    if(e.forecast()!=null && !e.forecast().isBlank() && (e.forecastSourceUrl()==null || e.forecastSourceUrl().isBlank()))fail(locale+".events."+e.id()+": reviewed forecast source required");
+    if(e.previous()!=null && !e.previous().isBlank() && (e.previousSourceUrl()==null || e.previousSourceUrl().isBlank()))fail(locale+".events."+e.id()+": reviewed previous-value source required");
    }
    ids.clear();
    for(var level:t.levels()==null?List.<BriefingDocument.Level>of():t.levels()) {

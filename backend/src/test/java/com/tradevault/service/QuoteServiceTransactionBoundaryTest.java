@@ -68,7 +68,8 @@ class QuoteServiceTransactionBoundaryTest {
                                                         BacktestTokenCipherService tokenCipherService,
                                                         OandaCandleProvider oandaCandleProvider,
                                                         com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-            return new BacktestProviderService(credentialRepository, tokenCipherService, oandaCandleProvider, objectMapper);
+            return new BacktestProviderService(credentialRepository, tokenCipherService, oandaCandleProvider, objectMapper,
+                    mock(com.tradevault.service.backtest.BacktestRateLimiterService.class));
         }
 
         @Bean
