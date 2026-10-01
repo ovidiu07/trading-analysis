@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <link href="https://ec.europa.eu/eurostat/en/search?p_p_id=estatsearchportlet_WAR_estatsearchportlet&amp;p_p_lifecycle=2&amp;p_p_state=maximized&amp;p_p_mode=view&amp;p_p_resource_id=atom&amp;_estatsearchportlet_WAR_estatsearchportlet_theme=PER_ECOFIN&amp;_estatsearchportlet_WAR_estatsearchportlet_collection=CAT_PREREL" rel="self" type="application/atom+xml" />
+  <title>Eurostat - Custom RSS Feed</title>
+  <link rel="alternate" href="https://ec.europa.eu/eurostat" />
+  <link rel="next" href="https://ec.europa.eu/eurostat/en/search?p_p_id=estatsearchportlet_WAR_estatsearchportlet&amp;p_p_lifecycle=2&amp;p_p_state=maximized&amp;p_p_mode=view&amp;p_p_resource_id=atom&amp;_estatsearchportlet_WAR_estatsearchportlet_theme=PER_ECOFIN&amp;_estatsearchportlet_WAR_estatsearchportlet_collection=CAT_PREREL&amp;pageNumber=2" />
+  <link rel="last" href="https://ec.europa.eu/eurostat/en/search?p_p_id=estatsearchportlet_WAR_estatsearchportlet&amp;p_p_lifecycle=2&amp;p_p_state=maximized&amp;p_p_mode=view&amp;p_p_resource_id=atom&amp;_estatsearchportlet_WAR_estatsearchportlet_theme=PER_ECOFIN&amp;_estatsearchportlet_WAR_estatsearchportlet_collection=CAT_PREREL&amp;pageNumber=133" />
+  <link rel="related" href="https://ec.europa.eu/eurostat/web/rss/about-rss" />
+  <subtitle>This feed has been created based on your search query. For more information, please consult the related help page.</subtitle>
+  <id>https://ec.europa.eu/eurostat/en/search?p_p_id=estatsearchportlet_WAR_estatsearchportlet&amp;p_p_lifecycle=2&amp;p_p_state=maximized&amp;p_p_mode=view&amp;p_p_resource_id=atom&amp;_estatsearchportlet_WAR_estatsearchportlet_theme=PER_ECOFIN&amp;_estatsearchportlet_WAR_estatsearchportlet_collection=CAT_PREREL</id>
+  <updated>2026-10-01T09:00:00Z</updated>
+  <entry>
+    <title>House prices up by 4.0% in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-01102026-bp" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-01102026-bp</id>
+    <updated>2026-10-01T09:00:00Z</updated>
+    <published>2026-10-01T09:00:00Z</published>
+    <summary type="html">In the second quarter of 2026, house prices, as measured by the House Price Index, increased by 4.0% in the euro area and by 4.7% in the EU compared with the same quarter of the previous year. In the first quarter of 2026, house prices increased by 4.6% and 5.1% in the euro area and EU, respectiv...</summary>
+  </entry>
+  <entry>
+    <title>Annual inflation up to 3.2% in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-17092026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-17092026-ap</id>
+    <updated>2026-09-17T09:00:00Z</updated>
+    <published>2026-09-17T09:00:00Z</published>
+    <summary type="html">The euro area annual inflation rate was 3.2% in August 2026, up from 2.9% in July. A year earlier, the rate was 2.0%. European Union annual inflation was 3.2% in August 2026, up from 3.0% in July. A year earlier, the rate was 2.4%. These figures are published by Eurostat, the statistical office o...</summary>
+  </entry>
+  <entry>
+    <title>GDP up by 0.6% and employment up by 0.1% in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-07092026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-07092026-ap</id>
+    <updated>2026-09-07T09:00:00Z</updated>
+    <published>2026-09-07T09:00:00Z</published>
+    <summary type="html">In the second quarter of 2026, seasonally adjusted GDP increased by 0.6% in the euro area and by 0.7% in the EU, compared with the previous quarter, according to an estimate published by Eurostat, the statistical office of the European Union. In the first quarter of 2026, GDP had remained stable ...</summary>
+  </entry>
+  <entry>
+    <title>Euro area annual inflation up to 3.3%</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-01092026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-01092026-ap</id>
+    <updated>2026-09-01T09:00:00Z</updated>
+    <published>2026-09-01T09:00:00Z</published>
+    <summary type="html">Euro area annual inflation is expected to be 3.3% in August 2026, up from 2.9% in July according to a flash estimate from Eurostat, the statistical office of the European Union.</summary>
+  </entry>
+  <entry>
+    <title>Annual inflation up to 2.9% in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-19082026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-19082026-ap</id>
+    <updated>2026-08-19T09:00:00Z</updated>
+    <published>2026-08-19T09:00:00Z</published>
+    <summary type="html">The euro area annual inflation rate was 2.9% in July 2026, up from 2.8% in June. A year earlier, the rate was 2.0%. European Union annual inflation was 3.0% in July 2026, up from 2.9% in June. A year earlier, the rate was 2.4%. These figures are published by Eurostat, the statistical office of th...</summary>
+  </entry>
+  <entry>
+    <title>GDP up by 0.4% and employment up by 0.1% in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-14082026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-14082026-ap</id>
+    <updated>2026-08-14T09:00:00Z</updated>
+    <published>2026-08-14T09:00:00Z</published>
+    <summary type="html">In the second quarter of 2026, seasonally adjusted GDP increased by 0.4% in the euro area and by 0.5% in the EU, compared with the previous quarter, according to a flash estimate published by Eurostat, the statistical office of the European Union. In the first quarter of 2026, GDP had remained st...</summary>
+  </entry>
+  <entry>
+    <title>Euro area annual inflation up to 2.9%</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-31072026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-31072026-ap</id>
+    <updated>2026-07-31T09:00:00Z</updated>
+    <published>2026-07-31T09:00:00Z</published>
+    <summary type="html">Euro area annual inflation is expected to be 2.9% in July 2026, up from 2.8% in June according to a flash estimate from Eurostat, the statistical office of the European Union.</summary>
+  </entry>
+  <entry>
+    <title>GDP up by 0.4% in the euro area and by 0.5% in the EU</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-30072026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-30072026-ap</id>
+    <updated>2026-07-30T09:00:00Z</updated>
+    <published>2026-07-30T09:00:00Z</published>
+    <summary type="html">In the second quarter of 2026, seasonally adjusted GDP increased by 0.4% in the euro area and by 0.5% in the EU, compared with the previous quarter, according to a preliminary flash estimate published by Eurostat, the statistical office of the European Union. In the first quarter of 2026, GDP had...</summary>
+  </entry>
+  <entry>
+    <title>Household real income per capita stays stable in the euro area and increases in the EU</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-27072026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-27072026-ap</id>
+    <updated>2026-07-27T09:00:00Z</updated>
+    <published>2026-07-27T09:00:00Z</published>
+    <summary type="html">In the first quarter of 2026, household real income per capita stayed stable in the euro area, after an increase of 0.2% in the fourth quarter of 2025. In the same period, household real consumption per capita also stayed stable, after an increase of 0.5% in the previous quarter.</summary>
+  </entry>
+  <entry>
+    <title>Seasonally adjusted government deficit at 3.1% of GDP in the euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-21072026-bp" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-21072026-bp</id>
+    <updated>2026-07-21T09:00:00Z</updated>
+    <published>2026-07-21T09:00:00Z</published>
+    <summary type="html">In the first quarter of 2026, the seasonally adjusted general government deficit to GDP ratio stood at 3.1% in the euro area (EA21) and in the EU. The euro area deficit to GDP ratio decreased slightly compared to 3.2% in the fourth quarter of 2025, while the EU deficit to GDP ratio decreased comp...</summary>
+  </entry>
+  <entry>
+    <title>Government debt at 88.9% of GDP in euro area</title>
+    <link rel="alternate" href="https://ec.europa.eu/eurostat/product?code=2-21072026-ap" />
+    <author>
+      <name>Eurostat</name>
+      <uri>http://ec.europa.eu/eurostat</uri>
+    </author>
+    <id>https://ec.europa.eu/eurostat/product?code=2-21072026-ap</id>
+    <updated>2026-07-21T09:00:00Z</updated>
+    <published>2026-07-21T09:00:00Z</published>
+    <summary type="html">At the end of the first quarter of 2026, the general government gross debt to GDP ratio in the euro area (EA21) stood at 88.9%, an increase compared with 87.7% at the end of the fourth quarter of 2025. In the EU, the ratio also increased from 81.8% to 82.9%.</summary>
+  </entry>
+</feed>

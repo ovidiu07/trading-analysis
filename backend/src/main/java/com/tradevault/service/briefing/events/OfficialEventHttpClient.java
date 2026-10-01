@@ -6,6 +6,10 @@ import java.nio.charset.StandardCharsets;
 
 @Component
 public class OfficialEventHttpClient {
+    private final com.tradevault.service.news.NewsFeedStore budgets;
+    @org.springframework.beans.factory.annotation.Value("${news.bls-daily-budget:20}")
+    private int blsBudget = 20;
+    public OfficialEventHttpClient(com.tradevault.service.news.NewsFeedStore budgets) { this.budgets = budgets; }
     public String get(String url) {
         if (url.equals(com.tradevault.service.marketdata.OfficialReferenceHttp.ECB) || url.equals(com.tradevault.service.marketdata.OfficialReferenceHttp.EIA))
             return com.tradevault.service.marketdata.OfficialReferenceHttp.get(url);
@@ -13,6 +17,8 @@ public class OfficialEventHttpClient {
             || url.matches("https://api\\.bls\\.gov/publicAPI/v1/timeseries/data/[A-Z0-9]+")
             || url.startsWith("https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/une_rt_m?")))
             throw new IllegalArgumentException("Source endpoint is not allowlisted");
+        if (url.startsWith("https://api.bls.gov/") && !budgets.reserve("BLS API", java.time.Instant.now(), Math.min(20, blsBudget)))
+            throw new IllegalStateException("Shared BLS daily request budget reached; prior suggestions retained");
         HttpURLConnection connection=null;
         try {
             connection=(HttpURLConnection)URI.create(url).toURL().openConnection();

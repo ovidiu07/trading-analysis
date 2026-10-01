@@ -22,6 +22,7 @@ vi.mock('../components/charts/TradingViewWidget', () => ({ default: () => <div>T
 vi.mock('../api/marketData', async original => ({ ...await original<typeof import('../api/marketData')>(), fetchMarketWorkspace: vi.fn() }))
 vi.mock('../api/sessionReviews', async original => ({ ...await original<typeof import('../api/sessionReviews')>(), getSessionReview: vi.fn(), saveSessionReview: vi.fn(async (_a, _d, revision, data) => ({ revision: revision + 1, data })) }))
 vi.mock('../api/client', async original => ({ ...await original<typeof import('../api/client')>(), apiGet: vi.fn(async (path: string) => {
+  if (path.startsWith('/market-context?')) return { instrument: new URLSearchParams(path.split('?')[1]).get('instrument'), date: new URLSearchParams(path.split('?')[1]).get('date'), window: 'SESSION', news: [], events: [], observations: [], coverage: [] }
   if (path === '/market-workspace/official-context') return []
   if (path.includes('withdrawals')) return []
   const time = new Date(Date.now() - 60000).toISOString()
@@ -49,37 +50,34 @@ describe('authenticated Today Prepare market integration', () => {
   it('renders native data and reviewed released results and selects only the requested canonical instrument', async () => {
     show()
     expect(await screen.findByText('18,765.4321 EUR')).toBeInTheDocument()
-    expect(await screen.findByText('Actual: 4.1 %')).toBeInTheDocument()
+    expect(await screen.findByText('News & Events')).toBeInTheDocument()
     expect(screen.getByText('TradingView display only')).toBeInTheDocument()
-    expect(screen.getByText(/Forecast \/ consensus: Unavailable/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /^GBPUSD\./ }))
+    expect(screen.queryByText(/Forecast \/ consensus: Unavailable/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'GBPUSD' }))
     await waitFor(() => expect(fetchMarketWorkspace).toHaveBeenCalledWith('a1', 'GBPUSD', expect.any(String), expect.any(AbortSignal)))
     expect(screen.queryByText('18,765.4321 EUR')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Market context' })).toHaveAttribute('href', '#market-context')
+    expect(screen.queryByText('Key levels')).not.toBeInTheDocument()
   })
-  it('keeps manual levels exact, saves them privately and carries them into Ready without a price connection', async () => {
+  it('preserves previously stored private levels in Ready without rendering removed controls', async () => {
+    const prior = await vi.mocked(getSessionReview).getMockImplementation()!('a1', '2026-10-01')
+    prior.data.preparation!.manualLevels = [{ id: 'saved-level', instrument: 'OANDA:DE30EUR', label: 'SUPPORT', value: 18500.25, unit: 'EUR', note: 'Private thesis level', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), provenance: 'MANUAL' }] as never
+    vi.mocked(getSessionReview).mockResolvedValue(prior)
     vi.mocked(fetchMarketWorkspace).mockResolvedValue({ retrievedAt: new Date().toISOString(), selectedInstrument: 'GER40', quotes: [], macroObservations: [] })
     show()
-    fireEvent.click(await screen.findByRole('button', { name: 'Add private level' }))
-    fireEvent.change(screen.getByLabelText('Price level'), { target: { value: '18500.25' } })
-    fireEvent.change(screen.getByLabelText('Unit / quote currency'), { target: { value: 'EUR' } })
-    fireEvent.change(screen.getByLabelText('Your note'), { target: { value: 'Private thesis level' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply level' }))
-    expect(screen.getByText('18,500.25 EUR')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /^GBPUSD\./ }))
-    expect(screen.queryByText('18,500.25 EUR')).not.toBeInTheDocument()
+    await screen.findByText('News & Events')
+    expect(screen.queryByRole('button', { name: 'Add private level' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Ready — Start session' }))
     await waitFor(() => expect(saveSessionReview).toHaveBeenCalled())
-    const request=vi.mocked(saveSessionReview).mock.calls.at(-1)![3]
-    expect(request.preparation?.manualLevels?.[0]).toMatchObject({ instrument: 'OANDA:DE30EUR', value: 18500.25, unit: 'EUR', note: 'Private thesis level' })
-    expect(request.preparation?.marketDataSnapshot?.instruments).toEqual([])
+    const request=vi.mocked(saveSessionReview).mock.calls.find(call => call[3].state === 'TRADE')![3]
+    expect(request.preparation?.manualLevels?.[0]).toMatchObject({ instrument: 'OANDA:DE30EUR', value: 18500.25, note: 'Private thesis level' })
   })
   it('does not display expired numbers on the active route', async () => {
     const data = await vi.mocked(fetchMarketWorkspace).getMockImplementation()!('a1','GER40','2026-09-25')
     data.quotes[0].observedAt = new Date(Date.now() - 60000).toISOString()
     vi.mocked(fetchMarketWorkspace).mockResolvedValue(data)
     show()
-    expect((await screen.findAllByText('Quote expired. Waiting for a fresh provider observation.')).length).toBeGreaterThan(0)
+    await screen.findByText('News & Events')
+    expect(screen.queryByText('Quote expired. Waiting for a fresh provider observation.')).not.toBeInTheDocument()
     expect(screen.queryByText(/18,765.4321/)).not.toBeInTheDocument()
   })
   it('saves only provider metadata at Ready and stops native polling outside Prepare', async () => {

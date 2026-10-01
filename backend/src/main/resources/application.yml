@@ -185,3 +185,13 @@ signalintel:
   recommendation-min-samples: ${SIGNALINTEL_RECOMMENDATION_MIN_SAMPLES:12}
   recommendation-freshness-hours: ${SIGNALINTEL_RECOMMENDATION_FRESHNESS_HOURS:6}
   weak-expectancy-threshold: ${SIGNALINTEL_WEAK_EXPECTANCY_THRESHOLD:-0.10}
+
+# Shared public context; always-on Spring Boot cron, with durable PostgreSQL leases.
+news:
+  enabled: ${NEWS_ENABLED:true}
+  refresh-cron: ${NEWS_REFRESH_CRON:0 */5 * * * *}
+  official-daily-budget: ${NEWS_OFFICIAL_DAILY_BUDGET:80}
+  bls-daily-budget: ${NEWS_BLS_DAILY_BUDGET:20}
+  marketaux-daily-budget: ${NEWS_MARKETAUX_DAILY_BUDGET:80}
+  marketaux-authorized: ${NEWS_MARKETAUX_AUTHORIZED:false}
+  marketaux-api-token: ${NEWS_MARKETAUX_API_TOKEN:}

@@ -107,6 +107,6 @@ class OfficialEventPipelineTest {
         var safe=EventPublicationGuard.safeCopy(raw,now);assertThat(safe.toString()).doesNotContain("SECRET","\"forecast\":\"9\"");assertThat(raw.toString()).contains("SECRET");
     }
     @Test void resultEndpointsRejectUnapprovedHostsWithoutNetwork() {
-        assertThatThrownBy(()->new OfficialEventHttpClient().get("https://unofficial.example/calendar")).hasMessageContaining("allowlisted");
+        assertThatThrownBy(()->new OfficialEventHttpClient(org.mockito.Mockito.mock(com.tradevault.service.news.NewsFeedStore.class)).get("https://unofficial.example/calendar")).hasMessageContaining("allowlisted");
     }
 }

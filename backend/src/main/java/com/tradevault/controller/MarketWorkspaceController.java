@@ -24,8 +24,9 @@ public class MarketWorkspaceController {
     public ResponseEntity<MarketWorkspaceResponse> getSnapshot(
             @RequestParam UUID accountId,
             @RequestParam(required = false) String selectedInstrument,
-            @RequestParam(required = false) LocalDate date) {
+            @RequestParam(required = false) LocalDate date,
+            @RequestParam(defaultValue = "true") boolean includeAnalysis) {
         UUID userId = currentUserService.getCurrentUser().getId();
-        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(marketWorkspaceService.snapshot(userId, accountId, selectedInstrument, date));
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(marketWorkspaceService.snapshot(userId, accountId, selectedInstrument, date, includeAnalysis));
     }
 }

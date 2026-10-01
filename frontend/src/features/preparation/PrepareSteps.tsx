@@ -36,7 +36,7 @@ import MarketIntelligenceGrid from '../../components/trading-workspace/MarketInt
 import { PanelNumber, WorkstationCard } from '../../components/trading-workspace/WorkspacePrimitives'
 import { TodayRiskPanel } from '../risk/TodayRiskPanel'
 import type { SetupDirection, SetupItem } from '../../api/liveWorkspace'
-import { canonicalMarketInstrument, type AnalysisMetrics, type InstrumentQuote, type MacroObservation } from '../../api/marketData'
+import { type AnalysisMetrics, type InstrumentQuote, type MacroObservation } from '../../api/marketData'
 
 const demoSetupLabelKeys = ['liquiditySweep', 'displacement', 'mssChoch', 'fvgImbalance', 'orderBlock', 'htfConfluence'] as const
 
@@ -140,19 +140,18 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
         ))}
       </Stack>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.38fr) minmax(520px, 1fr)' }, gap: 1.25, alignItems: 'start' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 3fr) minmax(0, 2fr)' }, gap: 1.25, alignItems: 'start' }}>
         <Box id="today-chart" sx={{ minWidth: 0 }}>{chart}</Box>
         <MarketIntelligenceGrid
           preparation={p}
-          onManualLevelsChange={manualLevels => patch({ manualLevels })}
           isCurrentDate={isCurrentDate}
           displayTimezone={displayTimezone}
           thesis={draft.focus}
           date={date}
-          selectedInstrument={canonicalMarketInstrument(p.chartSymbol, symbol)}
+          selectedInstrument={p.chartSymbol || symbol}
+          asOf={!isCurrentDate ? draft.readyContext?.readyAt : undefined}
           quotes={marketQuotes}
           macroObservations={macroObservations}
-          analysis={marketAnalysis}
           briefing={<BriefingPanel coach date={date} preparation={p} onSelection={patch} onVersion={(id) => patch({ briefingId: id })} />}
           onAcknowledge={(checked) => patch({ contextAcknowledged: checked })}
           acknowledgeLabel={t('prepare.acknowledge')}

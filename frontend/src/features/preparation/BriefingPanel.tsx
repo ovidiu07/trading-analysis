@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../../api/client'
 import { Preparation } from '../../api/sessionReviews'
@@ -11,22 +11,23 @@ import { LegacyBriefingPanel } from './LegacyBriefingPanel'
 import { selectBriefing } from './context'
 
 export function BriefingPanel({ date, preparation:p,onVersion,onSelection,coach=false }: {date:string;preparation:Preparation;onVersion:(id:string)=>void;onSelection?:(p:Partial<Preparation>)=>void;coach?:boolean}) {
- const {t}=useI18n();const [error,setError]=useState('');const [busy,setBusy]=useState(false);const loading=useRef(false)
+ const {t,language}=useI18n();const [error,setError]=useState('');const [busy,setBusy]=useState(false);const loading=useRef(false)
+ const historical=date!==editorialDate()
  const selectedDate=p.briefingDate || date
  const mounted=useRef(true)
  const selectionKey=`${date}:${selectedDate}:${p.manualSession}:${p.briefingSession}`
  const latestSelection=useRef(selectionKey);latestSelection.current=selectionKey
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
- const current=useQuery({queryKey:['editorialSelection',p.manualSession?selectedDate:'current-editorial-date',p.manualSession?p.briefingSession:'auto'],queryFn:()=>apiGet<Selection>(`/session-briefings?date=${p.manualSession?selectedDate:editorialDate()}${p.manualSession?`&slot=${p.briefingSession}`:''}`),refetchInterval:30000,retry:false})
+ const current=useQuery({queryKey:['editorialSelection',p.manualSession||historical?selectedDate:'current-editorial-date',p.manualSession?p.briefingSession:'auto'],queryFn:()=>apiGet<Selection>(`/session-briefings?date=${p.manualSession||historical?selectedDate:editorialDate()}${p.manualSession?`&slot=${p.briefingSession}`:''}`),refetchInterval:historical?false:30000,retry:false})
  const frozen=useQuery({queryKey:['preparationBriefingVersion',p.briefingId],queryFn:()=>apiGet<Composition>(`/today/briefing/version/${p.briefingId}`),enabled:Boolean(p.briefingId),staleTime:Infinity,retry:false})
  async function capture() {
   if(loading.current)return;loading.current=true;setBusy(true);setError('');const requestedKey=selectionKey
   const slot=p.manualSession?p.briefingSession:current.data?.requestedSlot || selectBriefing(new Date())
-  const requestedDate=p.manualSession?selectedDate:current.data?.requestedDate || editorialDate()
+  const requestedDate=p.manualSession||historical?selectedDate:current.data?.requestedDate || editorialDate()
   try {const result=await apiPost<Composition>(`/session-briefings/capture/${date}`,{editorialDate:requestedDate,slot});
    if(!mounted.current || latestSelection.current!==requestedKey)return
    if(onSelection)onSelection({briefingId:result.id,briefingSession:slot,briefingDate:requestedDate,contextAcknowledged:false,preparationConfirmed:false});else onVersion(result.id)
-  }catch(e){setError(e instanceof Error?e.message:t('dailyReview.loadError'))}finally{loading.current=false;setBusy(false)}
+  }catch(e){setError(t('dailyReview.loadError'))}finally{loading.current=false;setBusy(false)}
  }
  const captureAction=useRef(capture);captureAction.current=capture
  useEffect(()=>{if(!p.briefingId && current.data)void captureAction.current()},[p.briefingId,current.data])
@@ -44,7 +45,7 @@ export function BriefingPanel({ date, preparation:p,onVersion,onSelection,coach=
  {newer && <Alert severity="info" action={<Button disabled={busy} onClick={()=>void capture()}>{t('editorial.switch')}</Button>}>{t('editorial.newer')}</Alert>}
  {(error || current.isError || frozen.isError) && <Alert severity="warning">{error || t('dailyReview.loadError')} · {t('editorial.manualAllowed')}<Button disabled={busy} onClick={()=>void capture()}>{t('dailyReview.retry')}</Button></Alert>}
  {(busy || frozen.isFetching) && <Typography role="status">{t('dailyReview.loading')}</Typography>}
- {data && <EditorialComposition capture={data} scenariosOnly={coach}/>}
+ {data && (coach ? data.selected ? <Box component="details"><Box component="summary" sx={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{data.selected.document?.translations[language]?.title || t('news.editorialContext')}</Box><Box sx={{ pt: 1 }}><EditorialComposition capture={data} scenariosOnly /></Box></Box> : <Typography variant="body2" color="text.secondary">{t('editorial.noPublication')}</Typography> : <EditorialComposition capture={data} />)}
  {!coach && <MarketMonitor historical={selectedDate!==editorialDate()}/>}
  </Stack>
 }

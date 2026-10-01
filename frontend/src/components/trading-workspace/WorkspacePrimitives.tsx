@@ -33,7 +33,7 @@ export function WorkstationCard({
   sx?: object
 }) {
   return (
-    <Card className="workstation-card" sx={{ height: '100%', minWidth: 0, ...sx }}>
+    <Card className="workstation-card" sx={{ height: '100%', minWidth: 0, backgroundImage: 'none', boxShadow: 'none', ...sx }}>
       <CardContent sx={{ p: { xs: 1.5, xl: 1.75 }, '&:last-child': { pb: { xs: 1.5, xl: 1.75 } } }}>
         <Stack spacing={1.25}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>

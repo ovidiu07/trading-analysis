@@ -100,7 +100,7 @@ export function canonicalMarketInstrument(chartSymbol: string, fallback: string)
 }
 
 export function fetchMarketWorkspace(accountId: string, selectedInstrument: string, date: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ accountId, selectedInstrument, date })
+  const query = new URLSearchParams({ accountId, selectedInstrument, date, includeAnalysis: 'false' })
   return apiGet<MarketWorkspaceResponse>(`/market-workspace?${query}`, signal)
 }
 

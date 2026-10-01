@@ -198,7 +198,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   const prep = draft.preparation || initialForWorkspace()
   const preparedInstrument = resolvePreparationInstrument(prep.chartSymbol, draft.instruments)
   const marketInstrument = canonicalMarketInstrument(prep.chartSymbol, preparedInstrument.symbol)
-  const marketWorkspace = useMarketWorkspaceData(accountId, marketInstrument, date, ready && draft.state === 'PREPARE')
+  const marketWorkspace = useMarketWorkspaceData(accountId, marketInstrument, date, ready && draft.state === 'PREPARE' && date === accountToday)
   const marketQuotes = marketWorkspace.data?.quotes || []
   const preparedDirection: SetupDirection = prep.bias === 'bullish' ? 'LONG' : prep.bias === 'bearish' ? 'SHORT' : 'UNDECIDED'
   const effectiveAccountCurrency = accountCurrency || rules.data?.detail?.account.currency || ''
@@ -217,7 +217,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     {prep.chartSymbol === 'CME_MINI:ES1!' ? <Alert severity="warning" sx={{ m: 1.25 }}>{t('prepare.esWidgetLimit')}</Alert> : <TradingViewWidget symbol={prep.chartSymbol} interval={prep.chartInterval} height={chartExpanded ? '82dvh' : 548} minHeight={420} hideControls={false} allowSymbolChange={false} fallbackMessage={t('today.session.mentor.liveChartFallback')} fallbackLinkLabel={t('today.session.mentor.openOnTradingView')} />}
     <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.25, py: 0.75, borderTop: '1px solid', borderColor: 'divider' }}>
       <Button size="small" href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(prep.chartSymbol)}`} target="_blank" rel="noopener noreferrer">{t('prepare.personalIndicators')}</Button>
-      <Typography variant="caption" color="text.secondary">{t('prepare.widgetLimits')} {t('prepare.chartFeedIndependent')}</Typography>
+      <Box component="details" sx={{ minWidth: 0 }}><Box component="summary" sx={{ cursor: 'pointer', fontSize: 12 }}>{t('news.chartInformation')}</Box><Typography variant="caption" color="text.secondary">{t('prepare.widgetLimits')} {t('prepare.chartFeedIndependent')}</Typography></Box>
     </Stack>
   </Stack></CardContent></Card>
   if (saved.isError) return <Alert severity="error" action={<Button onClick={() => void saved.refetch()}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.loadError')}</Alert>

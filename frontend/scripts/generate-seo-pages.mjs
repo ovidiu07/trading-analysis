@@ -135,7 +135,7 @@ const routeDefinitions = [
       ],
       ctaPrimary: 'Create account',
       ctaSecondary: 'Read about us',
-      note: 'Core workflow: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.'
+      note: 'Official ECB and other public-source information shown in TradeJAudit can also be obtained free of charge from the original publishers. Any subscription pays for TradeJAudit software and workflow features.'
     },
     ro: {
       title: 'Preturi | TradeJAudit',
@@ -151,7 +151,7 @@ const routeDefinitions = [
       ],
       ctaPrimary: 'Creeaza cont',
       ctaSecondary: 'Afla despre noi',
-      note: 'Flux principal: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.'
+      note: 'Informațiile oficiale BCE și din alte surse publice afișate în TradeJAudit pot fi obținute gratuit și de la sursele originale. Orice abonament plătește funcțiile software și fluxul de lucru TradeJAudit.'
     }
   },
   {

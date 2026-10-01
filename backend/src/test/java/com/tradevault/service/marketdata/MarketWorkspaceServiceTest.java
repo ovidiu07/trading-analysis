@@ -51,6 +51,14 @@ class MarketWorkspaceServiceTest {
         ReflectionTestUtils.setField(service, "cacheTtlMs", 1200L);
     }
 
+    @Test void todayCanSkipAllCandleAndAnalysisWorkWhileKeepingQuotes() {
+        quotes(OffsetDateTime.now(ZoneOffset.UTC));
+        ReflectionTestUtils.setField(service, "candleDerivationsEnabled", true);
+        var result=service.snapshot(userId,accountId,"GBPUSD",java.time.LocalDate.now(),false);
+        assertThat(result.analysis()).isNull();assertThat(result.quotes()).isNotEmpty();
+        verifyNoInteractions(analysis);
+    }
+
     @Test
     void defaultGateKeepsConnectedDataUnavailableUntilDisplayRightsAreEnabled() {
         var response = service.snapshot(userId, accountId, "GER40");

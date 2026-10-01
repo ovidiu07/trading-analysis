@@ -59,14 +59,19 @@ public class MarketWorkspaceService {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public MarketWorkspaceResponse snapshot(UUID userId, UUID accountId, String selectedInstrument, LocalDate workspaceDate) {
+        return snapshot(userId, accountId, selectedInstrument, workspaceDate, true);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public MarketWorkspaceResponse snapshot(UUID userId, UUID accountId, String selectedInstrument, LocalDate workspaceDate, boolean includeAnalysis) {
         if (accountId == null || accounts.findByIdAndUserId(accountId, userId).isEmpty())
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Trading account not found");
         synchronized (userLocks[Math.floorMod(userId.hashCode(), userLocks.length)]) {
-            return ownedSnapshot(userId, accountId, normalizeSelected(selectedInstrument), workspaceDate);
+            return ownedSnapshot(userId, accountId, normalizeSelected(selectedInstrument), workspaceDate, includeAnalysis);
         }
     }
 
-    private MarketWorkspaceResponse ownedSnapshot(UUID userId, UUID accountId, String selected, LocalDate workspaceDate) {
+    private MarketWorkspaceResponse ownedSnapshot(UUID userId, UUID accountId, String selected, LocalDate workspaceDate, boolean includeAnalysis) {
         OffsetDateTime now = OffsetDateTime.now(clock);
         LocalDate effectiveDate = workspaceDate == null ? now.toLocalDate() : workspaceDate;
         List<MarketWorkspaceResponse.MacroObservation> macro = treasury.latest();
@@ -74,10 +79,10 @@ public class MarketWorkspaceService {
         try {
             connection = providers.marketConnection(userId, displayAuthorized);
         } catch (RuntimeException ex) {
-            return unavailable(now, selected, null, availabilityReason(ex), macro);
+            return unavailable(now, selected, null, availabilityReason(ex), macro, includeAnalysis);
         }
         String environment = connection.environment().name();
-        if (!displayAuthorized) return unavailable(now, selected, environment, AvailabilityReason.LICENSE_REQUIRED, macro);
+        if (!displayAuthorized) return unavailable(now, selected, environment, AvailabilityReason.LICENSE_REQUIRED, macro, includeAnalysis);
         List<String> capabilities = connection.instruments();
         List<String> symbols = CANDIDATES.values().stream().filter(capabilities::contains).sorted().toList();
         // Only quotes are cached: selected-instrument analysis is composed for every response.
@@ -131,6 +136,7 @@ public class MarketWorkspaceService {
             }
         }
         observations = ageQuotes(observations, OffsetDateTime.now(clock));
+        if (!includeAnalysis) return new MarketWorkspaceResponse(OffsetDateTime.now(clock), selected, environment, observations, macro, null);
         String selectedProvider = CANDIDATES.get(selected);
         var selectedQuote = observations.stream().filter(q -> selected.equals(q.canonicalInstrument())).findFirst().orElse(null);
         MarketWorkspaceResponse.AnalysisMetrics metrics;
@@ -169,11 +175,11 @@ public class MarketWorkspaceService {
     }
 
     private MarketWorkspaceResponse unavailable(OffsetDateTime now, String selected, String environment, AvailabilityReason reason,
-                                                List<MarketWorkspaceResponse.MacroObservation> macro) {
+                                                List<MarketWorkspaceResponse.MacroObservation> macro, boolean includeAnalysis) {
         return new MarketWorkspaceResponse(now, selected, environment,
                 WATCHLIST.stream().map(symbol -> unavailableQuote(symbol, CANDIDATES.get(symbol), now,
                         CANDIDATES.containsKey(symbol) ? reason : AvailabilityReason.SYMBOL_NOT_SUPPORTED)).toList(), macro,
-                analysis.unavailable(selected, CANDIDATES.get(selected), now, reason));
+                includeAnalysis ? analysis.unavailable(selected, CANDIDATES.get(selected), now, reason) : null);
     }
 
     private InstrumentQuote unavailableQuote(String symbol, String providerSymbol, OffsetDateTime now, AvailabilityReason reason) {

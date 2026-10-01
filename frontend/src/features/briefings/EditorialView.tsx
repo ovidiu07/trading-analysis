@@ -43,7 +43,7 @@ export function EditorialComposition({capture,scenariosOnly=false}: {capture:Com
  const seen=new Set<string>()
  return <Stack spacing={2}>
  {Boolean(withdrawals.data?.length) && <Alert severity="warning">{t('editorial.withdrawnNotice')}</Alert>}
- {capture.missingPreferred && <Alert severity="warning">{t('editorial.missing')}: {capture.requestedDate} · {t(`editorial.${capture.requestedSlot}`)}. {t('editorial.manualAllowed')}</Alert>}
+ {capture.missingPreferred && selected && <Alert severity="warning">{t('editorial.missing')}: {capture.requestedDate} · {t(`editorial.${capture.requestedSlot}`)}. {t('editorial.manualAllowed')}</Alert>}
  {selected ? <><PublicationView publication={selected} scenariosOnly={scenariosOnly}/><Typography variant="caption">{t('editorial.capturedAt')}: {capture.capturedAt} · {t('editorial.age')}: {Math.max(0,Math.floor((new Date(capture.capturedAt).getTime()-new Date(selected.publishedAt).getTime())/3600000))} h</Typography></>:<Typography>{t('editorial.noPublication')}</Typography>}
  {!scenariosOnly && <><Typography component="h3" variant="h6">{t('editorial.daySoFar')}</Typography>
  {capture.composition?.map(p=>{
