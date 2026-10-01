@@ -135,7 +135,7 @@ class NewsContextTest {
         ReflectionTestUtils.setField(providers,"marketauxToken","synthetic-test-token");
         assertThat(providers.feeds()).noneMatch(f->f.provider().equals("Marketaux"));
         ReflectionTestUtils.setField(providers,"marketauxAuthorized",true);
-        assertThat(providers.feeds().stream().filter(f->f.provider().equals("Marketaux"))).hasSize(2);
+        assertThat(providers.feeds().stream().filter(f->f.provider().equals("Marketaux"))).hasSize(3);
         assertThat(providers.feeds()).allMatch(f->!f.url().contains("synthetic-test-token"));
     }
     @Test void releaseDayFollowsSessionTimezoneRatherThanPublishersLocalDate() {

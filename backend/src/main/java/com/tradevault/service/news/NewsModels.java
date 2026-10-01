@@ -8,7 +8,12 @@ public final class NewsModels {
     private NewsModels() {}
     public enum Capability { NEWS, CALENDAR, OBSERVATIONS }
     public record Story(String id, String headline, String publisher, String url, Instant publishedAt,
-                        Instant sourceUpdatedAt, String excerpt, String category, Set<String> entities) {}
+                        Instant sourceUpdatedAt, String excerpt, String category, Set<String> entities, String aggregator) {
+        public Story(String id, String headline, String publisher, String url, Instant publishedAt, Instant sourceUpdatedAt,
+                     String excerpt, String category, Set<String> entities) {
+            this(id, headline, publisher, url, publishedAt, sourceUpdatedAt, excerpt, category, entities, null);
+        }
+    }
     public record Figure(BigDecimal value, String series, String period, String unit, String adjustment) {
         public boolean comparable(Figure other) {
             return other != null && Objects.equals(series, other.series) && Objects.equals(period, other.period)
@@ -29,9 +34,15 @@ public final class NewsModels {
     }
     public record Coverage(String source, String feedId, Capability capability, String state, Instant lastSuccessAt,
                            Instant lastAttemptAt, Instant nextRefreshAt) {}
+    /** No structured Tradays integration is authorized/documented. Never populate from official feeds. */
+    public enum CalendarImportance { HIGH, MEDIUM, LOW, UNKNOWN }
+    public record CalendarEvent(String id, String name, String region, String currency, CalendarImportance importance,
+                                Instant scheduledAt, boolean exactTime, String status, Instant sourceUpdatedAt) {}
+    public record CalendarAccess(String source, String mode, String coverage, Instant checkedAt, Instant validUntil,
+                                 List<CalendarEvent> events) {}
     public record Snapshot(String instrument, String topic, LocalDate date, String timezone, Instant asOf,
                            String window, List<Story> news, List<Event> events, List<Observation> observations,
-                           List<Coverage> coverage, Instant lastSuccessAt, boolean historical) {}
+                           List<Coverage> coverage, Instant lastSuccessAt, boolean historical, CalendarAccess calendar) {}
     public record Window(Instant start, Instant end) {
         public static Window session(LocalDate date, ZoneId zone) {
             return new Window(date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant());

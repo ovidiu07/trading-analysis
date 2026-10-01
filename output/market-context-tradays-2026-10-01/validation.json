@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-01",
+  "evidenceBoundary": "Local deterministic tests, disposable PostgreSQL, real public-source smoke; browser uses actual components with fixture news and a live public widget. No authenticated Marketaux/Tradays structured feed or production verification.",
+  "backend": [
+    {
+      "name": "com.tradevault.service.today.SessionReviewServiceTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.controller.NewsContextControllerSecurityTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.news.NewsContextTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.news.NewsFeedStoreTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.news.MarketContextProfilesTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.today.SessionWorkspaceServiceTest",
+      "tests": "16",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.briefing.events.OfficialEventPipelineTest",
+      "tests": "20",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.briefing.SessionBriefingSelectionTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "com.tradevault.service.marketdata.MarketWorkspaceServiceTest",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "backendTests": 114,
+  "frontendTests": 43,
+  "frontendSuites": 6,
+  "migration": {
+    "freshDisposableDatabase": true,
+    "applied": 73,
+    "lastVersion": 73
+  },
+  "livePublicSources": [
+    "LIVE VERIFIED ecb-news: news=15 events=0 observations=0",
+    "LIVE VERIFIED eurostat-news: news=11 events=2 observations=0",
+    "LIVE VERIFIED ons-news: news=4 events=0 observations=0",
+    "LIVE VERIFIED destatis-news: news=8 events=0 observations=0",
+    "LIVE VERIFIED fed-news: news=15 events=0 observations=0",
+    "LIVE BLOCKED bls-calendar: HTTP 403",
+    "LIVE VERIFIED bea-calendar: news=0 events=119 observations=0",
+    "LIVE VERIFIED eurostat-calendar: news=0 events=309 observations=0",
+    "LIVE VERIFIED bls-unemployment: news=0 events=0 observations=1",
+    "LIVE VERIFIED bls-cpi: news=0 events=0 observations=1",
+    "LIVE VERIFIED eurostat-unemployment: news=0 events=0 observations=1"
+  ],
+  "browser": {
+    "viewports": [
+      "1440x1000",
+      "390x900"
+    ],
+    "pageHorizontalOverflow": false,
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "languages": [
+      "en",
+      "ro"
+    ],
+    "widgetScopeAndTimezoneRequirementSatisfied": false,
+    "widgetBrowserDateDiffersFromSessionDateAtMidnight": true,
+    "historicalWidgetSuppressed": true
+  },
+  "checks": {
+    "typecheck": "passed",
+    "focusedEslint": "passed",
+    "productionBuild": "passed; existing large chunk warning",
+    "diffCheck": "passed",
+    "composeConfig": "passed; existing obsolete version warning"
+  }
+}

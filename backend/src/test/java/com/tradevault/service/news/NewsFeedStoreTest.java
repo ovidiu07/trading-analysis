@@ -16,6 +16,10 @@ import static org.assertj.core.api.Assertions.*;
 class NewsFeedStoreTest {
     JdbcTemplate jdbc;NewsFeedStore store;TransactionTemplate tx;
     Instant now=Instant.parse("2026-10-01T12:00:00Z");
+    @BeforeAll static void migrateDisposableDatabase() {
+        org.flywaydb.core.Flyway.configure().dataSource(System.getenv("NEWS_TEST_DB"), System.getProperty("user.name"), "")
+            .schemas("tradevault").defaultSchema("tradevault").locations("classpath:db/migration").load().migrate();
+    }
     @BeforeEach void setup() {
         var ds=new DriverManagerDataSource(System.getenv("NEWS_TEST_DB")+"?currentSchema=tradevault",System.getProperty("user.name"),"");
         jdbc=new JdbcTemplate(ds);store=new NewsFeedStore(jdbc,new ObjectMapper().findAndRegisterModules());tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
@@ -56,4 +60,32 @@ class NewsFeedStoreTest {
         store.requestRefresh(id,now.plusSeconds(3600));
         assertThat(store.claim(id,now.plusSeconds(3601))).isNull();
     }
+    @Test void companyDemandIsDeduplicatedBoundedAndExpiresAcrossConcurrentUsers() throws Exception {
+        jdbc.update("DELETE FROM tradevault.news_company_demand");
+        try(var pool=Executors.newFixedThreadPool(12)) {
+            List<Callable<Boolean>> calls=new ArrayList<>();
+            for(int i=0;i<24;i++) { String identity="NASDAQ:TEST"+i; calls.add(()->tx.execute(s->store.demandCompany(identity,now))); }
+            int admitted=0;for(var future:pool.invokeAll(calls))if(future.get())admitted++;
+            assertThat(admitted).isEqualTo(8); assertThat(store.activeCompanies(now)).hasSize(8);
+            String known=store.activeCompanies(now).getFirst();
+            assertThat(tx.<Boolean>execute(s->store.demandCompany(known,now.plusSeconds(60)))).isTrue();
+            assertThat(store.activeCompanies(now)).hasSize(8);
+            assertThat(tx.<Boolean>execute(s->store.demandCompany("LSE:NEW",now.plusSeconds(86401)))).isTrue();
+            assertThat(store.activeCompanies(now.plusSeconds(86401))).containsExactlyInAnyOrder(known,"LSE:NEW");
+        }
+    }
+    @Test void companyQuotaIsAtomicAndIncludesRetriesWithoutConsumingDeniedGlobalSlots() throws Exception {
+        jdbc.update("DELETE FROM tradevault.news_provider_budget WHERE provider IN ('Marketaux','Marketaux companies')");
+        try(var pool=Executors.newFixedThreadPool(12)) {
+            List<Callable<Boolean>> calls=new ArrayList<>();for(int i=0;i<48;i++)calls.add(()->tx.execute(s->store.reserveCompany(now,80)));
+            int admitted=0;for(var future:pool.invokeAll(calls))if(future.get())admitted++;
+            assertThat(admitted).isEqualTo(32);
+            assertThat(jdbc.queryForObject("SELECT requests FROM tradevault.news_provider_budget WHERE provider='Marketaux'",Integer.class)).isEqualTo(32);
+        }
+        Instant tomorrow=now.plusSeconds(86400);
+        assertThat(tx.<Boolean>execute(s->store.reserveCompany(tomorrow,1))).isTrue();
+        assertThat(tx.<Boolean>execute(s->store.reserveCompany(tomorrow,1))).isFalse();
+        assertThat(jdbc.queryForObject("SELECT requests FROM tradevault.news_provider_budget WHERE provider='Marketaux companies' AND budget_day=?",Integer.class,LocalDate.of(2026,10,2))).isEqualTo(1);
+    }
+
 }

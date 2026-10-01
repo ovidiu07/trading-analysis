@@ -22,7 +22,7 @@ vi.mock('../components/charts/TradingViewWidget', () => ({ default: () => <div>T
 vi.mock('../api/marketData', async original => ({ ...await original<typeof import('../api/marketData')>(), fetchMarketWorkspace: vi.fn() }))
 vi.mock('../api/sessionReviews', async original => ({ ...await original<typeof import('../api/sessionReviews')>(), getSessionReview: vi.fn(), saveSessionReview: vi.fn(async (_a, _d, revision, data) => ({ revision: revision + 1, data })) }))
 vi.mock('../api/client', async original => ({ ...await original<typeof import('../api/client')>(), apiGet: vi.fn(async (path: string) => {
-  if (path.startsWith('/market-context?')) return { instrument: new URLSearchParams(path.split('?')[1]).get('instrument'), date: new URLSearchParams(path.split('?')[1]).get('date'), window: 'SESSION', news: [], events: [], observations: [], coverage: [] }
+  if (path.startsWith('/market-context?')) return { instrument: new URLSearchParams(path.split('?')[1]).get('instrument'), date: new URLSearchParams(path.split('?')[1]).get('date'), window: 'SESSION', timezone: 'Europe/Bucharest', news: [], events: [], observations: [], coverage: [] }
   if (path === '/market-workspace/official-context') return []
   if (path.includes('withdrawals')) return []
   const time = new Date(Date.now() - 60000).toISOString()
@@ -50,7 +50,7 @@ describe('authenticated Today Prepare market integration', () => {
   it('renders native data and reviewed released results and selects only the requested canonical instrument', async () => {
     show()
     expect(await screen.findByText('18,765.4321 EUR')).toBeInTheDocument()
-    expect(await screen.findByText('News & Events')).toBeInTheDocument()
+    expect(await screen.findByText('News & Calendar')).toBeInTheDocument()
     expect(screen.getByText('TradingView display only')).toBeInTheDocument()
     expect(screen.queryByText(/Forecast \/ consensus: Unavailable/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'GBPUSD' }))
@@ -64,7 +64,7 @@ describe('authenticated Today Prepare market integration', () => {
     vi.mocked(getSessionReview).mockResolvedValue(prior)
     vi.mocked(fetchMarketWorkspace).mockResolvedValue({ retrievedAt: new Date().toISOString(), selectedInstrument: 'GER40', quotes: [], macroObservations: [] })
     show()
-    await screen.findByText('News & Events')
+    await screen.findByText('News & Calendar')
     expect(screen.queryByRole('button', { name: 'Add private level' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Ready — Start session' }))
     await waitFor(() => expect(saveSessionReview).toHaveBeenCalled())
@@ -76,7 +76,7 @@ describe('authenticated Today Prepare market integration', () => {
     data.quotes[0].observedAt = new Date(Date.now() - 60000).toISOString()
     vi.mocked(fetchMarketWorkspace).mockResolvedValue(data)
     show()
-    await screen.findByText('News & Events')
+    await screen.findByText('News & Calendar')
     expect(screen.queryByText('Quote expired. Waiting for a fresh provider observation.')).not.toBeInTheDocument()
     expect(screen.queryByText(/18,765.4321/)).not.toBeInTheDocument()
   })

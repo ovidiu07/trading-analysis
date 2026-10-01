@@ -2,13 +2,15 @@ import { useEffect, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Box, Button, Chip, Link, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import NewspaperOutlinedIcon from '@mui/icons-material/NewspaperOutlined'
-import { fetchNewsContext, refreshNewsContext, forecastDifference, newsInstrumentLabel, type NewsContextRequest, type NewsFigure } from '../../api/newsContext'
+import { fetchNewsContext, refreshNewsContext, requestCompanyNews, forecastDifference, newsInstrumentLabel, type NewsContextRequest, type NewsFigure } from '../../api/newsContext'
 import { WorkstationCard } from '../../components/trading-workspace/WorkspacePrimitives'
+import TradaysCalendar, { TradaysWarning, useContextClock } from './TradaysCalendar'
+import { sessionDateAt, unavailableTradays } from './tradaysWarnings'
 import { useI18n } from '../../i18n'
 
 export default function NewsEventsPanel(props: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string }) {
-  // A keyed child also resets pagination, tabs and cooldown messages at a context switch.
-  return <ContextPanel key={`${props.instrument}:${props.date}:${props.timezone}:${props.asOf ?? ''}`} {...props} />
+  // Instrument changes keep the calendar and its independent scope mounted.
+  return <ContextPanel key={`${props.date}:${props.timezone}:${props.asOf ?? ''}`} {...props} />
 }
 function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string }) {
   const { t, locale } = useI18n()
@@ -20,20 +22,28 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
   const [refreshing, setRefreshing] = useState(false)
   const [refreshState, setRefreshState] = useState('')
   const [cooldown, setCooldown] = useState(0)
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => { const timer = globalThis.setInterval(() => setNow(Date.now()), 30_000); return () => globalThis.clearInterval(timer) }, [])
-  const request = { instrument, date, timezone, window, asOf }
-  const query = useQuery({ queryKey: ['automaticNewsContext', request], queryFn: ({ signal }) => fetchNewsContext(request, signal), staleTime: 60_000, retry: false, refetchInterval: isCurrentDate ? 60_000 : false, refetchIntervalInBackground: false, keepPreviousData: false })
-  const data = query.data?.instrument === instrument && query.data.date === date && query.data.window === window ? query.data : undefined
+  const now = useContextClock()
+  const live = isCurrentDate && !asOf && sessionDateAt(now, timezone) === date
+  const [demand, setDemand] = useState<{ instrument: string; state: string } | null>(null)
+  useEffect(() => { setLimit(6); setDemand(null) }, [instrument])
+  useEffect(() => {
+    if (!live || !/^(NASDAQ|NYSE|AMEX|LSE|XETR|FWB|EURONEXT|EPA|AMS):/i.test(instrument)) return
+    let active = true
+    void requestCompanyNews(instrument).then(result => { if (active) setDemand({ instrument, state: result.state }) }).catch(() => { if (active) setDemand({ instrument, state: 'FAILED' }) })
+    return () => { active = false }
+  }, [instrument, live])
+  const request = { instrument, date, timezone, window: live ? window : 'SESSION' as const, asOf }
+  const query = useQuery({ queryKey: ['automaticNewsContext', request], queryFn: ({ signal }) => fetchNewsContext(request, signal), staleTime: 60_000, retry: false, refetchInterval: live ? 60_000 : false, refetchIntervalInBackground: false, keepPreviousData: false })
+  const data = query.data?.instrument === instrument && query.data.date === date && query.data.window === request.window && query.data.timezone === timezone ? query.data : undefined
   const localTime = (value: string) => new Intl.DateTimeFormat(locale, { timeZone: timezone, dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
   const number = (value: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value)
   const figure = (value: NewsFigure | null) => value?.value != null && Number.isFinite(value.value) ? `${number(value.value)} ${value.unit}` : <Tooltip title={t('news.missingFigure')}><span tabIndex={0}>—</span></Tooltip>
-  const visibleCoverage = data?.coverage.filter(row => row.capability === (tab === 0 ? 'NEWS' : 'CALENDAR')) ?? []
+  const visibleCoverage = data?.coverage.filter(row => row.capability === 'NEWS') ?? []
   const failed = visibleCoverage.some(row => row.state === 'FAILED')
   const stale = visibleCoverage.some(row => row.state === 'STALE')
   const pending = visibleCoverage.some(row => row.state === 'PENDING')
+  const partial = visibleCoverage.some(row => ['LIMITED', 'MAPPING_REQUIRED', 'AUTHORIZATION_REQUIRED', 'QUOTA'].includes(row.state))
   const unsupported = visibleCoverage.some(row => ['UNSUPPORTED_HISTORY', 'OUT_OF_RANGE', 'UNSUPPORTED', 'DISABLED'].includes(row.state))
-  const next = data?.events.find(event => event.status === 'UPCOMING' && event.scheduledAt && new Date(event.scheduledAt).getTime() > now)
   const sourceFetch = (source: string, capability: 'NEWS' | 'CALENDAR' | 'OBSERVATIONS', feedId?: string) => data?.coverage.find(row => row.capability === capability && (row.source === source || row.source === `${source} API`) && (!feedId || !row.feedId || row.feedId === feedId))?.lastSuccessAt
   const forecastPresent = data?.events.some(event => event.forecast?.value != null)
   const refresh = async () => {
@@ -49,41 +59,46 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
         <Typography variant="caption" color="text.secondary" display="block">{date} · {timezone}</Typography>
         {data?.lastSuccessAt && <Typography variant="caption" color="text.secondary" display="block">{t('news.updated')}: {localTime(data.lastSuccessAt)}</Typography>}
       </Box>
-      {isCurrentDate && !asOf && <Button size="small" onClick={() => void refresh()} disabled={refreshing || cooldown > now}>{t('news.refresh')}</Button>}
+      {live && <Button size="small" onClick={() => void refresh()} disabled={refreshing || cooldown > now}>{t('news.refresh')}</Button>}
     </Stack>
     {refreshState && <Typography role="status" variant="caption">{t(`news.${refreshState}`)}</Typography>}
-    {next?.scheduledAt && <Box sx={{ px: 1.25, py: 1, borderLeft: '2px solid', borderColor: 'primary.main', bgcolor: 'action.hover', borderRadius: 0.5 }}>
-      <Typography variant="caption" color="text.secondary">{t('news.nextTracked')} · {localTime(next.scheduledAt)} · {t('news.inMinutes', { minutes: Math.ceil((new Date(next.scheduledAt).getTime() - now) / 60_000) })}</Typography>
-      <Typography variant="body2">{next.name}</Typography>
-    </Box>}
+    <TradaysWarning data={data?.calendar ?? unavailableTradays} now={now} date={date} timezone={timezone} frozen={!live || !!asOf} />
     <Tabs value={tab} onChange={(_, value: number) => setTab(value)} aria-label={t('news.title')} variant="fullWidth" sx={{ minHeight: 40, borderBottom: '1px solid', borderColor: 'divider', '& .MuiTab-root': { minHeight: 40, minWidth: 0 } }}>
       <Tab id={`${id}-news-tab`} aria-controls={`${id}-news-panel`} label={t('news.latest')} />
       <Tab id={`${id}-events-tab`} aria-controls={`${id}-events-panel`} label={t('news.events')} />
     </Tabs>
     <Typography variant="caption" color="text.secondary">{t('news.coverage')}</Typography>
-    {(query.isError || failed) && <Alert severity="warning" sx={{ py: 0 }}>{t('news.fetchFailed')}</Alert>}
-    {stale && <Alert severity="warning" sx={{ py: 0 }}>{t('news.stale')}</Alert>}
-    {unsupported && <Typography role="status" variant="body2" color="text.secondary">{t(isCurrentDate && !asOf ? 'news.incomplete' : 'news.historyLimited')}</Typography>}
-    {pending && <Typography role="status" variant="body2" color="text.secondary">{t('news.pending')}</Typography>}
-    {query.isLoading && <Typography role="status" variant="body2">{t('common.loading')}</Typography>}
+    {tab === 0 && (query.isError || failed) && <Alert severity="warning" sx={{ py: 0 }}>{t('news.fetchFailed')}</Alert>}
+    {tab === 0 && stale && <Alert severity="warning" sx={{ py: 0 }}>{t('news.stale')}</Alert>}
+    {tab === 0 && unsupported && <Typography role="status" variant="body2" color="text.secondary">{t(isCurrentDate && !asOf ? 'news.incomplete' : 'news.historyLimited')}</Typography>}
+    {tab === 0 && partial && <Typography role="status" variant="caption">{t('news.partial')}</Typography>}
+    {tab === 0 && pending && <Typography role="status" variant="body2" color="text.secondary">{t('news.pending')}</Typography>}
+    {tab === 0 && query.isLoading && <Typography role="status" variant="body2">{t('common.loading')}</Typography>}
     <Box role="tabpanel" id={`${id}-news-panel`} aria-labelledby={`${id}-news-tab`} hidden={tab !== 0}>
       {tab === 0 && <Stack spacing={1.25}>
-        {isCurrentDate && !asOf && <Stack direction="row" spacing={1}>
+        {live && <Stack direction="row" spacing={1}>
           {(['SESSION', 'LAST_24_HOURS'] as const).map(value => <Button key={value} size="small" variant={window === value ? 'outlined' : 'text'} aria-pressed={window === value} onClick={() => { setWindow(value); setLimit(6) }}>{t(value === 'SESSION' ? 'news.sessionDay' : 'news.last24')}</Button>)}
         </Stack>}
         {data?.news.slice(0, limit).map(story => <Box component="article" key={`${story.publisher}:${story.id}:${story.publishedAt}:${story.headline}`} sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1.25, overflowWrap: 'anywhere' }}>
           <Link href={story.url} target="_blank" rel="noopener noreferrer" color="text.primary" underline="hover" sx={{ fontSize: 14, fontWeight: 600, lineHeight: 1.5 }}>{story.headline}</Link>
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>{story.publisher} · <time dateTime={story.publishedAt}>{localTime(story.publishedAt)}</time></Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>{story.publisher}{story.aggregator ? ` · ${t('news.via')} ${story.aggregator}` : ''} · <time dateTime={story.publishedAt}>{localTime(story.publishedAt)}</time></Typography>
           {story.excerpt && <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{story.excerpt}</Typography>}
           <Typography variant="caption" color="primary.main">{t(`news.categories.${story.category}`)}</Typography>
         </Box>)}
-        {data && !data.news.length && !failed && !unsupported && !pending && !query.isError && <Typography variant="body2" color="text.secondary">{t('news.emptyNews')}</Typography>}
+        {data && !data.news.length && !failed && !stale && !unsupported && !pending && !partial && !query.isError && visibleCoverage.some(row => row.state === 'OK') && <Typography variant="body2" color="text.secondary">{t('news.emptyNews')}</Typography>}
         {data && data.news.length > limit && <Button size="small" onClick={() => setLimit(limit + 6)}>{t('news.more')}</Button>}
-        {data?.coverage.some(row => row.source === 'Company news') && <Typography variant="caption" color="text.secondary">{t('news.companyLimited')}</Typography>}
+        {data?.coverage.some(row => row.source === 'Company news' && row.state !== 'OK') && <Typography variant="caption" color="text.secondary">{t('news.companyLimited')}</Typography>}
+        {demand?.instrument === instrument && ['CAPACITY', 'FAILED', 'MAPPING_REQUIRED', 'DISABLED'].includes(demand.state) && <Typography role="status" variant="caption">{t(`news.demand.${demand.state}`)}</Typography>}
+        {data?.coverage.some(row => row.source === 'Marketaux' && row.state === 'DISABLED') && <Typography variant="caption">{t('news.demand.DISABLED')}</Typography>}
       </Stack>}
     </Box>
     <Box role="tabpanel" id={`${id}-events-panel`} aria-labelledby={`${id}-events-tab`} hidden={tab !== 1}>
-      {tab === 1 && <Stack spacing={1.5}>
+      <TradaysCalendar live={live} timezone={timezone} />
+    </Box>
+    {tab === 0 && <Box component="details">
+      <Box component="summary" sx={{ cursor: 'pointer', fontSize: 12 }}>{t('news.officialReleases')}</Box>
+      <Stack spacing={1.5} sx={{ pt: 1 }}>
+        <Typography variant="caption">{t('news.officialBoundary')}</Typography>
         {(['UPCOMING', 'AWAITING_RESULT', 'RELEASED', 'CANCELLED'] as const).map(status => {
           const events = data?.events.filter(event => event.status === status) ?? []
           return events.length ? <Stack key={status} spacing={1}>
@@ -104,7 +119,7 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
             {events.length > eventLimit && <Button size="small" onClick={() => setEventLimit(eventLimit + 6)}>{t('news.more')}</Button>}
           </Stack> : null
         })}
-        {data && !data.events.length && !failed && !unsupported && !pending && !query.isError && <Typography variant="body2" color="text.secondary">{t('news.emptyEvents')}</Typography>}
+        {data?.coverage.some(row => row.capability === 'CALENDAR' && row.source !== 'Tradays' && row.state !== 'OK') && <Typography variant="caption">{t('news.incomplete')}</Typography>}
         {data?.coverage.some(row => row.capability === 'OBSERVATIONS' && ['FAILED', 'STALE', 'PENDING'].includes(row.state)) && <Typography variant="caption" color="text.secondary">{t('news.observationsIncomplete')}</Typography>}
         {!!data?.observations.length && <Box component="details" sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 1 }}>
           <Box component="summary" sx={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{t('news.observations')}</Box>
@@ -117,8 +132,8 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
             {item.flag && <Typography variant="caption" display="block" color="text.secondary">{item.flag}</Typography>}
           </Box>)}
         </Box>}
-      </Stack>}
-    </Box>
+      </Stack>
+    </Box>}
     <Typography variant="caption" color="text.secondary">{t('news.freeSources')}</Typography>
     <Box component="details">
       <Box component="summary" sx={{ fontSize: 12, cursor: 'pointer', color: 'text.secondary' }}>{t('news.sourceCoverage')}</Box>

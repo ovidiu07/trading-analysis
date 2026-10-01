@@ -195,3 +195,4 @@ news:
   marketaux-daily-budget: ${NEWS_MARKETAUX_DAILY_BUDGET:80}
   marketaux-authorized: ${NEWS_MARKETAUX_AUTHORIZED:false}
   marketaux-api-token: ${NEWS_MARKETAUX_API_TOKEN:}
+  marketaux-company-mappings: ${NEWS_MARKETAUX_COMPANY_MAPPINGS:[]}

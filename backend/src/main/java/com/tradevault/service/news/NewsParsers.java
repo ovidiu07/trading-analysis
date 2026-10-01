@@ -32,11 +32,13 @@ public final class NewsParsers {
             for (int i=0; i<items.getLength(); i++) {
                 Element item = (Element) items.item(i);
                 String title = required(text(item,"title")), url = officialUrl(text(item,"link"), feed);
+                if (feed.id().equals("ons-news") && !title.toLowerCase(Locale.ROOT).matches(".*(econom|inflation|price|gdp|labour|labor|employment|trade|retail|business investment|consumer|productivity|public sector finance).*")) continue;
+                if (feed.id().equals("destatis-news") && !title.toLowerCase(Locale.ROOT).matches(".*(preis|inflation|bruttoinland|konjunktur|produktion|auftrag|umsatz|einzelhandel|export|import|handel|erwerb|arbeits|wirtschaft|lohn|verdienst|insolvenz|bau|beschäft|konsum|finanz).*")) continue;
                 Instant time = ZonedDateTime.parse(text(item,"pubDate"), DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
                 String id = text(item,"guid");
                 // Headlines and links only: no republication of signed speeches or third-party excerpts.
                 stories.add(new Story(id.isBlank() ? url : id, title, feed.provider(), url, time, null, null,
-                    feed.region().equals("EU") ? "EURO_AREA_MACRO" : "US_MACRO", Set.of()));
+                    switch (feed.region()) { case "EU" -> "EURO_AREA_MACRO"; case "UK" -> "UK_MACRO"; case "DE" -> "GERMAN_MACRO"; default -> "US_MACRO"; }, Set.of()));
             }
             return Payload.news(deduplicate(stories));
         } catch (Exception e) { throw new IllegalArgumentException("Invalid official RSS"); }
@@ -147,16 +149,26 @@ public final class NewsParsers {
     }
     static JsonNode cell(JsonNode values,int index) { return values.isArray()?values.path(index):values.path(String.valueOf(index)); }
     static BigDecimal number(JsonNode values,int index) { var value=cell(values,index); if(value.isNull()||value.isMissingNode())return null; var n=new BigDecimal(value.asText());if(n.precision()>30)throw new IllegalArgumentException("Invalid number");return n; }
-    public static Payload marketaux(NewsProviders.Feed feed, JsonNode root) {
+    public static Payload marketaux(NewsProviders.Feed feed, JsonNode root, List<CompanyNewsMappings.Mapping> mappings) {
         if(!root.path("data").isArray() || root.has("error"))throw new IllegalArgumentException("Invalid news result");
         List<Story> rows=new ArrayList<>();
         for(var item:root.path("data")) {
             String headline=required(item.path("title").asText()); var entities=new HashSet<String>();
-            for(var entity:item.path("entities"))if("equity".equals(entity.path("type").asText())) entities.add(entity.path("symbol").asText());
+            boolean technology=false, german=false, uk=false;
+            for(var entity:item.path("entities")) {
+                if (!"equity".equals(entity.path("type").asText())) continue;
+                for (var mapping : mappings) if (mapping.matches(entity)) entities.add(mapping.identity());
+                String country=entity.path("country").asText();
+                if (!entity.path("industry").asText().isBlank()) entities.add("SECTOR:"+country+":"+entity.path("industry").asText());
+                technology |= country.equals("us") && entity.path("industry").asText().equals("Technology");
+                german |= country.equals("de"); uk |= country.equals("gb");
+            }
             String lower=headline.toLowerCase(Locale.ROOT);
-            String category=feed.id().equals("marketaux-germany") && (lower.contains("dax index")||lower.contains("german equities")) ? "GERMAN_EQUITIES"
-                : (lower.contains("nasdaq-100")||lower.contains("technology sector")) ? "TECHNOLOGY_SECTOR" : "DIRECT_INSTRUMENT";
-            rows.add(new Story(required(item.path("uuid").asText()),headline,required(item.path("source").asText()),safeUrl(item.path("url").asText()),Instant.parse(item.path("published_at").asText()),null,null,category,Set.copyOf(entities)));
+            String category = feed.id().equals("marketaux-germany") && german ? ((lower.contains("dax index") || lower.contains("dax 40")) ? "DAX_INDEX" : "GERMAN_EQUITIES")
+                : feed.id().equals("marketaux-uk") && uk ? (lower.contains("ftse 100") || lower.contains("ftse-100") ? "FTSE_INDEX" : "UK_EQUITIES")
+                : feed.id().equals("marketaux-tech") && technology ? (lower.contains("nasdaq-100") || lower.contains("nasdaq 100") ? "NASDAQ_INDEX" : "TECHNOLOGY_SECTOR") : "DIRECT_INSTRUMENT";
+            if (feed.id().startsWith("marketaux-company-") && !entities.contains(feed.id().substring("marketaux-company-".length()))) continue;
+            rows.add(new Story(required(item.path("uuid").asText()),headline,required(item.path("source").asText()),safeUrl(item.path("url").asText()),Instant.parse(item.path("published_at").asText()),null,null,category,Set.copyOf(entities),"Marketaux"));
         }
         return Payload.news(deduplicate(rows));
     }

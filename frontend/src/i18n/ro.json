@@ -4944,9 +4944,11 @@
     "hideMonitor": "Ascunde monitorul"
   },
   "news": {
-    "title": "Știri și evenimente",
+    "via": "prin",
+    "partial": "Acoperire parțială: verifică sursele și limitele de mai jos.",
+    "title": "Știri și calendar",
     "latest": "Ultimele știri",
-    "events": "Evenimente economice",
+    "events": "Calendar",
     "updated": "Ultima actualizare reușită",
     "refresh": "Actualizează",
     "refreshQueued": "Actualizare solicitată. Sursele comune se actualizează la următoarea execuție programată, dacă intervalul de așteptare permite.",
@@ -4955,7 +4957,7 @@
     "incomplete": "Unele surse conectate nu acoperă această dată sau acest instrument.",
     "historyLimited": "Acoperirea istorică include doar informațiile salvate de aplicație înainte de momentul de referință al sesiunii. Unele surse nu au istoric salvat.",
     "pending": "Sursele oficiale sunt în curs de pregătire. Acoperirea nu este încă confirmată.",
-    "coverage": "Acoperire: comunicate oficiale selectate. Categoriile de relevanță sunt clasificări TradeJAudit.",
+    "coverage": "Știrile urmăresc instrumentul selectat. Calendarul Tradays are o acoperire separată.",
     "nextTracked": "Următorul eveniment din sursele urmărite",
     "inMinutes": "în {{minutes}} min",
     "sessionDay": "Ziua sesiunii",
@@ -4987,7 +4989,12 @@
       "UK_MACRO": "Macro Regatul Unit",
       "DIRECT_INSTRUMENT": "Știri despre instrument",
       "TECHNOLOGY_SECTOR": "Sectorul tehnologic",
-      "GERMAN_EQUITIES": "Acțiuni germane"
+      "GERMAN_EQUITIES": "Acțiuni germane",
+      "GERMAN_MACRO": "Context economic german",
+      "UK_EQUITIES": "Acțiuni britanice",
+      "NASDAQ_INDEX": "Context Nasdaq-100",
+      "DAX_INDEX": "Context DAX",
+      "FTSE_INDEX": "Context FTSE 100"
     },
     "status": {
       "UPCOMING": "Urmează",
@@ -5004,12 +5011,40 @@
       "UNSUPPORTED_HISTORY": "Fără istoric salvat",
       "OUT_OF_RANGE": "Dată în afara acoperirii sursei",
       "UNSUPPORTED": "Instrument neacoperit",
-      "DISABLED": "Acoperire suspendată"
+      "DISABLED": "Acoperire suspendată",
+      "QUOTA": "Cotă zilnică epuizată",
+      "MAPPING_REQUIRED": "Identitate de companie neverificată",
+      "AUTHORIZATION_REQUIRED": "Permisiune de afișare necesară",
+      "STRUCTURED_ACCESS_REQUIRED": "Date structurate indisponibile"
     },
     "capabilities": {
       "NEWS": "Știri",
       "CALENDAR": "Calendar",
       "OBSERVATIONS": "Observații statistice"
+    },
+    "officialReleases": "Publicații și observații oficiale",
+    "officialBoundary": "Informații oficiale complementare. Acestea nu reprezintă calendarul Tradays și nu generează avertizările Tradays.",
+    "tradays": {
+      "title": "Calendar economic Tradays",
+      "scope": "Acoperire solicitată: SUA, Regatul Unit și zona euro, inclusiv publicările naționale; importanță medie și ridicată.",
+      "limits": "Vizualizare zilnică Tradays în engleză. Filtrele de regiune și importanță și fusul {{timezone}} nu pot fi impuse prin configurația publică. Verifică fusul și filtrele afișate de Tradays.",
+      "unverified": "Conținutul încorporat nu confirmă acoperirea verificată de aplicație. Dacă nu se încarcă, deschide Tradays.",
+      "failed": "Calendarul încorporat nu s-a încărcat.",
+      "history": "Calendarul Tradays nu are un istoric autorizat salvat în aplicație. Vizualizarea live este ascunsă pentru această dată sau captură.",
+      "open": "Deschide calendarul pe Tradays",
+      "warning": {
+        "UNAVAILABLE": "Avertizări Tradays indisponibile: accesul autorizat la evenimente structurate nu este configurat. Nu putem confirma absența evenimentelor importante.",
+        "STALE": "Datele Tradays nu mai sunt actuale. Evenimentele iminente nu pot fi verificate.",
+        "PARTIAL": "Acoperire Tradays incompletă. Pot exista și alte evenimente importante.",
+        "UPCOMING": "Evenimente cu importanță ridicată în următoarele 60 de minute",
+        "CLEAR": "Niciun eveniment cu importanță ridicată în următoarele 60 de minute, în acoperirea Tradays verificată."
+      }
+    },
+    "demand": {
+      "CAPACITY": "Lista comună de companii este plină. Se afișează contextul regional disponibil.",
+      "FAILED": "Cererea pentru știri de companie a eșuat.",
+      "MAPPING_REQUIRED": "Știrile directe necesită o identitate de companie verificată la furnizor.",
+      "DISABLED": "Știrile financiare Marketaux sunt dezactivate până la configurarea accesului și a permisiunii de afișare."
     }
   }
 }

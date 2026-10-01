@@ -18,12 +18,41 @@ public class NewsProviders {
     @Value("${news.marketaux-daily-budget:80}") private int marketauxBudget = 80;
     @Value("${news.marketaux-authorized:false}") private boolean marketauxAuthorized;
     @Value("${news.marketaux-api-token:}") private String marketauxToken = "";
+    @Value("${news.marketaux-company-mappings:[]}") private String companyMappings = "[]";
     private final ObjectMapper mapper;
+    public boolean marketauxEnabled() { return marketauxAuthorized && !marketauxToken.isBlank(); }
+    public List<CompanyNewsMappings.Mapping> mappings() { return CompanyNewsMappings.parse(mapper, companyMappings); }
+    public Optional<CompanyNewsMappings.Mapping> mapping(String instrument) {
+        String identity = InstrumentTopics.resolve(instrument).stockIdentity();
+        return mappings().stream().filter(m -> m.identity().equals(identity)).findFirst();
+    }
+    public Optional<Feed> companyFeed(String instrument) {
+        if (!marketauxEnabled()) return Optional.empty();
+        return mapping(instrument).map(m -> new Feed(m.feedId(), "Marketaux", Capability.NEWS,
+            InstrumentTopics.resolve(m.identity()).regions().contains("UK") ? "UK" : m.country().equals("us") ? "US" : "EU",
+            "https://api.marketaux.com/v1/news/all?language=en&limit=3&group_similar=true&entity_types=equity&symbols="
+            + URLEncoder.encode(m.symbol(), StandardCharsets.UTF_8) + "&countries=" + m.country(), Duration.ofHours(6), Math.min(80, marketauxBudget)));
+    }
+    public boolean sectorFeed(Feed feed, InstrumentTopics.Topic topic) {
+        return feed.id().equals("marketaux-tech") && mapping(topic.stockIdentity()).filter(m -> m.country().equals("us") && m.sector().equals("Technology")).isPresent();
+    }
+    public boolean sectorStory(InstrumentTopics.Topic topic, Story story) {
+        return mapping(topic.stockIdentity()).filter(m -> !m.sector().isBlank() && story.entities().contains("SECTOR:"+m.country()+":"+m.sector())).isPresent();
+    }
+    public static boolean relevant(Feed feed, InstrumentTopics.Topic topic) {
+        if (feed.id().startsWith("marketaux-company-")) return feed.id().equals("marketaux-company-" + topic.stockIdentity());
+        if (feed.id().equals("marketaux-tech")) return topic.key().equals("US_TECH");
+        if (feed.id().equals("marketaux-germany")) return topic.key().equals("GERMANY");
+        if (feed.id().equals("marketaux-uk")) return topic.key().equals("UK_EQUITIES");
+        return topic.regions().contains(feed.region());
+    }
     public NewsProviders(ObjectMapper mapper) { this.mapper = mapper; }
     public List<Feed> feeds() {
         List<Feed> feeds = new ArrayList<>(List.of(
             new Feed("ecb-news", "ECB", Capability.NEWS, "EU", "https://www.ecb.europa.eu/rss/press.html", Duration.ofMinutes(30), officialBudget),
             new Feed("eurostat-news", "Eurostat", Capability.NEWS, "EU", "https://ec.europa.eu/eurostat/en/search?p_p_id=estatsearchportlet_WAR_estatsearchportlet&p_p_lifecycle=2&p_p_state=maximized&p_p_mode=view&p_p_resource_id=atom&_estatsearchportlet_WAR_estatsearchportlet_theme=PER_ECOFIN&_estatsearchportlet_WAR_estatsearchportlet_collection=CAT_PREREL", Duration.ofMinutes(30), officialBudget),
+            new Feed("ons-news", "ONS", Capability.NEWS, "UK", "https://www.ons.gov.uk/releasecalendar?highlight=true&limit=10&page=1&release-type=type-published&rss=&sort=date-newest", Duration.ofHours(1), officialBudget),
+            new Feed("destatis-news", "Destatis", Capability.NEWS, "DE", "https://www.destatis.de/SiteGlobals/Functions/RSSFeed/DE/RSSNewsfeed/Aktuell.xml", Duration.ofHours(1), officialBudget),
             new Feed("fed-news", "Federal Reserve", Capability.NEWS, "US", "https://www.federalreserve.gov/feeds/press_monetary.xml", Duration.ofMinutes(30), officialBudget),
             new Feed("bls-calendar", "BLS calendar", Capability.CALENDAR, "US", "https://www.bls.gov/schedule/news_release/bls.ics", Duration.ofHours(6), officialBudget),
             new Feed("bea-calendar", "BEA", Capability.CALENDAR, "US", "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics", Duration.ofHours(6), officialBudget),
@@ -32,10 +61,11 @@ public class NewsProviders {
             new Feed("bls-cpi", "BLS API", Capability.OBSERVATIONS, "US", "https://api.bls.gov/publicAPI/v1/timeseries/data/CUUR0000SA0", Duration.ofHours(6), Math.min(20, blsBudget)),
             new Feed("eurostat-unemployment", "Eurostat", Capability.OBSERVATIONS, "EU", "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/une_rt_m?lang=EN&freq=M&unit=PC_ACT&s_adj=SA&age=TOTAL&sex=T&geo=EU27_2020&lastTimePeriod=2", Duration.ofHours(6), officialBudget)
         ));
-        if (marketauxAuthorized && !marketauxToken.isBlank()) {
-            // Two shared queries, 24/day each. No dynamic per-user/stock queries or pagination.
-            feeds.add(new Feed("marketaux-germany", "Marketaux", Capability.NEWS, "EU", "https://api.marketaux.com/v1/news/all?language=en&limit=3&search=\"DAX index\"|\"German equities\"", Duration.ofHours(1), Math.min(80, marketauxBudget)));
-            feeds.add(new Feed("marketaux-tech", "Marketaux", Capability.NEWS, "US", "https://api.marketaux.com/v1/news/all?language=en&limit=3&search=\"Nasdaq-100\"|\"technology sector\"", Duration.ofHours(1), Math.min(80, marketauxBudget)));
+        if (marketauxEnabled()) {
+            // 3 x 12 = 36 scheduled topic attempts/day; company attempts have a separate 32/day cap.
+            feeds.add(new Feed("marketaux-germany", "Marketaux", Capability.NEWS, "EU", "https://api.marketaux.com/v1/news/all?language=en&limit=3&group_similar=true&entity_types=equity,index&countries=de", Duration.ofHours(2), Math.min(80, marketauxBudget)));
+            feeds.add(new Feed("marketaux-tech", "Marketaux", Capability.NEWS, "US", "https://api.marketaux.com/v1/news/all?language=en&limit=3&group_similar=true&entity_types=equity&countries=us&industries=Technology", Duration.ofHours(2), Math.min(80, marketauxBudget)));
+            feeds.add(new Feed("marketaux-uk", "Marketaux", Capability.NEWS, "UK", "https://api.marketaux.com/v1/news/all?language=en&limit=3&group_similar=true&entity_types=equity,index&countries=gb", Duration.ofHours(2), Math.min(80, marketauxBudget)));
         }
         return List.copyOf(feeds);
     }
@@ -47,13 +77,10 @@ public class NewsProviders {
     }
     /** No user URLs, redirects, keys in exceptions, response-body logging or unlimited reads. */
     public String fetch(Feed feed) {
-        if (!feeds().contains(feed)) throw new IllegalArgumentException("Unknown context source");
+        boolean known = feeds().contains(feed) || mappings().stream().anyMatch(m -> companyFeed(m.identity()).filter(feed::equals).isPresent());
+        if (!known) throw new IllegalArgumentException("Unknown context source");
         String url = feed.url();
-        if (feed.id().startsWith("marketaux-")) {
-            String search = url.substring(url.indexOf("&search=") + 8);
-            url = url.substring(0, url.indexOf("&search=")) + "&search=" + URLEncoder.encode(search, StandardCharsets.UTF_8)
-                + "&api_token=" + URLEncoder.encode(marketauxToken, StandardCharsets.UTF_8);
-        }
+        if (feed.provider().equals("Marketaux")) url += "&api_token=" + URLEncoder.encode(marketauxToken, StandardCharsets.UTF_8);
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) URI.create(url).toURL().openConnection();
@@ -85,7 +112,7 @@ public class NewsProviders {
     }
     public Payload parse(Feed feed, String body, Instant fetched) {
         try {
-            if (feed.id().startsWith("marketaux-")) return NewsParsers.marketaux(feed, mapper.readTree(body));
+            if (feed.id().startsWith("marketaux-")) return NewsParsers.marketaux(feed, mapper.readTree(body), mappings());
             return switch (feed.capability()) {
                 case NEWS -> NewsParsers.rss(feed, body);
                 case CALENDAR -> NewsParsers.calendar(feed, body);

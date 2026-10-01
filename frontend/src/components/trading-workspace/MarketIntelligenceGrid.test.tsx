@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import MarketIntelligenceGrid from './MarketIntelligenceGrid'
 import { initialPreparation } from '../../features/preparation/context'
 
-vi.mock('../../api/client', () => ({ apiGet: vi.fn(async () => ({ instrument: 'GER40', date: '2026-10-01', window: 'SESSION', news: [], events: [], observations: [], coverage: [] })), apiPost: vi.fn() }))
+vi.mock('../../api/client', () => ({ apiGet: vi.fn(async () => ({ instrument: 'GER40', date: '2026-10-01', window: 'SESSION', timezone: 'Europe/Bucharest', news: [], events: [], observations: [], coverage: [{ source: 'ECB', capability: 'NEWS', state: 'OK' }] })), apiPost: vi.fn() }))
 vi.mock('../../i18n', () => ({ useI18n: () => ({ t: (key: string) => key, language: 'en', locale: 'en-GB' }) }))
 afterEach(cleanup)
 function show() {

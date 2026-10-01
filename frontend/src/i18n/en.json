@@ -4945,9 +4945,11 @@
     "hideMonitor": "Hide monitor"
   },
   "news": {
-    "title": "News & Events",
+    "via": "via",
+    "partial": "Partial coverage: check the sources and limits below.",
+    "title": "News & Calendar",
     "latest": "Latest news",
-    "events": "Economic events",
+    "events": "Calendar",
     "updated": "Last successful update",
     "refresh": "Refresh",
     "refreshQueued": "Refresh requested. Shared sources refresh on the next scheduled run when their cooldown allows.",
@@ -4956,7 +4958,7 @@
     "incomplete": "Some connected sources do not cover this date or instrument.",
     "historyLimited": "Historical coverage includes only information saved by this app before the session cutoff. Some sources have no saved history.",
     "pending": "Official sources are being prepared. Coverage is not yet confirmed.",
-    "coverage": "Coverage: selected official releases. Relevance categories are TradeJAudit classifications.",
+    "coverage": "News follows the selected instrument. Tradays calendar coverage is independent.",
     "nextTracked": "Next in tracked sources",
     "inMinutes": "in {{minutes}} min",
     "sessionDay": "Session day",
@@ -4988,7 +4990,12 @@
       "UK_MACRO": "UK macro",
       "DIRECT_INSTRUMENT": "Direct instrument news",
       "TECHNOLOGY_SECTOR": "Technology sector",
-      "GERMAN_EQUITIES": "German equities"
+      "GERMAN_EQUITIES": "German equities",
+      "GERMAN_MACRO": "German macro",
+      "UK_EQUITIES": "UK equities",
+      "NASDAQ_INDEX": "Nasdaq-100 context",
+      "DAX_INDEX": "DAX context",
+      "FTSE_INDEX": "FTSE 100 context"
     },
     "status": {
       "UPCOMING": "Upcoming",
@@ -5005,12 +5012,40 @@
       "UNSUPPORTED_HISTORY": "No saved history",
       "OUT_OF_RANGE": "Date outside source coverage",
       "UNSUPPORTED": "Instrument not covered",
-      "DISABLED": "Coverage paused"
+      "DISABLED": "Coverage paused",
+      "QUOTA": "Daily quota exhausted",
+      "MAPPING_REQUIRED": "Company identity not verified",
+      "AUTHORIZATION_REQUIRED": "Display permission required",
+      "STRUCTURED_ACCESS_REQUIRED": "Structured event access unavailable"
     },
     "capabilities": {
       "NEWS": "News",
       "CALENDAR": "Schedule",
       "OBSERVATIONS": "Statistical observations"
+    },
+    "officialReleases": "Official releases & observations",
+    "officialBoundary": "Complementary official information. These are not Tradays calendar events and do not drive Tradays warnings.",
+    "tradays": {
+      "title": "Tradays economic calendar",
+      "scope": "Requested scope: US, UK and euro area, including national releases; medium and high importance.",
+      "limits": "Tradays daily view in English. The public configuration cannot enforce region/importance filters or {{timezone}}. Check the timezone and filters shown by Tradays.",
+      "unverified": "The embed does not confirm application-checked coverage. If it does not load, open Tradays.",
+      "failed": "The embedded calendar could not load.",
+      "history": "No authorized Tradays history is stored in this app. The live widget is hidden for this date or saved view.",
+      "open": "Open the calendar on Tradays",
+      "warning": {
+        "UNAVAILABLE": "Tradays warnings unavailable: authorized structured event access is not configured. Important events cannot be ruled out.",
+        "STALE": "Tradays event data is stale. Upcoming events cannot be verified.",
+        "PARTIAL": "Tradays coverage is incomplete. Other important events may exist.",
+        "UPCOMING": "High-importance events within the next 60 minutes",
+        "CLEAR": "No high-importance events within 60 minutes in successfully checked Tradays coverage."
+      }
+    },
+    "demand": {
+      "CAPACITY": "The shared company list is full. Available regional context is shown.",
+      "FAILED": "Company news could not be queued.",
+      "MAPPING_REQUIRED": "Direct company news requires a verified provider identity.",
+      "DISABLED": "Marketaux financial news is disabled until access and display permission are configured."
     }
   }
 }

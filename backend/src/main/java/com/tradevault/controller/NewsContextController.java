@@ -20,6 +20,11 @@ public class NewsContextController {
         users.getCurrentUser();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(context.snapshot(instrument,date,timezone,window,asOf));
     }
+    @PostMapping("/company-demand")
+    public ResponseEntity<java.util.Map<String,String>> companyDemand(@RequestParam String instrument) {
+        users.getCurrentUser();
+        return ResponseEntity.accepted().body(java.util.Map.of("state", context.demandCompany(instrument)));
+    }
     @PostMapping("/refresh")
     public ResponseEntity<Void> refresh(@RequestParam String instrument) {
         users.getCurrentUser();context.requestRefresh(instrument);

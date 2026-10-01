@@ -25,7 +25,9 @@ public class NewsContextService {
     @Scheduled(cron="${news.refresh-cron:0 */5 * * * *}", zone="UTC", scheduler="newsScheduler")
     public void refreshDue() {
         if(!enabled)return;
-        for(var feed:providers.feeds()) {
+        List<NewsProviders.Feed> due = new ArrayList<>(providers.feeds());
+        if (providers.marketauxEnabled()) for (String identity : store.activeCompanies(clock.instant())) providers.companyFeed(identity).ifPresent(due::add);
+        for(var feed:due) {
             try { refresh(feed); }
             catch(RuntimeException ex) { log.warn("Context job could not complete: feed={} type={}",feed.id(),ex.getClass().getSimpleName()); }
         }
@@ -33,7 +35,7 @@ public class NewsContextService {
     void refresh(NewsProviders.Feed feed) {
         UUID token=store.claim(feed.id(),clock.instant()); if(token==null)return;
         for(int attempt=0;attempt<2;attempt++) {
-            if(!store.reserve(feed.provider(),clock.instant(),feed.budget())) {
+            if(!(feed.id().startsWith("marketaux-company-") ? store.reserveCompany(clock.instant(),feed.budget()) : store.reserve(feed.provider(),clock.instant(),feed.budget()))) {
                 Instant tomorrow=LocalDate.now(clock).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
                 store.failure(feed.id(),token,clock.instant(),Duration.between(clock.instant(),tomorrow),"QUOTA");return;
             }
@@ -66,22 +68,28 @@ public class NewsContextService {
         Instant cutoff=requestedAsOf==null ? now : requestedAsOf;
         if(cutoff.isAfter(now))cutoff=now;
         if(historical && !cutoff.isBefore(day.end()))cutoff=day.end().minusNanos(1);
-        Window range=window.equals("LAST_24_HOURS") ? new Window(now.minus(Duration.ofHours(24)),now.plusNanos(1)) : day;
+        Window range=window.equals("LAST_24_HOURS") ? new Window(cutoff.minus(Duration.ofHours(24)),cutoff.plusNanos(1)) : day;
         var topic=InstrumentTopics.resolve(instrument);
         List<Story> news=new ArrayList<>(); Map<String,Event> eventVersions=new LinkedHashMap<>(); List<Observation> observations=new ArrayList<>(); List<Coverage> coverage=new ArrayList<>();
-        for(var feed:providers.feeds()) {
-            if(!topic.regions().contains(feed.region()))continue;
+        List<NewsProviders.Feed> selected = new ArrayList<>(providers.feeds());
+        providers.companyFeed(instrument).ifPresent(selected::add);
+        for(var feed:selected) {
+            // Shared official schedules remain independent from the selected news profile.
+            if(feed.capability()!=Capability.CALENDAR && !NewsProviders.relevant(feed,topic) && !providers.sectorFeed(feed,topic))continue;
             var state=store.state(feed.id());
             var cached=store.snapshots(feed.id(),range.start(),cutoff,feed.capability()==Capability.NEWS);
             Instant success=cached.isEmpty()?null:cached.getFirst().fetchedAt();
-            String status=!enabled?"DISABLED":success==null ? frozen?"UNSUPPORTED_HISTORY":state.status().equals("PENDING")?"PENDING":"FAILED"
+            String status=!enabled?"DISABLED":success==null ? frozen?"UNSUPPORTED_HISTORY":Set.of("PENDING","QUOTA").contains(state.status())?state.status():"FAILED"
                 : Duration.between(success,cutoff).compareTo(feed.ttl().multipliedBy(2))>0 || (!frozen && !state.status().equals("OK")) ? "STALE" : "OK";
             for(var snapshot:cached) {
-                for(var story:snapshot.payload().news()) if(range.contains(story.publishedAt()) && !story.publishedAt().isAfter(cutoff) && InstrumentTopics.newsMatches(topic,story))news.add(story);
+                for(var story:snapshot.payload().news()) if(range.contains(story.publishedAt()) && !story.publishedAt().isAfter(cutoff) && (InstrumentTopics.newsMatches(topic,story) || providers.sectorStory(topic,story))) {
+                    String category = InstrumentTopics.direct(topic,story) ? "DIRECT_INSTRUMENT" : story.category();
+                    news.add(new Story(story.id(),story.headline(),story.publisher(),story.url(),story.publishedAt(),story.sourceUpdatedAt(),story.excerpt(),category,story.entities(),story.aggregator()));
+                }
                 for(var event:snapshot.payload().events()) {
                     boolean inDay=event.scheduledAt()!=null ? day.contains(event.scheduledAt())
                         : event.publishedAt()!=null ? day.contains(event.publishedAt()) : date.equals(event.scheduledDate());
-                    if(inDay && (event.publishedAt()==null || !event.publishedAt().isAfter(cutoff)) && InstrumentTopics.trackedEvent(topic,event))eventVersions.putIfAbsent(event.id(),asOfEvent(event,cutoff));
+                    if(inDay && (event.publishedAt()==null || !event.publishedAt().isAfter(cutoff)) && InstrumentTopics.trackedEvent(new InstrumentTopics.Topic("CALENDAR", Set.of("US", "UK", "EU", "DE")),event))eventVersions.putIfAbsent(event.id(),asOfEvent(event,cutoff));
                 }
                 // Statistical API values are explicitly retrospective and never inserted into past sessions.
                 if(!historical && requestedAsOf==null && date.equals(now.atZone(zone).toLocalDate()))observations.addAll(snapshot.payload().observations());
@@ -94,14 +102,20 @@ public class NewsContextService {
             }
             coverage.add(new Coverage(feed.provider(),feed.id(),feed.capability(),status,success,frozen?null:state.attempt(),frozen?null:state.next()));
         }
-        if(topic.stockSymbol()!=null || topic.key().equals("US_TECH") || topic.key().equals("GERMANY"))
-            coverage.add(new Coverage("Company news",null,Capability.NEWS,"LIMITED",null,null,null));
-        if(topic.regions().contains("UK"))coverage.add(new Coverage("UK releases",null,Capability.CALENDAR,"LIMITED",null,null,null));
-        if(coverage.isEmpty())coverage.add(new Coverage("Instrument coverage",null,Capability.NEWS,"UNSUPPORTED",null,null,null));
+        if(topic.stockSymbol()!=null) {
+            String companyState = providers.mapping(instrument).isEmpty() ? "MAPPING_REQUIRED" : !providers.marketauxEnabled() ? "DISABLED" : news.stream().noneMatch(n -> InstrumentTopics.direct(topic,n)) ? "LIMITED" : "OK";
+            coverage.add(new Coverage("Company news",null,Capability.NEWS,companyState,null,null,null));
+        }
+        if(Set.of("US_TECH","GERMANY","UK_EQUITIES").contains(topic.key()) && !providers.marketauxEnabled())
+            coverage.add(new Coverage("Marketaux",null,Capability.NEWS,"DISABLED",null,null,null));
+        if(topic.regions().contains("UK"))coverage.add(new Coverage("Bank of England",null,Capability.NEWS,"AUTHORIZATION_REQUIRED",null,null,null));
+        if(topic.key().equals("PARTIAL_FX"))coverage.add(new Coverage("Non-US currency coverage",null,Capability.NEWS,"LIMITED",null,null,null));
+        coverage.add(new Coverage("Tradays",null,Capability.CALENDAR,frozen ? "UNSUPPORTED_HISTORY" : "STRUCTURED_ACCESS_REQUIRED",null,null,null));
+        if(topic.key().equals("UNSUPPORTED"))coverage.add(new Coverage("Instrument coverage",null,Capability.NEWS,"UNSUPPORTED",null,null,null));
         List<Event> events=new ArrayList<>(eventVersions.values());
         events.sort(Comparator.comparing(Event::scheduledAt,Comparator.nullsLast(Comparator.naturalOrder())));
         Instant last=coverage.stream().map(Coverage::lastSuccessAt).filter(Objects::nonNull).max(Instant::compareTo).orElse(null);
-        return new Snapshot(instrument,topic.key(),date,timezone,cutoff,window,NewsParsers.deduplicate(news),List.copyOf(events),List.copyOf(observations),List.copyOf(coverage),last,historical);
+        return new Snapshot(instrument,topic.key(),date,timezone,cutoff,window,NewsParsers.deduplicate(news).stream().sorted(Comparator.comparingInt((Story story)->InstrumentTopics.rank(topic,story)).thenComparing(Story::publishedAt,Comparator.reverseOrder())).toList(),List.copyOf(events),List.copyOf(observations),List.copyOf(coverage),last,historical,new CalendarAccess("TRADAYS", "WIDGET_ONLY", frozen ? "HISTORICAL" : "UNAVAILABLE", null, null, List.of()));
     }
     static Event asOfEvent(Event e,Instant cutoff) {
         String status=e.status();
@@ -112,7 +126,13 @@ public class NewsContextService {
     public void requestRefresh(String instrument) {
         if(!enabled)return;
         var topic=InstrumentTopics.resolve(instrument==null?"":instrument);
-        for(var feed:providers.feeds())if(topic.regions().contains(feed.region()))store.requestRefresh(feed.id(),clock.instant());
+        for(var feed:providers.feeds())if(!feed.provider().equals("Marketaux") && NewsProviders.relevant(feed,topic))store.requestRefresh(feed.id(),clock.instant());
+    }
+    public String demandCompany(String instrument) {
+        if (!enabled || !providers.marketauxEnabled()) return "DISABLED";
+        var mapping = providers.mapping(instrument);
+        if (mapping.isEmpty()) return "MAPPING_REQUIRED";
+        return store.demandCompany(mapping.get().identity(), clock.instant()) ? "QUEUED" : "CAPACITY";
     }
     private ResponseStatusException badRequest(){return new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid news context");}
 }

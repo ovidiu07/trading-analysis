@@ -65,6 +65,29 @@ public class NewsFeedStore {
             catch (com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException("Invalid cached context"); }
         }, params);
     }
+    /** A transaction-level lock makes the global eight-company bound atomic across instances. */
+    @Transactional
+    public boolean demandCompany(String identity, Instant now) {
+        jdbc.execute("SELECT pg_advisory_xact_lock(734921018)");
+        jdbc.update("DELETE FROM tradevault.news_company_demand WHERE last_demand_at<=?", ts(now.minus(Duration.ofDays(1))));
+        if (jdbc.update("UPDATE tradevault.news_company_demand SET last_demand_at=? WHERE identity=?", ts(now), identity) == 1) return true;
+        if (jdbc.queryForObject("SELECT count(*) FROM tradevault.news_company_demand", Integer.class) >= 8) return false;
+        jdbc.update("INSERT INTO tradevault.news_company_demand(identity,last_demand_at) VALUES (?,?)", identity, ts(now));
+        return true;
+    }
+    public List<String> activeCompanies(Instant now) {
+        return jdbc.query("SELECT identity FROM tradevault.news_company_demand WHERE last_demand_at>? ORDER BY last_demand_at DESC,identity LIMIT 8",
+            (r,n)->r.getString(1), ts(now.minus(Duration.ofDays(1))));
+    }
+    /** Both reservations commit together; company retries count toward both ceilings. */
+    @Transactional
+    public boolean reserveCompany(Instant now, int totalLimit) {
+        jdbc.execute("SELECT pg_advisory_xact_lock(734921019)");
+        if (!reserve("Marketaux companies", now, 32)) return false;
+        if (reserve("Marketaux", now, totalLimit)) return true;
+        jdbc.update("UPDATE tradevault.news_provider_budget SET requests=requests-1 WHERE provider='Marketaux companies' AND budget_day=?", now.atZone(ZoneOffset.UTC).toLocalDate());
+        return false;
+    }
     static Timestamp ts(Instant time) { return Timestamp.from(time); }
     private static Instant instant(Timestamp time) { return time == null ? null : time.toInstant(); }
 }
