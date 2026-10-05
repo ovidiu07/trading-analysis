@@ -25,6 +25,7 @@ export default function OfficialReferenceCard({ timezone }: { timezone: string }
       return <Stack key={currency} spacing={0.5} sx={{ overflowWrap: 'anywhere' }}>
         <Typography variant="body2">1 EUR = {item?.value != null && Number.isFinite(item.value) ? `${item.value} ${currency}` : t('workstation.unavailable')}</Typography>
         <Typography variant="caption">{t('officialContext.source')} · {item?.observationDate ?? '—'} · {t(`workstation.freshness.${item?.freshness === 'STALE' || query.isError ? 'STALE' : item?.value != null ? 'CLOSE' : 'UNAVAILABLE'}`)}</Typography>
+        {item.availabilityReason && <Typography variant="caption" color="warning.main">{t(`workstation.availability.${item.availabilityReason}`)}</Typography>}
         {item?.retrievedAt && <Typography variant="caption">{t('workstation.retrievedAt')}: {new Intl.DateTimeFormat(locale, { timeZone: timezone, dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.retrievedAt))} · {timezone}</Typography>}
       </Stack>
     })}

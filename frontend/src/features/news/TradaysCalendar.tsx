@@ -14,12 +14,12 @@ export function useContextClock(clock: () => number = Date.now) {
   }, [clock])
   return now
 }
-export function TradaysWarning({ data, now, date, timezone, frozen }: { data: TradaysCoverage; now: number; date: string; timezone: string; frozen: boolean }) {
+export function TradaysWarning({ data, now, date, timezone, frozen, compact = false }: { data: TradaysCoverage; now: number; date: string; timezone: string; frozen: boolean; compact?: boolean }) {
   const { t, locale } = useI18n()
   const result = imminentTradaysEvents(data, now, date, timezone, frozen)
   if (result.state === 'HISTORICAL') return null
   return <Alert severity={result.events.length ? 'warning' : 'info'} role="status" sx={{ py: 0.5, '& .MuiAlert-message': { minWidth: 0, overflowWrap: 'anywhere' } }}>
-    <Typography variant="body2">{t(`news.tradays.warning.${result.state}`)}</Typography>
+    <Typography variant="body2">{t(compact && !result.events.length && result.state !== 'CLEAR' ? 'chartPlan.eventsUnavailable' : `news.tradays.warning.${result.state}`)}</Typography>
     {result.events.map(event => <Typography key={event.id} variant="body2">
       {event.name} · {event.region} / {event.currency} · {new Intl.DateTimeFormat(locale, { timeZone: timezone, hour: '2-digit', minute: '2-digit' }).format(new Date(event.scheduledAt!))} · {t('news.inMinutes', { minutes: Math.ceil((Date.parse(event.scheduledAt!) - now) / 60_000) })}
     </Typography>)}

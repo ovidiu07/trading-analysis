@@ -54,3 +54,9 @@ describe('tradeValidationSchema', () => {
     expect(result.error.issues.some((issue) => issue.path.join('.') === 'quantity')).toBe(true)
   })
 })
+
+it('preserves execution provenance, feelings and the unit model through form validation', () => {
+  const snapshot = { version: 1, accountId: 'a1', review: { preparation: { emotion: 'focused', psychologyNotes: 'Waited' } } }
+  const result = tradeValidationSchema.parse({ symbol: 'ES', market: 'FUTURES', direction: 'LONG', status: 'OPEN', openedAt: '2026-10-05T10:00', quantity: 1, entryPrice: 6000, setupId: '11111111-1111-4111-8111-111111111111', feeling: 'focused', contractMultiplier: 50, preparationSnapshot: snapshot })
+  expect(result).toMatchObject({ setupId: '11111111-1111-4111-8111-111111111111', feeling: 'focused', contractMultiplier: 50, preparationSnapshot: snapshot })
+})

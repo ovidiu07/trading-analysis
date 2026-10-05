@@ -31,7 +31,8 @@ public class PreparationTradeController {
 
     @GetMapping("/context/{tradeId}")
     public com.fasterxml.jackson.databind.JsonNode context(@PathVariable UUID tradeId) {
-        trades.getById(tradeId);
+        var trade = trades.getById(tradeId);
+        if (trade.getPreparationSnapshot() != null) return trade.getPreparationSnapshot();
         var rows=jdbc.queryForList("SELECT r.payload::text FROM preparation_trade_links l JOIN session_review_revisions r ON r.id=l.review_id WHERE l.trade_id=? AND l.user_id=?",String.class,tradeId,users.getCurrentUser().getId());
         if(rows.isEmpty()) return mapper.createObjectNode();
         try { return mapper.readTree(rows.get(0)); } catch(com.fasterxml.jackson.core.JsonProcessingException ex) { throw new IllegalStateException(ex); }

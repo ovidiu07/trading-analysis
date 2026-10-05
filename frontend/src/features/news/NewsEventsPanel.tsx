@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Box, Button, Chip, Link, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Drawer, Link, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import NewspaperOutlinedIcon from '@mui/icons-material/NewspaperOutlined'
 import { fetchNewsContext, refreshNewsContext, requestCompanyNews, forecastDifference, newsInstrumentLabel, type NewsContextRequest, type NewsFigure } from '../../api/newsContext'
 import { WorkstationCard } from '../../components/trading-workspace/WorkspacePrimitives'
@@ -8,13 +8,14 @@ import TradaysCalendar, { TradaysWarning, useContextClock } from './TradaysCalen
 import { sessionDateAt, unavailableTradays } from './tradaysWarnings'
 import { useI18n } from '../../i18n'
 
-export default function NewsEventsPanel(props: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string }) {
+export default function NewsEventsPanel(props: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string; compact?: boolean }) {
   // Instrument changes keep the calendar and its independent scope mounted.
   return <ContextPanel key={`${props.date}:${props.timezone}:${props.asOf ?? ''}`} {...props} />
 }
-function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string }) {
+function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf, compact = false }: { instrument: string; date: string; timezone: string; isCurrentDate: boolean; asOf?: string; compact?: boolean }) {
   const { t, locale } = useI18n()
   const id = useId()
+  const [open, setOpen] = useState(false)
   const [tab, setTab] = useState(0)
   const [window, setWindow] = useState<NewsContextRequest['window']>('SESSION')
   const [limit, setLimit] = useState(6)
@@ -52,7 +53,7 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
     catch { setRefreshState('fetchFailed') }
     finally { setRefreshing(false) }
   }
-  return <WorkstationCard title={t('news.title')} icon={NewspaperOutlinedIcon} sx={{ '& h2': { whiteSpace: 'normal' } }}>
+  const content = <WorkstationCard title={t('news.title')} icon={NewspaperOutlinedIcon} sx={{ '& h2': { whiteSpace: 'normal' } }}>
     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
       <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
         <Typography variant="body2" fontWeight={700}>{newsInstrumentLabel(instrument)}</Typography>
@@ -142,4 +143,17 @@ function ContextPanel({ instrument, date, timezone, isCurrentDate, asOf }: { ins
       </Stack>
     </Box>
   </WorkstationCard>
+  if (!compact) return content
+  return <Stack spacing={1}>
+    <TradaysWarning compact data={data?.calendar ?? unavailableTradays} now={now} date={date} timezone={timezone} frozen={!live || !!asOf} />
+    <Stack direction="row" spacing={1}>
+      <Button fullWidth variant="outlined" onClick={() => { setTab(0); setOpen(true) }}>{t('news.latest')}</Button>
+      <Button fullWidth variant="outlined" onClick={() => { setTab(1); setOpen(true) }}>{t('news.events')}</Button>
+    </Stack>
+    <Drawer anchor="right" open={open} onClose={() => setOpen(false)} PaperProps={{ sx: { width: { xs: '100%', sm: 620 }, maxWidth: '100%', p: 2 } }}>
+      <Button onClick={() => setOpen(false)} sx={{ alignSelf: 'flex-end' }}>{t('common.close')}</Button>
+      {content}
+    </Drawer>
+  </Stack>
+
 }

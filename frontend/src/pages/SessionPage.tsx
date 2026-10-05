@@ -230,6 +230,8 @@ export default function SessionPage() {
   const [planImageUploads, setPlanImageUploads] = useState<Record<PlanScopeTab, UploadQueueItem[]>>({ TODAY: [], WEEKLY: [], MONTHLY: [] })
   const [deletingPlanImageIds, setDeletingPlanImageIds] = useState<Set<string>>(new Set())
   const setupSignatureRef = useRef('')
+  const pendingSetupSave = useRef<Promise<LiveWorkspaceResponse> | null>(null)
+  const openingTradeLog = useRef(false)
   const initializedWorkspaceRef = useRef(false)
 
   const workspaceQuery = useQuery({
@@ -273,8 +275,11 @@ export default function SessionPage() {
   }
 
   const setupMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setup: SetupItem; signature: string }) =>
-      updateSetupCandidate(payload.sessionId, payload.setup.id, toSetupPayload(payload.setup)),
+    mutationFn: (payload: { sessionId: string; setup: SetupItem; signature: string }) => {
+      const saving = updateSetupCandidate(payload.sessionId, payload.setup.id, toSetupPayload(payload.setup))
+      pendingSetupSave.current = saving
+      return saving.finally(() => { if (pendingSetupSave.current === saving) pendingSetupSave.current = null })
+    },
     onMutate: () => setSaveState('saving'),
     onSuccess: (next, variables) => {
       setupSignatureRef.current = variables.signature
@@ -341,7 +346,7 @@ export default function SessionPage() {
     if (signature === setupSignatureRef.current) return
     setSaveState('idle')
     const timer = window.setTimeout(() => {
-      saveSetup({ sessionId: workspace.session.id, setup: setupDraft, signature })
+      if (!openingTradeLog.current) saveSetup({ sessionId: workspace.session.id, setup: setupDraft, signature })
     }, 600)
     return () => window.clearTimeout(timer)
   }, [saveSetup, setupDraft, workspace])
@@ -459,8 +464,27 @@ export default function SessionPage() {
     }
   }
 
-  const openTradeLog = () => {
+  const openTradeLog = async () => {
+    let loggedSetup = setupDraft
+    // Flush the exact edited draft before handing off its identity to the trade form.
+    if (openingTradeLog.current || createSetupMutation.isLoading) return
+    openingTradeLog.current = true
+    try { await pendingSetupSave.current } catch { /* Retry the latest complete draft below. */ }
+    if (workspace && setupDraft) {
+      try {
+        if (setupDraft.id.startsWith('draft-')) {
+          const next = await createSetupMutation.mutateAsync({ sessionId: workspace.session.id, setup: setupDraft })
+          const created = next.setups[next.setups.length - 1]
+          if (created) loggedSetup = created
+        } else {
+          await setupMutation.mutateAsync({ sessionId: workspace.session.id, setup: setupDraft, signature: JSON.stringify(toSetupPayload(setupDraft)) })
+        }
+      } catch { openingTradeLog.current = false; return }
+    }
     const params = new URLSearchParams({ quickLog: '1' })
+    if (loggedSetup && !loggedSetup.id.startsWith('draft-')) params.set('setupId', loggedSetup.id)
+    const feeling = loggedSetup?.context.preparationSnapshot?.review?.preparation?.emotion
+    if (feeling) params.set('feeling', feeling)
     const symbol = normalizeSymbol(setupDraft?.symbol || chartSymbol)
     if (symbol) params.set('symbol', symbol)
     if (setupDraft?.direction === 'LONG' || setupDraft?.direction === 'SHORT') params.set('direction', setupDraft.direction)
@@ -487,10 +511,12 @@ export default function SessionPage() {
     if (execution?.tradeCurrency) params.set('tradeCurrency', execution.tradeCurrency)
     if (execution?.profileCurrency) params.set('profileCurrency', execution.profileCurrency)
     if (execution?.fxRateSource) params.set('fxRateSource', execution.fxRateSource)
-    if (execution?.initialNotes) params.set('notes', execution.initialNotes)
+    const tradeNotes = [execution?.initialNotes, execution?.notes, setupDraft?.context.notes].filter(Boolean).join('\n\n')
+    if (tradeNotes) params.set('notes', tradeNotes)
     const todayPlanId = workspace?.planningContext?.today?.id
     if (todayPlanId) params.set('planId', todayPlanId)
     navigate(`/trades?${params.toString()}`)
+    openingTradeLog.current = false
   }
 
   const deferredChartSymbol = useDeferredValue(toTradingViewSymbol(chartSymbol, null))

@@ -84,6 +84,7 @@ public class TradeResponse {
     private UUID slLevelId;
     private UUID tpLevelId;
     private JsonNode narrativeSnapshotJson;
+    private JsonNode preparationSnapshot;
     private Boolean sweepConfirmed;
     private Boolean displacementConfirmed;
     private Boolean mssConfirmed;

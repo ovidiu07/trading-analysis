@@ -85,6 +85,10 @@ const MARKET_OPTIONS: Array<{ value: TradeRequest['market']; short: string }> = 
 ]
 
 const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
+  preparationSnapshot: values.preparationSnapshot,
+  setupId: values.setupId,
+  feeling: values.feeling,
+  sessionId: values.sessionId,
   symbol: values.symbol || '',
   market: values.market,
   direction: values.direction,

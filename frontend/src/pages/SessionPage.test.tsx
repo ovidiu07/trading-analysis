@@ -865,6 +865,7 @@ describe('SessionPage simplified workflow', () => {
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Log trade' }))[0])
 
+    await waitFor(() => expect(screen.getByTestId('location-probe').textContent).toContain('/trades?'))
     const location = screen.getByTestId('location-probe').textContent || ''
     expect(location).toContain('/trades?')
     expect(location).toContain('quickLog=1')
@@ -882,6 +883,34 @@ describe('SessionPage simplified workflow', () => {
     expect(location).toContain('quantity=1')
     expect(location).toContain('contractMultiplier=50')
     expect(location).toContain('planId=session-1')
+  })
+
+  it('flushes the latest edit before opening Quick Log and retains the setup identity', async () => {
+    const setup = buildSetup('EURUSD', 'LONG', 'Before editing')
+    workspaceState.setups.push(setup)
+    workspaceState.activeSetupId = setup.id
+    recalcWorkspace()
+    let finishSave!: (value: LiveWorkspaceResponse) => void
+    workspaceApiMock.updateSetupCandidate.mockImplementation(() => new Promise(resolve => { finishSave = resolve }))
+    renderWithProviders(<SessionPage />)
+    fireEvent.change(await screen.findByLabelText('Narrative'), { target: { value: 'Last-second plan edit' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Log trade' })[0])
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenCalledWith('session-1', setup.id, expect.objectContaining({ context: expect.objectContaining({ narrative: 'Last-second plan edit' }) })))
+    expect(screen.getByTestId('location-probe').textContent).not.toContain('/trades?')
+    finishSave(clone(workspaceState))
+    await waitFor(() => expect(screen.getByTestId('location-probe').textContent).toContain(`setupId=${setup.id}`))
+  })
+
+  it('stays in the workspace with an error if saving before Quick Log fails', async () => {
+    const setup = buildSetup('EURUSD', 'LONG', 'Unsaved setup')
+    workspaceState.setups.push(setup)
+    workspaceState.activeSetupId = setup.id
+    recalcWorkspace()
+    workspaceApiMock.updateSetupCandidate.mockRejectedValue(new Error('Could not save latest preparation'))
+    renderWithProviders(<SessionPage />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Log trade' }))[0])
+    expect(await screen.findByText('Could not save latest preparation')).toBeInTheDocument()
+    expect(screen.getByTestId('location-probe').textContent).not.toContain('/trades?')
   })
 
   it('saves plan edits in place and preserves the plan scope', async () => {

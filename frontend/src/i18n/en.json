@@ -1,4 +1,21 @@
 {
+  "chartPlan": {
+    "observe": "Observation only",
+    "strategyLibrary": "Strategy library",
+    "completeRisk": "Complete direction, prices, quantity and invalidation within your risk limit.",
+    "observationOnly": "Observation mode: select Long or Short to prepare an execution.",
+    "reviewed": "Reviewed",
+    "reviewContext": "Review context",
+    "draft": "Draft",
+    "sessionNotes": "Session notes",
+    "psychologyNotes": "Psychology notes",
+    "notCompleted": "Not completed",
+    "riskDetails": "Calculation details and risk checks",
+    "eventsUnavailable": "Event alerts unavailable · Check calendar before trading",
+    "savedPlan": "Trade plan at logging",
+    "snapshotBoundary": "Saved with this trade. Later preparation edits do not change this record.",
+    "configuration": "Complete saved configuration"
+  },
   "manualLevels": {
     "manual": "Manual · private",
     "scope": "Your levels are private to this account and session, for the exact instrument below. They are your own entries, not live quotes or automatic risk inputs.",
@@ -4604,7 +4621,7 @@
     "executionReview": "Prepared execution",
     "reviewPrepared": "Recovered the prepared execution for the selected {{account}} account. Review or edit it before logging the trade.",
     "reviewBasis": "Multiplier {{multiplier}} · {{currency}} · {{source}}",
-    "continue": "Continue to execution",
+    "continue": "Review execution draft",
     "handingOff": "Preparing execution draft…",
     "clearDraft": "Clear risk draft",
     "handoffBoundary": "This action prepares one execution draft. It does not create a Trade or transmit a broker order.",

@@ -230,6 +230,11 @@ public class Trade {
     @Column(name = "narrative_snapshot_json", columnDefinition = "jsonb", nullable = false)
     private JsonNode narrativeSnapshotJson;
 
+    // Immutable entry context; trade edits must not rewrite what the trader prepared.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "preparation_snapshot", columnDefinition = "jsonb", updatable = false)
+    private JsonNode preparationSnapshot;
+
     @Column(name = "sweep_confirmed")
     private Boolean sweepConfirmed;
 

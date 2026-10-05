@@ -10,7 +10,16 @@ export type MarketSourceReference = {
 }
 export type MarketDataAuditSnapshot = { capturedAt: string; instruments: MarketSourceReference[]; macro: MarketSourceReference[] }
 export type ManualLevel = { id: string; instrument: string; label: 'SUPPORT' | 'RESISTANCE' | 'INVALIDATION' | 'REFERENCE'; value: number; unit: string; note: string; updatedAt?: string; authorId?: string; provenance?: 'MANUAL' }
+export type RiskDraft = {
+  version: 1; draftId: string; entryPrice: string; stopLossPrice: string; takeProfitPrice: string;
+  intendedRiskAmount: string; manualQuantity: string; invalidation: string
+}
 export type Preparation = {
+  emotion?: 'calm' | 'focused' | 'neutral' | 'anxious' | 'fomo';
+  discipline?: { chasing: boolean; revenge: boolean; social: boolean };
+  psychologyNotes?: string; sessionNotes?: string; checklistLabels?: string[];
+  riskDrafts?: Record<string, RiskDraft>;
+
   manualLevels?: ManualLevel[];
   briefingDate?: string; briefingId?: string; step: number; briefingSession: 'ASIA' | 'LONDON' | 'DAY_RECAP'; manualSession: boolean;
   bias: 'bullish' | 'bearish' | 'neutral' | 'mixed'; chartPlan: string; chartSymbol: string;

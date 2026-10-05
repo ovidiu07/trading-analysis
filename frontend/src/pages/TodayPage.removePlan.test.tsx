@@ -1,6 +1,6 @@
 vi.mock('../features/preparation/BriefingPanel', () => ({ BriefingPanel: () => null }))
 vi.mock('../features/preparation/SessionJournal', () => ({ SessionJournal: () => null }))
-vi.mock('../features/risk/TodayRiskPanel', () => ({ TodayRiskPanel: () => null }))
+vi.mock('../features/risk/TodayRiskPanel', () => ({ TodayRiskPanel: ({ afterFields }: { afterFields: React.ReactNode }) => <>{afterFields}</> }))
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -10,6 +10,8 @@ import TodayPage from './TodayPage'
 import { I18nProvider } from '../i18n'
 import { getSessionReview, saveSessionReview } from '../api/sessionReviews'
 
+vi.mock('../features/news/NewsEventsPanel', () => ({ default: () => null }))
+vi.mock('../features/preparation/BriefingPanel', () => ({ BriefingPanel: () => null }))
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user-1', timezone: 'Europe/Bucharest', baseCurrency: 'USD' } }) }))
 vi.mock('../api/accounts', () => ({ fetchTradingAccounts: vi.fn().mockResolvedValue([{ id: 'a1', name: 'Synthetic account', currency: 'EUR' }]) }))
 vi.mock('../api/growthCoach', () => ({ fetchGrowthCoach: vi.fn().mockResolvedValue({ detail: null }) }))
@@ -29,18 +31,17 @@ describe('Today session review', () => {
     expect(screen.queryByRole('button', { name: 'Start session' })).not.toBeInTheDocument()
   })
   it('starts deliberately and persists the session state', async () => {
-    show(); fireEvent.click(await screen.findByLabelText('I reviewed the selected context and acknowledge any missing market information.'))
-    fireEvent.click(screen.getByRole('button', { name: 'Select strategy', exact: true }))
-    fireEvent.click(screen.getByLabelText('No trade / observation without a setup'))
-    fireEvent.click(screen.getByRole('button', { name: 'Chart analysis', exact: true }))
+    show(); fireEvent.click(await screen.findByRole('button', { name: /Market context ·/ })); fireEvent.click(await screen.findByLabelText('I reviewed the selected context and acknowledge any missing market information.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Observation only' }))
     fireEvent.click(screen.getByLabelText('I have analysed the chart.'))
-    fireEvent.click(screen.getByLabelText('I confirm my preparation and plan.'))
+    fireEvent.click(screen.getByText(/Trade validation ·/)); fireEvent.click(screen.getByLabelText('I confirm my preparation and plan.'))
     fireEvent.click(screen.getByRole('button', { name: 'Ready — Start session' }))
     await waitFor(() => expect(saveSessionReview).toHaveBeenCalledWith('a1', expect.any(String), 0, expect.objectContaining({ state: 'TRADE' }), 'DAY'))
     expect(await screen.findByText('Execution timeline')).toBeInTheDocument()
   })
   it('recovers a preparation draft after remount', async () => {
-    const first = show(); fireEvent.click(await screen.findByRole('button', { name: 'Market scenarios', exact: true })); const input = await screen.findByLabelText('My session thesis')
+    const first = show(); const input = await screen.findByLabelText('My session thesis')
     fireEvent.change(input, { target: { value: 'Wait for confirmation' } }); first.unmount(); show()
     expect(await screen.findByDisplayValue('Wait for confirmation')).toBeInTheDocument()
   })
@@ -54,9 +55,9 @@ describe('Today session review', () => {
     vi.mocked(getSessionReview).mockResolvedValueOnce({ revision: 2, data: { focus: 'Saved focus' } })
     localStorage.setItem('today.review.user-1.a1.2026-09-01.DAY', JSON.stringify({ revision: 1, data: { state: 'PREPARE', focus: 'Retained focus', assessments: [] } }))
     show('/today?accountIds=a1&date=2026-09-01')
-    fireEvent.click(await screen.findByRole('button', { name: 'Market scenarios', exact: true })); expect(await screen.findByDisplayValue('Saved focus')).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('Saved focus')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Restore my retained draft' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Market scenarios', exact: true })); expect(screen.getByDisplayValue('Retained focus')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Retained focus')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save session' }))
     await waitFor(() => expect(saveSessionReview).toHaveBeenCalledWith('a1', '2026-09-01', 2, expect.objectContaining({ focus: 'Retained focus' }), 'DAY'))
   })

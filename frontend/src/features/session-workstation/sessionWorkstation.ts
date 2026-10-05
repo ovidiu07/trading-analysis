@@ -433,6 +433,7 @@ export function toSetupPayload(setup: SetupItem): SetupDraftRequest {
     setupTitle: normalized.setupTitle,
     biasAlignment: normalized.biasAlignment || null,
     context: {
+      preparationSnapshot: normalized.context.preparationSnapshot,
       narrative: normalized.context.narrative || null,
       liquidityNotes: normalized.context.liquidityNotes || null,
       invalidationIdea: normalized.context.invalidationIdea || null,

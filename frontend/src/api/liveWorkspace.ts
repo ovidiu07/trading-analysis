@@ -43,6 +43,7 @@ export type SetupLevel = {
 }
 
 export type SetupContext = {
+  preparationSnapshot?: import('../features/preparation/tradePreparationSnapshot').TradePreparationSnapshot | null
   narrative?: string | null
   liquidityNotes?: string | null
   invalidationIdea?: string | null

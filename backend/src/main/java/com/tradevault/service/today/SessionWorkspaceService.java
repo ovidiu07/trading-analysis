@@ -659,6 +659,11 @@ public class SessionWorkspaceService {
         tradeRequest.setFxRateTradeToProfile(executionTicket.getFxRateTradeToProfile());
         tradeRequest.setFxRateSource(executionTicket.getFxRateSource());
         tradeRequest.setAccountRefId(setup.getAccount().getId());
+        if (context.getPreparationSnapshot() != null) {
+            tradeRequest.setFeeling(context.getPreparationSnapshot().path("review").path("preparation").path("emotion").asText(null));
+            tradeRequest.setTimeframe(context.getPreparationSnapshot().path("review").path("preparation").path("chartInterval").asText(null));
+        }
+        tradeRequest.setNotes(executionTicket.getNotes());
         tradeRequest.setSetup(setup.getSetupTitle());
         tradeRequest.setStrategyId(setup.getStrategyId());
         tradeRequest.setStrategyTag(setup.getStrategyLabel());
@@ -876,6 +881,7 @@ public class SessionWorkspaceService {
                 .analysisNoteId(resolveAnalysisNoteId(setup, session))
                 .readiness(readiness.readiness())
                 .context(SessionWorkspaceResponse.SetupContext.builder()
+                        .preparationSnapshot(context.getPreparationSnapshot())
                         .narrative(normalizeOptionalText(context.getNarrative(), 600))
                         .liquidityNotes(normalizeOptionalText(context.getLiquidityNotes(), 400))
                         .invalidationIdea(normalizeOptionalText(context.getInvalidationIdea(), 400))

@@ -1,3 +1,4 @@
+import TradePreparationRecord from '../features/preparation/TradePreparationRecord'
 import { ManualLevelList } from '../features/preparation/ManualLevels'
 import { EditorialComposition } from '../features/briefings/EditorialView'
 import { Composition, editorialDate } from '../features/briefings/model'
@@ -13,8 +14,8 @@ import TradingViewWidget from '../components/charts/TradingViewWidget'
 import { fetchAnalyticsCoach, AdviceCard } from '../api/analytics'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
 import FindingEvidenceDialog from '../components/analytics/FindingEvidenceDialog'
-import { useEffect, useState, useRef } from 'react'
-import { Alert, Autocomplete, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
+import { useEffect, useState, useRef, useMemo } from 'react'
+import { ThemeProvider, createTheme, useTheme, Alert, Autocomplete, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fromZonedTime } from 'date-fns-tz'
@@ -31,19 +32,13 @@ import { formatNetResult, netResult } from '../utils/tradeMoney'
 import MarketTickerStrip from '../components/trading-workspace/MarketTickerStrip'
 import { useMarketWorkspaceData } from '../features/trading-workspace/useMarketWorkspaceData'
 import { canonicalMarketInstrument } from '../api/marketData'
-import type { SetupDirection, SetupItem } from '../api/liveWorkspace'
+import type { SetupDirection } from '../api/liveWorkspace'
+import { resolvePreparationInstrument } from '../features/preparation/preparationInstrument'
 
-function resolvePreparationInstrument(chartSymbol: string, instruments: string): { symbol: string; market: NonNullable<SetupItem['market']> } {
-  const selected = (chartSymbol || instruments.split(',')[0] || '').trim().toUpperCase()
-  if (selected.includes('CME_MINI:ES') || /^ES(?:[FGHJKMNQUVXZ]\d{1,4})?$/.test(selected)) return { symbol: selected.includes(':') ? 'ES' : selected, market: 'FUTURES' }
-  if (selected.includes('DE30') || selected.includes('DAX') || selected.includes('GER40')) return { symbol: 'DAX', market: 'CFD' }
-  if (selected.includes('NAS100') || selected.includes('NASDAQ-100')) return { symbol: 'NAS100', market: 'CFD' }
-  const plain = selected.split(':').pop()?.replace(/[^A-Z0-9]/g, '') || ''
-  if (/^[A-Z]{6}$/.test(plain)) return { symbol: plain, market: 'FOREX' }
-  return { symbol: plain || 'UNSET', market: 'OTHER' }
-}
 
 export default function TodayPage() {
+  const inheritedTheme = useTheme()
+  const workspaceTheme = useMemo(() => createTheme(inheritedTheme, inheritedTheme.palette.mode === 'dark' ? { palette: { primary: { main: '#8ac7ff', contrastText: '#080c12' } } } : {}), [inheritedTheme])
   const { user } = useAuth()
   const { t } = useI18n()
   const scope = useAccountScope()
@@ -60,24 +55,24 @@ export default function TodayPage() {
     const selected = scope.accounts.find(a => a.id === remembered) || scope.accounts.find(a => a.isDefault) || (scope.accounts.length === 1 ? scope.accounts[0] : undefined)
     if (selected) scope.setScope(selectedAccountsScope([selected.id]))
   }, [params, scope, user?.id])
-  return <Stack spacing={2} sx={{ minWidth: 0 }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-      <TextField select label={t('dailyReview.account')} value={account?.id || ''} sx={{ minWidth: { sm: 240 } }} onChange={e => { scope.setScope(selectedAccountsScope([e.target.value])); localStorage.setItem(`today.account.${user?.id}`, e.target.value) }}>
+  const scopeToolbar = <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+      <TextField size="small" select label={t('dailyReview.account')} value={account?.id || ''} sx={{ minWidth: { sm: 240 } }} onChange={e => { scope.setScope(selectedAccountsScope([e.target.value])); localStorage.setItem(`today.account.${user?.id}`, e.target.value) }}>
         <MenuItem value="">{t('dailyReview.chooseAccount')}</MenuItem>
         {scope.accounts.map(a => <MenuItem key={a.id} value={a.id}>{a.name} · {a.currency || '—'}</MenuItem>)}
       </TextField>
-      <TextField label={t('dailyReview.date')} type="date" value={date} onChange={e => { if (e.target.value) setDate(e.target.value) }} InputLabelProps={{ shrink: true }} />
-      <TextField select label={t('prepare.workspace')} value={session} onChange={e => { setSession(e.target.value); sessionStorage.setItem('today.session', e.target.value) }}>
+      <TextField size="small" label={t('dailyReview.date')} type="date" value={date} onChange={e => { if (e.target.value) setDate(e.target.value) }} InputLabelProps={{ shrink: true }} />
+      <TextField size="small" select label={t('prepare.workspace')} value={session} onChange={e => { setSession(e.target.value); sessionStorage.setItem('today.session', e.target.value) }}>
         {['DAY', 'EUROPE', 'US'].map(value => <MenuItem value={value} key={value}>{t(`prepare.sessions.${value}`)}</MenuItem>)}
       </TextField>
       <Chip label={timezone} sx={{ alignSelf: 'center' }} />
     </Stack>
+  return <ThemeProvider theme={workspaceTheme}><Stack spacing={1} sx={{ minWidth: 0, '& .MuiButton-containedPrimary': { backgroundImage: 'none', bgcolor: 'primary.main', color: 'primary.contrastText', '&.Mui-disabled': { bgcolor: 'action.disabledBackground', color: 'text.disabled' } } }}>
     {scope.isError && <Alert severity="error">{t('dailyReview.loadError')}</Alert>}
-    {!account ? <Alert severity="info">{t('dailyReview.chooseAccount')}</Alert> : <DailyWorkspace key={`${user?.id}:${account.id}:${date}:${session}`} session={session} accountId={account.id} accountLabel={`${account.name} · ${account.currency || '—'}`} accountCurrency={account.currency || undefined} date={date} timezone={timezone} broker={account.broker} />}
-  </Stack>
+    {!account ? <>{scopeToolbar}<Alert severity="info">{t('dailyReview.chooseAccount')}</Alert></> : <DailyWorkspace scopeToolbar={scopeToolbar} key={`${user?.id}:${account.id}:${date}:${session}`} session={session} accountId={account.id} accountLabel={`${account.name} · ${account.currency || '—'}`} accountCurrency={account.currency || undefined} date={date} timezone={timezone} broker={account.broker} />}
+  </Stack></ThemeProvider>
 }
 
-function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, session, timezone: accountTimezone, broker }: { session: string; accountId: string; accountLabel: string; accountCurrency?: string; date: string; timezone: string; broker?: string | null }) {
+function DailyWorkspace({ scopeToolbar, accountId, accountLabel, accountCurrency, date, session, timezone: accountTimezone, broker }: { scopeToolbar: React.ReactNode; session: string; accountId: string; accountLabel: string; accountCurrency?: string; date: string; timezone: string; broker?: string | null }) {
   const { user } = useAuth()
   const { t } = useI18n()
   const draftKey = `today.review.${user?.id}.${accountId}.${date}.${session}`
@@ -204,17 +199,13 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   const effectiveAccountCurrency = accountCurrency || rules.data?.detail?.account.currency || ''
   const chart = <Card sx={{ minWidth: 0, overflow: 'hidden' }}><CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}><Stack spacing={0}>
     <Stack spacing={1} sx={{ p: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
-        <Autocomplete multiple freeSolo size="small" options={['DAX', 'NASDAQ-100', 'ES']} value={draft.instruments.split(',').map(value => value.trim()).filter(Boolean)} onChange={(_, values) => update({ instruments: [...new Set(values)].join(', ') })} renderInput={params => <TextField {...params} label={t('dailyReview.instruments')} />} sx={{ minWidth: { md: 260 }, flex: { md: 1 }, maxWidth: { md: 420 } }} />
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{['1','5','15','30','60','D'].map(value => <Button key={value} size="small" variant={prep.chartInterval === value ? 'contained' : 'text'} onClick={() => update({ preparation: { ...prep, chartInterval: value } })} sx={{ minWidth: 38 }}>{value === '60' ? '1h' : value === 'D' ? 'D' : `${value}m`}</Button>)}</Stack>
-      </Stack>
-      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-        {[['DAX · CFD', 'OANDA:DE30EUR', 'DAX'], ['NASDAQ-100 · CFD', 'OANDA:NAS100USD', 'NAS100'], ['ES · Futures', 'CME_MINI:ES1!', 'ES']].map(([label, symbol, instrument]) => <Button size="small" key={symbol} variant={prep.chartSymbol === symbol ? 'outlined' : 'text'} onClick={() => update({ instruments: instrument, preparation: { ...prep, chartSymbol: symbol } })}>{label}</Button>)}
-        <Typography className="metric-value" variant="caption" color="text.secondary" sx={{ ml: { md: 'auto' } }}>{prep.chartSymbol} · TradingView</Typography>
-        <Button size="small" onClick={() => setChartExpanded(!chartExpanded)}>{t(chartExpanded ? 'dailyReview.compactMode' : 'dailyReview.chartMode')}</Button>
+      <MarketTickerStrip selectedSymbol={prep.chartSymbol} quotes={marketQuotes} loading={marketWorkspace.isLoading} error={marketWorkspace.isError} heartbeatAt={marketWorkspace.heartbeatAt} environment={marketWorkspace.data?.providerEnvironment} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+        <Box><Typography variant="subtitle2" fontWeight={700}>{marketInstrument} · {preparedInstrument.market}</Typography><Typography variant="caption" color="text.secondary">{prep.chartSymbol} · TradingView</Typography></Box>
+        <Stack direction="row" spacing={0.25}>{['1','5','15','60','D'].map(value => <Button key={value} size="small" variant={prep.chartInterval === value ? 'contained' : 'text'} onClick={() => update({ preparation: { ...prep, chartInterval: value } })} sx={{ minWidth: 32 }}>{value === '60' ? '1h' : value === 'D' ? 'D' : `${value}m`}</Button>)}</Stack>
       </Stack>
     </Stack>
-    {prep.chartSymbol === 'CME_MINI:ES1!' ? <Alert severity="warning" sx={{ m: 1.25 }}>{t('prepare.esWidgetLimit')}</Alert> : <TradingViewWidget symbol={prep.chartSymbol} interval={prep.chartInterval} height={chartExpanded ? '82dvh' : 548} minHeight={420} hideControls={false} allowSymbolChange={false} fallbackMessage={t('today.session.mentor.liveChartFallback')} fallbackLinkLabel={t('today.session.mentor.openOnTradingView')} />}
+    {prep.chartSymbol === 'CME_MINI:ES1!' ? <Alert severity="warning" sx={{ m: 1.25 }}>{t('prepare.esWidgetLimit')}</Alert> : <TradingViewWidget symbol={prep.chartSymbol} interval={prep.chartInterval} height={chartExpanded ? '82dvh' : 'clamp(420px, 62dvh, 760px)'} minHeight={420} hideControls={false} allowSymbolChange={false} fallbackMessage={t('today.session.mentor.liveChartFallback')} fallbackLinkLabel={t('today.session.mentor.openOnTradingView')} />}
     <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.25, py: 0.75, borderTop: '1px solid', borderColor: 'divider' }}>
       <Button size="small" href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(prep.chartSymbol)}`} target="_blank" rel="noopener noreferrer">{t('prepare.personalIndicators')}</Button>
       <Box component="details" sx={{ minWidth: 0 }}><Box component="summary" sx={{ cursor: 'pointer', fontSize: 12 }}>{t('news.chartInformation')}</Box><Typography variant="caption" color="text.secondary">{t('prepare.widgetLimits')} {t('prepare.chartFeedIndependent')}</Typography></Box>
@@ -223,10 +214,12 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
   if (saved.isError) return <Alert severity="error" action={<Button onClick={() => void saved.refetch()}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.loadError')}</Alert>
   if (!ready) return <Typography role="status">{t('dailyReview.loading')}</Typography>
   return <Stack component="fieldset" spacing={1.25} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
-    {draft.state === 'PREPARE' && <MarketTickerStrip selectedSymbol={prep.chartSymbol} quotes={marketQuotes} loading={marketWorkspace.isLoading} error={marketWorkspace.isError} heartbeatAt={marketWorkspace.heartbeatAt} environment={marketWorkspace.data?.providerEnvironment} onSelect={(item) => update({ instruments: item.symbol, preparation: { ...prep, chartSymbol: item.tradingViewSymbol } })} />}
-    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} variant={draft.state === state ? 'contained' : 'outlined'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
-      <Chip role="status" label={t(`dailyReview.save.${saveState}`)} />
+    <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ lg: 'center' }} justifyContent="space-between">
+      {scopeToolbar}
+      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+      {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} size="small" variant={draft.state === state ? 'contained' : 'text'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
+      <Chip size="small" role="status" label={t(`dailyReview.save.${saveState}`)} />
+      </Stack>
     </Stack>
     {saveState === 'error' && <Alert severity="error" action={<Button onClick={async () => { const result = await saved.refetch(); if (result.data) { setConflictingDraft(draft); setRevision(result.data.revision); setDraft({ ...emptyReview, preparation: initialForWorkspace(), ...result.data.data }) } }}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.saveError')}</Alert>}
     {conflictingDraft && <Card><CardContent><Stack spacing={1}><Typography>{t('dailyReview.conflictRecovery')}</Typography><Typography variant='body2'>{t('dailyReview.focus')}: {conflictingDraft.focus}</Typography><Typography variant='body2'>{t('dailyReview.nextFocus')}: {conflictingDraft.nextFocus}</Typography><Button onClick={() => { update(conflictingDraft); setConflictingDraft(null) }}>{t('dailyReview.restoreDraft')}</Button></Stack></CardContent></Card>}
@@ -236,7 +229,6 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     </Box>}
     {draft.state !== 'PREPARE' && <Typography variant="caption" color="text.secondary">{t('dailyReview.freshness', { time: executions.dataUpdatedAt ? formatDateTime(new Date(executions.dataUpdatedAt).toISOString(), timezone) : '—' })} · {timezone}</Typography>}
     {closed.length > 0 && !knownMoney && <Alert severity="info">{t('dailyReview.moneyUnavailable')}</Alert>}
-    {draft.state === 'PREPARE' && permission && <Alert severity={permission.maximumPermittedRisk === 0 ? 'warning' : 'info'}>{t('dailyReview.capacity', { trades: permission.remainingTrades ?? '—', risk: permission.maximumPermittedRisk == null ? '—' : formatSignedCurrency(permission.maximumPermittedRisk, rules.data!.detail!.account.currency) })} · {t(permission.primaryReason)}</Alert>}
     {draft.state === 'PREPARE' && effectiveAccountCurrency && <PrepareSteps displayTimezone={timezone} mentorStrategies={strategies.data?.mentorStrategies || []} reloadStrategies={() => { void strategies.refetch() }} date={date} draft={draft} update={update} strategies={strategies.data?.myStrategies || []} start={() => void save('TRADE')} saving={saveState === 'saving'} chart={chart} userId={user?.id || 'anonymous'} accountId={accountId} accountLabel={accountLabel} accountCurrency={effectiveAccountCurrency} isCurrentDate={date === accountToday} session={session} symbol={preparedInstrument.symbol} market={preparedInstrument.market} direction={preparedDirection} maximumPermittedRisk={permission?.maximumPermittedRisk} maximumPermittedRiskPct={permission?.maximumPermittedRiskPct} remainingTrades={permission?.remainingTrades} capacityReason={permission ? t(permission.primaryReason) : null} marketQuotes={marketQuotes} macroObservations={marketWorkspace.data?.macroObservations ?? []} marketAnalysis={marketWorkspace.data?.analysis ?? null} />}
     {draft.state === 'PREPARE' && !effectiveAccountCurrency && <Alert severity="warning">{t('risk.reasons.accountCurrencyUnavailable')}</Alert>}
     {draft.state !== 'PREPARE' && draft.readyContext && <Card><CardContent><Stack spacing={1}>
@@ -289,7 +281,8 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     </Stack></DialogContent><DialogActions><Button onClick={() => setHistoryOpen(false)}>{t('common.close')}</Button></DialogActions></Dialog>
     <FindingEvidenceDialog finding={finding} onClose={() => setFinding(null)} />
     <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="sm"><DialogTitle>{selected?.symbol} · {t('dailyReview.reviewTrade')}</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-      {executionContext.data?.readyContext ? <Card><CardContent><Typography>{executionContext.data.readyContext.readyAt}</Typography><Typography>{executionContext.data.readyContext.focus}</Typography><Typography>{executionContext.data.readyContext.strategyContext?.name}</Typography><Typography>{executionContext.data.readyContext.preparation.chartPlan}</Typography><Typography variant="caption">{executionContext.data.readyContext.briefing?.asOf}</Typography>{executionContext.data.readyContext.briefing?.kind === 'EDITORIAL' && <EditorialComposition capture={executionContext.data.readyContext.briefing as Composition} />}</CardContent></Card> : <Typography>{t('prepare.noLinkedPreparation')}</Typography>}
+      <TradePreparationRecord snapshot={selected?.preparationSnapshot} />
+      {executionContext.data?.readyContext ? <Card><CardContent><Typography>{executionContext.data.readyContext.readyAt}</Typography><Typography>{executionContext.data.readyContext.focus}</Typography><Typography>{executionContext.data.readyContext.strategyContext?.name}</Typography><Typography>{executionContext.data.readyContext.preparation.chartPlan}</Typography><Typography variant="caption">{executionContext.data.readyContext.briefing?.asOf}</Typography>{executionContext.data.readyContext.briefing?.kind === 'EDITORIAL' && <EditorialComposition capture={executionContext.data.readyContext.briefing as Composition} />}</CardContent></Card> : !selected?.preparationSnapshot && <Typography>{t('prepare.noLinkedPreparation')}</Typography>}
       <Typography>{selected && formatNetResult(selected)}</Typography><Alert severity="info">{t('dailyReview.contextBasis')}</Alert>
       <ToggleButtonGroup exclusive value={assessment?.decision || null} onChange={(_, value) => { if (value) assess(value) }} sx={{ flexWrap: 'wrap' }}>{['FOLLOWED', 'DEVIATED', 'CANNOT_ASSESS'].map(x => <ToggleButton key={x} value={x}>{t(`dailyReview.assessment.${x}`)}</ToggleButton>)}</ToggleButtonGroup>
       <TextField label={t('dailyReview.note')} multiline minRows={3} value={assessment?.note || ''} onChange={e => assess(assessment?.decision || 'CANNOT_ASSESS', e.target.value)} />

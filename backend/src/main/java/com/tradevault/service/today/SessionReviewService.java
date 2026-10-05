@@ -50,7 +50,16 @@ public class SessionReviewService {
         boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
         @Size(max=20) List<Boolean> checklist, UUID briefingId, LocalDate briefingDate,
         @jakarta.validation.Valid MarketDataAuditSnapshot marketDataSnapshot,
-        @Size(max=40) List<@jakarta.validation.Valid ManualLevel> manualLevels) {
+        @Size(max=40) List<@jakarta.validation.Valid ManualLevel> manualLevels,
+        @Pattern(regexp="calm|focused|neutral|anxious|fomo") String emotion,
+        Discipline discipline, @Size(max=4000) String psychologyNotes, @Size(max=8000) String sessionNotes,
+        @Size(max=20) List<@Size(max=2000) String> checklistLabels,
+        @Size(max=40) Map<String, @jakarta.validation.Valid RiskDraft> riskDrafts) {
+        public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
+          String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
+          List<Boolean> checklist, UUID briefingId, LocalDate briefingDate, MarketDataAuditSnapshot marketDataSnapshot, List<ManualLevel> manualLevels) {
+          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,briefingDate,marketDataSnapshot,manualLevels,null,null,null,null,null,null);
+        }
         public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
           String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
           List<Boolean> checklist, UUID briefingId, LocalDate briefingDate, MarketDataAuditSnapshot marketDataSnapshot) {
@@ -67,6 +76,10 @@ public class SessionReviewService {
           this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,briefingDate,null);
         }
     }
+    public record Discipline(boolean chasing, boolean revenge, boolean social) {}
+    public record RiskDraft(@Min(1) @Max(1) int version, @NotBlank @Size(max=120) String draftId,
+        @Size(max=80) String entryPrice, @Size(max=80) String stopLossPrice, @Size(max=80) String takeProfitPrice,
+        @Size(max=80) String intendedRiskAmount, @Size(max=80) String manualQuantity, @Size(max=4000) String invalidation) {}
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown=true)
     public record ManualLevel(@NotNull UUID id,
         @NotBlank @Size(max=100) @Pattern(regexp="[A-Z0-9_]+:[A-Z0-9_!.\\-]+") String instrument,

@@ -34,6 +34,7 @@ public class UpsertSessionSetupRequest {
 
     @Data
     public static class Context {
+        private com.fasterxml.jackson.databind.JsonNode preparationSnapshot;
         private String narrative;
         private String liquidityNotes;
         private String invalidationIdea;

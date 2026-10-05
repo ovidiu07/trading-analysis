@@ -131,6 +131,7 @@ public class SessionWorkspaceResponse {
     @Value
     @Builder
     public static class SetupContext {
+        com.fasterxml.jackson.databind.JsonNode preparationSnapshot;
         String narrative;
         String liquidityNotes;
         String invalidationIdea;

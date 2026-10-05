@@ -9,8 +9,8 @@ import OfficialReferenceCard from './OfficialReferenceCard'
 import NewsEventsPanel from '../../features/news/NewsEventsPanel'
 import { useI18n } from '../../i18n'
 
-export default function MarketIntelligenceGrid({ preparation, thesis, briefing, onAcknowledge, acknowledgeLabel, date, selectedInstrument, macroObservations = [], isCurrentDate = false, displayTimezone = 'Europe/Bucharest', asOf }: {
-  preparation: Preparation; thesis: string; briefing: ReactNode; onAcknowledge: (checked: boolean) => void; acknowledgeLabel: string; date: string; selectedInstrument: string
+export default function MarketIntelligenceGrid({ preparation, thesis, briefing, onAcknowledge, acknowledgeLabel, date, selectedInstrument, macroObservations = [], isCurrentDate = false, displayTimezone = 'Europe/Bucharest', asOf, hideNews = false }: {
+  hideNews?: boolean; preparation: Preparation; thesis: string; briefing: ReactNode; onAcknowledge: (checked: boolean) => void; acknowledgeLabel: string; date: string; selectedInstrument: string
   quotes?: InstrumentQuote[]; macroObservations?: MacroObservation[]; analysis?: AnalysisMetrics | null; onManualLevelsChange?: (levels: ManualLevel[]) => void; isCurrentDate?: boolean; displayTimezone?: string; asOf?: string
 }) {
   const { t } = useI18n()
@@ -25,7 +25,7 @@ export default function MarketIntelligenceGrid({ preparation, thesis, briefing, 
       </Box>}
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, lineHeight: 1.5 }}><input type="checkbox" checked={preparation.contextAcknowledged} onChange={event => onAcknowledge(event.target.checked)} />{acknowledgeLabel}</label>
     </WorkstationCard>
-    <NewsEventsPanel instrument={selectedInstrument} date={date} timezone={displayTimezone} isCurrentDate={isCurrentDate} asOf={asOf} />
+    {!hideNews && <NewsEventsPanel instrument={selectedInstrument} date={date} timezone={displayTimezone} isCurrentDate={isCurrentDate} asOf={asOf} />}
     {references.length > 0 && <WorkstationCard title={t('workstation.crossMarket')} icon={QueryStatsRoundedIcon}>
       {references.map(item => <Box key={item.canonicalInstrument}>
         <Stack direction="row" justifyContent="space-between"><Typography variant="caption">{t(`workstation.metrics.${item.canonicalInstrument.toLowerCase()}`)}</Typography><Typography variant="body2">{item.value!.toFixed(3)}%</Typography></Stack>

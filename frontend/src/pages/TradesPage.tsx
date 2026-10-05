@@ -1,3 +1,4 @@
+import TradePreparationRecord from '../features/preparation/TradePreparationRecord'
 import { formatNetResult, convertedNetResult } from '../utils/tradeMoney'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
@@ -1133,6 +1134,8 @@ export default function TradesPage() {
       }
       setCreateFormValues({
         ...quickDefaults,
+        setupId: params.get('setupId') || undefined,
+        feeling: params.get('feeling') || undefined,
         symbol: params.get('symbol') || quickDefaults.symbol,
         market,
         direction,
@@ -1648,6 +1651,7 @@ export default function TradesPage() {
                       <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, tradeCurrency)}</Typography>
                     </Grid>
                     <Grid item xs={12}>
+                      <TradePreparationRecord snapshot={expandedTrade.preparationSnapshot} />
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
                       <Typography variant="body2" sx={{ mb: 1 }}>
                         <strong>{t('trades.details.initialNotes')}:</strong> {expandedTrade.initialNotes || t('common.na')}
@@ -1886,6 +1890,7 @@ export default function TradesPage() {
         <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle>{t('trades.actions.editTrade')}</DialogTitle>
           <DialogContent sx={{ pt: 1 }}>
+            <TradePreparationRecord snapshot={editTarget.preparationSnapshot} />
             <TradeForm
               initialValues={mapTradeToFormValues(editTarget, timezone)}
               submitLabel={t('trades.actions.updateTrade')}

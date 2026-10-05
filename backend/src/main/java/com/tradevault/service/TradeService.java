@@ -70,6 +70,7 @@ public class TradeService {
     private static final String FX_SOURCE_IDENTITY = "IDENTITY";
     private static final String FX_SOURCE_MANUAL = "MANUAL";
     private final TradeRepository tradeRepository;
+    private final com.tradevault.repository.SessionSetupRepository sessionSetupRepository;
     private final NotebookNoteRepository notebookNoteRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
@@ -361,10 +362,24 @@ public class TradeService {
         recalculateAndApplyPnl(trade);
         recalculateProfileCurrencyAmounts(trade);
         logNarrativeSnapshotState("create", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), null, trade.getNarrativeSnapshotJson());
+        trade.setPreparationSnapshot(capturePreparation(request, trade, user));
         Trade savedTrade = tradeRepository.save(trade);
         publishEvidenceChange(savedTrade, false);
         Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
         return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
+    }
+
+    private JsonNode capturePreparation(TradeRequest request, Trade trade, User user) {
+        com.tradevault.domain.entity.SessionSetup setup = null;
+        if (request.getSetupId() != null) {
+            setup = sessionSetupRepository.findByIdAndUser_Id(request.getSetupId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Setup not found"));
+            if (setup.getAccount() != null && (trade.getAccount() == null
+                    || !setup.getAccount().getId().equals(trade.getAccount().getId()))) {
+                throw new IllegalArgumentException("Trade account must match the prepared setup");
+            }
+        }
+        return TradePreparationSnapshots.capture(request, trade, setup);
     }
 
     @Transactional
@@ -1324,6 +1339,7 @@ public class TradeService {
                 .slLevelId(trade.getSlLevelId())
                 .tpLevelId(trade.getTpLevelId())
                 .narrativeSnapshotJson(trade.getNarrativeSnapshotJson())
+                .preparationSnapshot(trade.getPreparationSnapshot())
                 .sweepConfirmed(trade.getSweepConfirmed())
                 .displacementConfirmed(trade.getDisplacementConfirmed())
                 .mssConfirmed(trade.getMssConfirmed())

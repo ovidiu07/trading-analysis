@@ -1,4 +1,21 @@
 {
+  "chartPlan": {
+    "observe": "Doar observare",
+    "strategyLibrary": "Biblioteca de strategii",
+    "completeRisk": "Completează direcția, prețurile, cantitatea și invalidarea în limita riscului permis.",
+    "observationOnly": "Mod observare: selectează Long sau Short pentru a pregăti o execuție.",
+    "reviewed": "Revizuit",
+    "reviewContext": "Revizuiește contextul",
+    "draft": "Ciornă",
+    "sessionNotes": "Notițe de sesiune",
+    "psychologyNotes": "Notițe despre starea psihologică",
+    "notCompleted": "Necompletat",
+    "riskDetails": "Detalii de calcul și verificări de risc",
+    "eventsUnavailable": "Alerte indisponibile · Verifică calendarul înainte de tranzacționare",
+    "savedPlan": "Planul la înregistrarea tranzacției",
+    "snapshotBoundary": "Salvat cu această tranzacție. Editările ulterioare ale pregătirii nu modifică această înregistrare.",
+    "configuration": "Configurația salvată completă"
+  },
   "manualLevels": {
     "manual": "Manual · privat",
     "scope": "Nivelurile tale sunt private pentru acest cont și această sesiune, pentru instrumentul exact de mai jos. Sunt introduse de tine, nu sunt cotații live sau date folosite automat la calculul riscului.",
@@ -4603,7 +4620,7 @@
     "executionReview": "Execuție pregătită",
     "reviewPrepared": "A fost recuperată execuția pregătită pentru contul selectat în {{account}}. Verific-o sau editeaz-o înainte de înregistrarea tranzacției.",
     "reviewBasis": "Multiplicator {{multiplier}} · {{currency}} · {{source}}",
-    "continue": "Continuă la execuție",
+    "continue": "Revizuiește ciorna de execuție",
     "handingOff": "Se pregătește ciorna de execuție…",
     "clearDraft": "Șterge ciorna de risc",
     "handoffBoundary": "Această acțiune pregătește o singură ciornă de execuție. Nu creează o tranzacție și nu transmite un ordin brokerului.",

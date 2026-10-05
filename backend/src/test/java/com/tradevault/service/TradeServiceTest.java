@@ -71,7 +71,7 @@ public class TradeServiceTest {
         timezoneService = Mockito.mock(TimezoneService.class);
         futuresContractMetadataService = new FuturesContractMetadataService();
         accountScopeService = Mockito.mock(com.tradevault.service.account.AccountScopeService.class);
-        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService, Mockito.mock(ApplicationEventPublisher.class), accountScopeService);
+        tradeService = new TradeService(tradeRepository, Mockito.mock(com.tradevault.repository.SessionSetupRepository.class), notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService, Mockito.mock(ApplicationEventPublisher.class), accountScopeService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
         when(accountScopeService.resolve(any(), any())).thenReturn(

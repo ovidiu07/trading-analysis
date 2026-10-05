@@ -41,6 +41,11 @@ const nonNegativeOptionalNumber = (messageKey: string) =>
 
 export const tradeValidationSchema = z
   .object({
+    setupId: z.string().uuid().optional(),
+    sessionId: z.string().uuid().optional(),
+    preparationSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    feeling: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(120).optional()),
+    contractMultiplier: positiveOptionalNumber('trades.form.validation.quantityPositive'),
     symbol: z
       .string()
       .trim()

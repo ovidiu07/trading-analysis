@@ -2,6 +2,8 @@ import { TradeRequest } from '../api/trades'
 import { tradeDateTimeToUtcIso } from './tradeDateTime'
 
 type TradeFormValues = {
+  preparationSnapshot?: TradeRequest['preparationSnapshot']
+  setupId?: string
   symbol: string
   market: TradeRequest['market']
   direction: TradeRequest['direction']
@@ -48,6 +50,8 @@ export function buildTradePayload(values: TradeFormValues, timeZone: string): Tr
     (values || []).map((value) => value.trim()).filter(Boolean)
 
   return {
+    preparationSnapshot: values.preparationSnapshot,
+    setupId: values.setupId,
     symbol: values.symbol,
     market: values.market,
     direction: values.direction,

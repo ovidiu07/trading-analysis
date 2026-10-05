@@ -69,8 +69,8 @@ describe('TodayRiskPanel', () => {
   it('renders an honest incomplete state and never enables handoff with blank values', () => {
     renderPanel()
 
-    expect(screen.getByText('Enter entry, stop and target')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue to execution' })).toBeDisabled()
+    expect(screen.getByText('Complete direction, prices, quantity and invalidation within your risk limit.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Review execution draft' })).toBeDisabled()
     expect(screen.getByText(/does not create a Trade or transmit a broker order/i)).toBeInTheDocument()
   })
 
@@ -80,7 +80,7 @@ describe('TodayRiskPanel', () => {
     fireEvent.change(screen.getByLabelText('Stop loss'), { target: { value: '6001,5' } })
 
     expect(screen.getAllByText('For Long, stop loss must be below entry').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Continue to execution' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Review execution draft' })).toBeDisabled()
   })
 
   it('blocks a risk amount above the currently permitted cap', () => {
@@ -88,7 +88,7 @@ describe('TodayRiskPanel', () => {
     fillValidLong()
 
     expect(screen.getByText('Intended risk exceeds the current permitted-risk cap.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue to execution' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Review execution draft' })).toBeDisabled()
   })
 
   it('allows an unsupported market only through explicit manual quantity', () => {
@@ -99,10 +99,10 @@ describe('TodayRiskPanel', () => {
     fireEvent.change(screen.getByLabelText('Take profit'), { target: { value: '24020' } })
 
     expect(screen.getAllByText(/Automatic sizing is unavailable: no verified unit model exists/).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Continue to execution' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Review execution draft' })).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '2' } })
-    expect(screen.getByRole('button', { name: 'Continue to execution' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Review execution draft' })).toBeEnabled()
   })
 
   it('creates one canonical setup draft with transferred values and then navigates to its review', async () => {
@@ -115,7 +115,7 @@ describe('TodayRiskPanel', () => {
     fillValidLong()
 
     fireEvent.click(screen.getByRole('button', { name: 'Use calculated quantity' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to execution' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review execution draft' }))
 
     await waitFor(() => expect(liveWorkspaceMock.createSetupCandidate).toHaveBeenCalledTimes(1))
     const [sessionId, payload] = liveWorkspaceMock.createSetupCandidate.mock.calls[0]
