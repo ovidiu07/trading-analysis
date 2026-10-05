@@ -674,6 +674,21 @@
       "projection": "Depends on sample size and initial-risk coverage.",
       "action": "Complete the missing trade or account data to improve confidence."
     },
+    "balance": {
+      "current": "Current account balance",
+      "help": "Per-trade risk uses your realised account balance, including recorded trade results and balance adjustments. Open-position P&L is separate.",
+      "set": "Set current balance",
+      "reset": "Reset to starting balance",
+      "configure": "Configure account",
+      "configureHelp": "Configure the account’s initial capital before setting or resetting its current balance.",
+      "setHelp": "Enter the current balance shown by your broker. Saving records a balance adjustment and preserves your trade history and day, week, and month plans.",
+      "resetHelp": "The starting capital is filled in below. Save to restore that balance with a recorded adjustment. Trade history and day, week, and month progress are preserved.",
+      "newBalance": "New account balance",
+      "invalid": "Enter a valid balance of zero or more.",
+      "realisedOnly": "Use the realised balance, excluding unrealised profit or loss on open positions.",
+      "unchanged": "This balance already matches the current account balance.",
+      "save": "Save balance"
+    },
     "reconcile": {
       "title": "Reconcile Account Balance",
       "subtitle": "A reconciliation creates an auditable balance-correction event. It never overwrites historical trading P&L.",

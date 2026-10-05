@@ -181,7 +181,7 @@ describe('AppShell dashboard filters and logo placement', () => {
     renderShell('/today')
 
     const nav = screen.getByRole('navigation')
-    const expectedOrder = ['Today', 'Dashboard', 'Journal', 'Analytics', 'Calendar', 'Market Context', 'Strategies']
+    const expectedOrder = ['Today', 'Dashboard', 'Journal', 'Analytics', 'Growth Coach', 'Calendar', 'Market Context', 'Strategies', 'Backtesting']
     const nodes = expectedOrder.map((label) => within(nav).getByRole('link', { name: label, exact: true }))
 
     for (let index = 0; index < nodes.length - 1; index += 1) {
@@ -190,6 +190,14 @@ describe('AppShell dashboard filters and logo placement', () => {
       const relation = first.compareDocumentPosition(second)
       expect(Boolean(relation & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
     }
+  })
+
+  it('preserves account scope in coach and backtesting desktop links', () => {
+    setViewportWidth(1280)
+    renderShell('/today?accountIds=account-1')
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByRole('link', { name: 'Growth Coach', exact: true })).toHaveAttribute('href', '/coach?accountIds=account-1')
+    expect(nav.getByRole('link', { name: 'Backtesting', exact: true })).toHaveAttribute('href', '/backtesting?accountIds=account-1')
   })
 
   it('preserves a canonical multi-account scope across scoped navigation links only', () => {

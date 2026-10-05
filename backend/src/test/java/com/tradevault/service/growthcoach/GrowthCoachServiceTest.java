@@ -5,6 +5,7 @@ import com.tradevault.domain.entity.*;
 import com.tradevault.domain.enums.*;
 import com.tradevault.dto.analytics.AnalyticsResponse;
 import com.tradevault.dto.growthcoach.GrowthCoachResponse;
+import com.tradevault.dto.growthcoach.ReconcileBalanceRequest;
 import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.repository.*;
 import com.tradevault.service.CurrentUserService;
@@ -13,6 +14,8 @@ import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -21,6 +24,8 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -135,6 +140,48 @@ class GrowthCoachServiceTest {
         when(accountRepository.findByIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class, () -> service.getPage(account.getId(), "2026-07"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12500.50", "10000", "0"})
+    void settingOrResettingBalanceRecordsOnlyTheDifferenceAndPreservesTradingHistory(String target) {
+        OffsetDateTime effective = OffsetDateTime.parse("2026-07-27T12:34:56.123+03:00");
+        Trade trade = Trade.builder().status(TradeStatus.CLOSED)
+                .closedAt(effective.minusMinutes(1)).pnlNet(new BigDecimal("100")).build();
+        AccountLedgerEvent previousCorrection = AccountLedgerEvent.builder()
+                .eventType(LedgerEventType.BALANCE_CORRECTION).amount(new BigDecimal("200")).build();
+        when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountRepository.findByIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.of(account));
+        when(profileRepository.findByAccountIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.of(profile));
+        when(tradeRepository.findByUser_IdAndAccount_IdOrderByClosedAtAsc(user.getId(), account.getId()))
+                .thenReturn(List.of(trade));
+        when(ledgerRepository.findByAccountIdAndUserIdAndEventTimeBeforeOrderByEventTimeAsc(
+                account.getId(), user.getId(), effective)).thenReturn(List.of(previousCorrection));
+        when(ledgerRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = service.reconcileBalance(account.getId(), new ReconcileBalanceRequest(
+                new BigDecimal(target), LocalDate.parse("2026-07-27"), LocalTime.parse("12:34:56.123"),
+                "Europe/Bucharest", "Match broker balance", null, null, "PRESERVE_BASELINE", false));
+
+        assertEquals(0, new BigDecimal(target).subtract(new BigDecimal("10300")).compareTo(result.amount()));
+        assertEquals("BALANCE_CORRECTION", result.eventType());
+        assertEquals(effective, result.eventTime());
+        assertEquals("PRESERVE_BASELINE", result.planningBehavior());
+        assertEquals(new BigDecimal("10000"), profile.getInitialCapital());
+        verify(tradeRepository, never()).save(any());
+        verify(accountRepository, never()).save(any());
+        verify(profileRepository, never()).save(any());
+        verifyNoInteractions(operatingService, planRepository, revisionRepository);
+    }
+
+    @Test
+    void rejectsBalanceChangeForAnAccountNotOwnedByTheCurrentUser() {
+        when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountRepository.findByIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.empty());
+        assertThrows(EntityNotFoundException.class, () -> service.reconcileBalance(account.getId(),
+                new ReconcileBalanceRequest(BigDecimal.ZERO, LocalDate.parse("2026-07-27"), LocalTime.NOON,
+                        "Europe/Bucharest", "Reset", null, null, "PRESERVE_BASELINE", false)));
+        verifyNoInteractions(ledgerRepository);
     }
 
     @Test

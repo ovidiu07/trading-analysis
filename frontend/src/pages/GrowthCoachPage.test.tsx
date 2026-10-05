@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { fromZonedTime } from 'date-fns-tz'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, vi } from 'vitest'
 import { I18nProvider } from '../i18n'
@@ -11,6 +12,7 @@ import GrowthCoachPage from './GrowthCoachPage'
 const mockFetchGrowthCoach = vi.fn()
 const mockUpdatePeriodPlan = vi.fn()
 const mockUpdateMonthlyPlan = vi.fn()
+const mockReconcileAccountBalance = vi.fn()
 const mockSetScope = vi.fn()
 
 vi.mock('../features/accountScope/useAccountScope', () => ({
@@ -35,7 +37,8 @@ vi.mock('../api/growthCoach', async () => {
     ...actual,
     fetchGrowthCoach: (...args: unknown[]) => mockFetchGrowthCoach(...args),
     updatePeriodPlan: (...args: unknown[]) => mockUpdatePeriodPlan(...args),
-    updateMonthlyPlan: (...args: unknown[]) => mockUpdateMonthlyPlan(...args)
+    updateMonthlyPlan: (...args: unknown[]) => mockUpdateMonthlyPlan(...args),
+    reconcileAccountBalance: (...args: unknown[]) => mockReconcileAccountBalance(...args)
   }
 })
 
@@ -254,6 +257,7 @@ beforeEach(() => {
   mockFetchGrowthCoach.mockReset()
   mockUpdatePeriodPlan.mockReset()
   mockUpdateMonthlyPlan.mockReset()
+  mockReconcileAccountBalance.mockReset()
   localStorage.setItem('app.language', 'en')
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}
@@ -264,6 +268,7 @@ beforeEach(() => {
   mockFetchGrowthCoach.mockResolvedValue(response)
   mockUpdatePeriodPlan.mockResolvedValue({})
   mockUpdateMonthlyPlan.mockResolvedValue({})
+  mockReconcileAccountBalance.mockResolvedValue({})
 })
 
 test('separates realised and equity-adjusted progress and renders old open trades on mobile', async () => {
@@ -289,6 +294,68 @@ test('opens the monthly target editing flow', async () => {
   await waitFor(() => expect(mockFetchGrowthCoach).toHaveBeenCalledWith(
     'account-1', expect.any(String), 'MONTH', expect.any(String)
   ))
+})
+
+test('sets the current balance for the selected account and refreshes the coach', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Set current balance' }))
+  const dialog = within(screen.getByRole('dialog'))
+  const balance = dialog.getByRole('spinbutton', { name: 'New account balance' })
+  expect(balance).toHaveValue(10150)
+  await user.clear(balance)
+  await user.type(balance, '12500.50')
+  await user.type(dialog.getByRole('textbox', { name: 'Adjustment reason' }), 'Match broker statement')
+  const before = Date.now()
+  mockFetchGrowthCoach.mockResolvedValue({ ...response, detail: { ...response.detail!,
+    capital: { ...response.detail!.capital, currentRealisedBalance: 12500.5 } } })
+  await user.click(dialog.getByRole('button', { name: 'Save balance' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(mockReconcileAccountBalance).toHaveBeenCalledWith('account-1', expect.objectContaining({
+    brokerReportedBalance: 12500.5, reason: 'Match broker statement',
+    timezone: 'Europe/Bucharest', planningBehavior: 'PRESERVE_BASELINE', resetConfirmed: false
+  }))
+  const request = mockReconcileAccountBalance.mock.calls[0][1]
+  const effective = fromZonedTime(`${request.effectiveDate}T${request.effectiveTime}`, request.timezone).getTime()
+  expect(effective).toBeGreaterThanOrEqual(before)
+  expect(effective).toBeLessThanOrEqual(Date.now())
+  await user.click(screen.getByRole('button', { name: 'Set current balance' }))
+  expect(within(screen.getByRole('dialog')).getByRole('spinbutton', { name: 'New account balance' })).toHaveValue(12500.5)
+})
+
+test('reset prefills starting capital and only saves after an explicit action and reason', async () => {
+  const user = userEvent.setup()
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Reset to starting balance' }))
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByRole('spinbutton', { name: 'New account balance' })).toHaveValue(10000)
+  expect(dialog.getByRole('button', { name: 'Save balance' })).toBeDisabled()
+  expect(mockReconcileAccountBalance).not.toHaveBeenCalled()
+  await user.type(dialog.getByRole('textbox', { name: 'Adjustment reason' }), 'Restart practice balance')
+  await user.click(dialog.getByRole('button', { name: 'Save balance' }))
+  await waitFor(() => expect(mockReconcileAccountBalance).toHaveBeenCalledWith('account-1',
+    expect.objectContaining({ brokerReportedBalance: 10000, planningBehavior: 'PRESERVE_BASELINE' })))
+})
+
+test('rejects blank and negative balances, allows zero, and keeps failed edits visible', async () => {
+  const user = userEvent.setup()
+  mockReconcileAccountBalance.mockRejectedValue(new Error('Save failed'))
+  renderPage()
+  await user.click(await screen.findByRole('button', { name: 'Set current balance' }))
+  const dialog = within(screen.getByRole('dialog'))
+  const balance = dialog.getByRole('spinbutton', { name: 'New account balance' })
+  await user.type(dialog.getByRole('textbox', { name: 'Adjustment reason' }), 'Correct balance')
+  expect(dialog.getByRole('button', { name: 'Save balance' })).toBeDisabled()
+  await user.clear(balance)
+  expect(dialog.getByRole('button', { name: 'Save balance' })).toBeDisabled()
+  await user.type(balance, '-1')
+  expect(dialog.getByRole('button', { name: 'Save balance' })).toBeDisabled()
+  await user.clear(balance)
+  await user.type(balance, '0')
+  await user.click(dialog.getByRole('button', { name: 'Save balance' }))
+  await waitFor(() => expect(dialog.getByRole('alert')).toBeInTheDocument())
+  expect(balance).toHaveValue(0)
+  expect(mockReconcileAccountBalance).toHaveBeenCalledWith('account-1', expect.objectContaining({ brokerReportedBalance: 0 }))
 })
 
 test('shows two closed trades in today activity while active exposure remains empty at 320px', async () => {

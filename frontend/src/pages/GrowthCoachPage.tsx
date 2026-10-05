@@ -80,6 +80,7 @@ import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import {
   GrowthProfileDialog,
+  CurrentBalanceDialog,
   LedgerEventDialog,
   MonthlyPlanDialog,
   ManageAllPlansDialog,
@@ -197,6 +198,7 @@ export default function GrowthCoachPage() {
   const [editingPlan, setEditingPlan] = useState<GrowthPeriodPlan>()
   const [ledgerOpen, setLedgerOpen] = useState(false)
   const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [balanceMode, setBalanceMode] = useState<'set' | 'reset' | null>(null)
   const [saving, setSaving] = useState(false)
   const [mutationError, setMutationError] = useState('')
 
@@ -354,6 +356,29 @@ export default function GrowthCoachPage() {
               if (selectedPlan) setEditingPlan(selectedPlan)
               setPlanOpen(true)
             }} onManagePlans={() => setManagePlansOpen(true)} />
+          <Card variant="outlined" sx={sectionCardSx}>
+            <CardContent>
+              <Stack spacing={2}>
+                <SectionTitle title={t('growthCoach.balance.current')} subtitle={detail.account.name} />
+                <Typography variant="h4">{formatCurrency(detail.capital.currentRealisedBalance, currency)}</Typography>
+                <Typography variant="body2" color="text.secondary">{t('growthCoach.balance.help')}</Typography>
+                {detail.capital.initialCapital == null && (
+                  <Alert severity="info">{t('growthCoach.balance.configureHelp')}</Alert>
+                )}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap flexWrap="wrap">
+                  <Button variant="contained" disabled={detail.capital.initialCapital == null} onClick={() => {
+                    setMutationError('')
+                    setBalanceMode('set')
+                  }}>{t('growthCoach.balance.set')}</Button>
+                  <Button variant="outlined" disabled={detail.capital.initialCapital == null} onClick={() => {
+                    setMutationError('')
+                    setBalanceMode('reset')
+                  }}>{t('growthCoach.balance.reset')}</Button>
+                  <Button variant="text" onClick={() => setProfileOpen(true)}>{t('growthCoach.balance.configure')}</Button>
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
           {operatingSystem ? (
             <>
               <TradingPermissionPanel detail={detail} />
@@ -430,6 +455,14 @@ export default function GrowthCoachPage() {
             systemBalance={detail.capital.currentRealisedBalance} saving={saving}
             onClose={() => setReconcileOpen(false)} onSave={handleReconcile}
           />
+          {balanceMode && (
+            <CurrentBalanceDialog key={`${detail.account.id}-${balanceMode}`} mode={balanceMode}
+              accountName={detail.account.name} currency={currency} timezone={detail.account.timezone}
+              currentBalance={detail.capital.currentRealisedBalance} initialCapital={detail.capital.initialCapital}
+              saving={saving} error={mutationError} onClose={() => setBalanceMode(null)}
+              onSave={(request) => mutate(() => reconcileAccountBalance(detail.account.id, request),
+                () => setBalanceMode(null))} />
+          )}
         </>
       ) : null}
     </Stack>

@@ -17,6 +17,8 @@ import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import AutoStoriesOutlinedIcon from '@mui/icons-material/AutoStoriesOutlined'
 import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionRounded'
+import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
+import TrackChangesRoundedIcon from '@mui/icons-material/TrackChangesRounded'
 import {
   AppBar,
   Avatar,
@@ -119,9 +121,11 @@ export default function TopBar({
     { label: t('nav.dashboard'), path: '/dashboard', icon: SpaceDashboardRoundedIcon },
     { label: t('nav.journal'), path: '/trades', icon: CandlestickChartRoundedIcon },
     { label: t('nav.analytics'), path: '/analytics', icon: QueryStatsRoundedIcon },
+    { label: t('nav.growthCoach'), path: '/coach', icon: TrackChangesRoundedIcon },
     { label: t('nav.calendar'), path: '/calendar', icon: CalendarMonthRoundedIcon },
     { label: t('nav.marketContext'), path: '/insights/today', icon: AutoStoriesOutlinedIcon },
-    { label: t('nav.strategies'), path: '/strategies', icon: AutoAwesomeMotionRoundedIcon }
+    { label: t('nav.strategies'), path: '/strategies', icon: AutoAwesomeMotionRoundedIcon },
+    { label: t('nav.backtesting'), path: '/backtesting', icon: PhotoLibraryRoundedIcon }
   ]
 
   const getThemeLabel = (value: ThemePreference) => {
@@ -333,7 +337,7 @@ export default function TopBar({
                 )}
 
                 {isAuthenticated && isHorizontalNav && (
-                  <Stack component="nav" aria-label={t('app.name')} direction="row" spacing={0.15} alignItems="center" sx={{ ml: 1, minWidth: 0 }}>
+                  <Stack component="nav" aria-label={t('app.name')} direction="row" spacing={0.15} alignItems="center" sx={{ ml: 1, minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }}>
                     {navItems.map((item) => {
                       const Icon = item.icon
                       const selected = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)

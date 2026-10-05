@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { formatInTimeZone } from 'date-fns-tz'
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -29,6 +31,77 @@ import type {
   ReconcileBalanceRequest
 } from '../../api/growthCoach'
 import { useI18n } from '../../i18n'
+import { formatCurrency } from '../../utils/format'
+
+type CurrentBalanceDialogProps = {
+  mode: 'set' | 'reset'
+  accountName: string
+  currency: string
+  timezone: string
+  currentBalance?: number | null
+  initialCapital?: number | null
+  saving: boolean
+  error?: string
+  onClose: () => void
+  onSave: (request: ReconcileBalanceRequest) => Promise<void>
+}
+
+// Mounted only while open, so every edit starts from this account's latest balance.
+export function CurrentBalanceDialog({
+  mode, accountName, currency, timezone, currentBalance, initialCapital, saving, error, onClose, onSave
+}: CurrentBalanceDialogProps) {
+  const { t } = useI18n()
+  const theme = useTheme()
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const [amount, setAmount] = useState(String((mode === 'reset' ? initialCapital : currentBalance) ?? ''))
+  const [reason, setReason] = useState('')
+  const value = Number(amount)
+  const valid = amount.trim() !== '' && Number.isFinite(value) && value >= 0
+  const unchanged = currentBalance != null && value === currentBalance
+
+  const save = () => {
+    if (!valid || unchanged || !reason.trim() || saving) return
+    const now = new Date()
+    return onSave({
+      brokerReportedBalance: value,
+      effectiveDate: formatInTimeZone(now, timezone, 'yyyy-MM-dd'),
+      effectiveTime: formatInTimeZone(now, timezone, 'HH:mm:ss.SSS'),
+      timezone,
+      reason: reason.trim(),
+      planningBehavior: 'PRESERVE_BASELINE',
+      resetConfirmed: false
+    })
+  }
+
+  return (
+    <Dialog open onClose={saving ? undefined : onClose} fullScreen={fullScreen} fullWidth maxWidth="sm">
+      <DialogTitle>{t(`growthCoach.balance.${mode}`)}</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ pt: 1 }}>
+          <Typography fontWeight={700}>{accountName} · {currency}</Typography>
+          <Typography variant="body2" color="text.secondary">{t(`growthCoach.balance.${mode}Help`)}</Typography>
+          {error && <Alert severity="error">{error}</Alert>}
+          <TextField disabled fullWidth label={t('growthCoach.balance.current')}
+            value={formatCurrency(currentBalance, currency)} />
+          <TextField autoFocus required fullWidth type="number" label={t('growthCoach.balance.newBalance')}
+            value={amount} disabled={saving} inputProps={{ min: 0, step: 'any' }}
+            error={amount !== '' && !valid}
+            helperText={amount !== '' && !valid ? t('growthCoach.balance.invalid') : t('growthCoach.balance.realisedOnly')}
+            onChange={(event) => setAmount(event.target.value)} />
+          <TextField required fullWidth label={t('growthCoach.reconcile.reason')} value={reason}
+            disabled={saving} inputProps={{ maxLength: 240 }}
+            onChange={(event) => setReason(event.target.value)} />
+          {unchanged && <Alert severity="info">{t('growthCoach.balance.unchanged')}</Alert>}
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button disabled={saving} onClick={onClose}>{t('common.cancel')}</Button>
+        <Button variant="contained" disabled={saving || !valid || unchanged || !reason.trim()}
+          onClick={() => void save()}>{saving ? t('common.saving') : t('growthCoach.balance.save')}</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
 
 type ProfileDialogProps = {
   open: boolean

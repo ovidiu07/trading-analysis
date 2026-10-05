@@ -102,6 +102,30 @@ class GrowthCoachOperatingServiceTest {
     }
 
     @Test
+    void balanceCorrectionUpdatesRiskWithoutCountingAsDayWeekOrMonthTradingProfit() {
+        AccountLedgerEvent correction = AccountLedgerEvent.builder().id(UUID.randomUUID())
+                .user(user).account(account).eventType(LedgerEventType.BALANCE_CORRECTION)
+                .amount(new BigDecimal("3000")).currency("USD")
+                .eventTime(OffsetDateTime.parse("2026-07-27T09:00:00+03:00"))
+                .planningBehavior("PRESERVE_BASELINE").build();
+        PeriodContext context = GrowthCoachPeriodResolver.resolve(
+                "DAY", LocalDate.parse("2026-07-27"), ZoneId.of("Europe/Bucharest"),
+                Clock.fixed(Instant.parse("2026-07-27T12:00:00Z"), ZoneOffset.UTC));
+
+        OperatingSystem result = service.build(user, account, profile, monthlyPlan, context,
+                List.of(), List.of(correction), new BigDecimal("10000"), BigDecimal.ZERO, BigDecimal.ZERO, true);
+
+        assertEquals(0, new BigDecimal("13000").compareTo(result.selectedSummary().currentRealisedBalance()));
+        assertEquals(0, new BigDecimal("130").compareTo(result.tradingPermission().maximumPermittedRisk()));
+        assertEquals(0, new BigDecimal("65").compareTo(result.tradingPermission().recommendedRiskWhenTradingResumes()));
+        for (var period : result.periodComparisons()) {
+            assertEquals(0, period.realisedPnl().signum());
+            assertEquals(0, period.targetProgress().signum());
+            assertEquals(0, period.trades());
+        }
+    }
+
+    @Test
     void negativeResultSeparatesCompletionDeficitLossUsageAndResumeRisk() {
         Trade loss = closedTrade("EURUSD", "2026-07-27T08:00:00+03:00", "-229.60", "100", "-2.296");
         PeriodContext context = GrowthCoachPeriodResolver.resolve(

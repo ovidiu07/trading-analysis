@@ -673,6 +673,21 @@
       "session": "Depinde de acoperirea sesiunilor.", "projection": "Depinde de eșantion și riscul inițial.",
       "action": "Completează datele lipsă pentru a îmbunătăți încrederea."
     },
+    "balance": {
+      "current": "Soldul curent al contului",
+      "help": "Riscul per tranzacție folosește soldul realizat al contului, inclusiv rezultatele înregistrate și ajustările de sold. P&L-ul pozițiilor deschise este separat.",
+      "set": "Setează soldul curent",
+      "reset": "Resetează la soldul inițial",
+      "configure": "Configurează contul",
+      "configureHelp": "Configurează capitalul inițial al contului înainte de a seta sau reseta soldul curent.",
+      "setHelp": "Introdu soldul curent afișat de broker. Salvarea înregistrează o ajustare de sold și păstrează istoricul tranzacțiilor și planurile zilnice, săptămânale și lunare.",
+      "resetHelp": "Capitalul inițial este completat mai jos. Salvează pentru a restabili acel sold printr-o ajustare înregistrată. Istoricul tranzacțiilor și progresul zilnic, săptămânal și lunar sunt păstrate.",
+      "newBalance": "Soldul nou al contului",
+      "invalid": "Introdu un sold valid, mai mare sau egal cu zero.",
+      "realisedOnly": "Folosește soldul realizat, fără profitul sau pierderea nerealizată a pozițiilor deschise.",
+      "unchanged": "Acest sold este deja egal cu soldul curent al contului.",
+      "save": "Salvează soldul"
+    },
     "reconcile": {
       "title": "Reconciliază soldul contului",
       "subtitle": "Reconcilierea creează un eveniment auditabil de corecție și nu suprascrie P&L-ul istoric.",
