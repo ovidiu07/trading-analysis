@@ -23,7 +23,7 @@ export default function ImportTradesDialog({ workspace, onClose, onImported }: {
   const reset = () => { setResult(null); setCompleted(false); mutation.reset() }
   const choose = (next: File | null) => {
     setFile(next); reset()
-    const match = next?.name.match(/^Replay_Trading_(.+)_\d{4}-\d{2}-\d{2}_to_.*\.csv$/i)
+    const match = next?.name.match(/^Replay_Trading_(.+?)_\d{4}-\d{2}-\d{2}(?:_.*)?\.csv$/i)
     setInstrument(match ? match[1].replace('_', ':').toUpperCase() : '')
   }
   return <Dialog open onClose={mutation.isLoading ? undefined : onClose} fullWidth maxWidth="md" aria-labelledby="backtesting-import-dialog-title">
@@ -32,7 +32,7 @@ export default function ImportTradesDialog({ workspace, onClose, onImported }: {
       <Alert severity="info">{t('backtesting.replay.importDescription')}</Alert>
       <Typography variant="body2">{t('backtesting.replay.destination', { name: workspace.title || workspace.symbol, symbol: workspace.symbol })}</Typography>
       <Button component="label" variant="outlined" disabled={mutation.isLoading}>{file?.name || t('backtesting.actions.chooseCsv')}<input aria-label={t('backtesting.actions.chooseCsv')} hidden type="file" accept=".csv,text/csv" onChange={event => { choose(event.target.files?.[0] || null); event.target.value = '' }} /></Button>
-      <TextField label={t('backtesting.replay.instrument')} value={instrument} disabled={mutation.isLoading || completed} inputProps={{ maxLength: 64 }} helperText={t('backtesting.replay.instrumentHelp')} onChange={event => { setInstrument(event.target.value.toUpperCase()); reset() }} />
+      <TextField label={t('backtesting.replay.instrument')} value={instrument} disabled={mutation.isLoading || completed} inputProps={{ maxLength: 64 }} helperText={t(file && !instrument.trim() ? 'backtesting.replay.instrumentNotDetected' : 'backtesting.replay.instrumentHelp')} onChange={event => { setInstrument(event.target.value.toUpperCase()); reset() }} />
       {instrument && instrument !== workspace.symbol && <Alert severity="warning">{t('backtesting.replay.symbolMismatch', { instrument, workspace: workspace.symbol })}</Alert>}
       <TextField label={t('backtesting.replay.timezone')} value={timezone} disabled={mutation.isLoading || completed} placeholder="Europe/Bucharest" helperText={t('backtesting.replay.timezoneHelp')} onChange={event => { setTimezone(event.target.value); reset() }} />
       {mutation.isError && <Alert severity="error">{mutation.error instanceof Error ? mutation.error.message : t('backtesting.errors.import')}</Alert>}

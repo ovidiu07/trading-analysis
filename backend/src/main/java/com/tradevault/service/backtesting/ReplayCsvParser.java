@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
 public final class ReplayCsvParser {
     public static final String FORMAT = "TRADINGVIEW_REPLAY";
     private static final Pattern PNL_HEADER = Pattern.compile("(?i)Net P(?:nL|&L) ([A-Z]{3})");
-    private static final Pattern FILE_SYMBOL = Pattern.compile("(?i)^Replay_Trading_(.+)_\\d{4}-\\d{2}-\\d{2}_to_.*\\.csv$");
+    // TradingView uses a date/hash suffix; consolidated exports may use a date range instead.
+    private static final Pattern FILE_SYMBOL = Pattern.compile("(?i)^Replay_Trading_(.+?)_\\d{4}-\\d{2}-\\d{2}(?:_.*)?\\.csv$");
     private ReplayCsvParser() {}
 
     public record Result(List<BacktestingTrade> trades, List<String> errors, int duplicates) {}
@@ -40,8 +41,10 @@ public final class ReplayCsvParser {
 
     public static Result parse(List<CSVRecord> rows, List<String> headers, String instrument,
                                String timezone, String filename) {
-        if (instrument == null || instrument.isBlank() || instrument.length() > 64)
-            throw new IllegalArgumentException("Replay instrument is required (maximum 64 characters)");
+        if (instrument == null || instrument.isBlank())
+            throw new IllegalArgumentException("Replay instrument is required. Enter the symbol in the CSV instrument field before previewing.");
+        if (instrument.trim().length() > 64)
+            throw new IllegalArgumentException("Replay instrument must be at most 64 characters");
         if (filename != null && filename.length() > 255) throw new IllegalArgumentException("CSV filename exceeds 255 characters");
         if (timezone != null && !timezone.isBlank()) ZoneId.of(timezone);
         String pnlHeader = headers.stream().filter(h -> PNL_HEADER.matcher(h).matches()).findFirst()

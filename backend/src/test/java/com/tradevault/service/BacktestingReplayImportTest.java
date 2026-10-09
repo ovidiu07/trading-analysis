@@ -59,6 +59,35 @@ class BacktestingReplayImportTest {
         assertThat(first.getDurationBars()).isEqualTo(15);
         verify(trades).saveAll(anyList());
     }
+    @Test void previewsAndImportsOriginalDateHashExportWithoutAnExplicitInstrument() throws Exception {
+        String filename = "Replay_Trading_PEPPERSTONE_GER40F_2026-10-09_0eb11.csv";
+        byte[] content = Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-replay-ger40f-single-export.csv")).readAllBytes();
+        var export = new MockMultipartFile("file", filename, "text/csv", content);
+        var preview = service.importCsv(workspace.getId(), export, null, null, true);
+        assertThat(preview.isPreview()).isTrue();
+        assertThat(preview.getRowCount()).isEqualTo(4);
+        assertThat(preview.getImported()).isEqualTo(2);
+        assertThat(preview.getInvalid()).isZero();
+        assertThat(preview.getErrors()).isEmpty();
+        assertThat(preview.getTrades()).allSatisfy(trade -> {
+            assertThat(trade.getInstrument()).isEqualTo("PEPPERSTONE:GER40F");
+            assertThat(trade.getDate()).isEqualTo(LocalDate.of(2025, 10, 31));
+            assertThat(trade.getImportFileName()).isEqualTo(filename);
+        });
+        assertThat(preview.getTrades().get(0).getNetPnl()).isEqualByComparingTo("-121.2");
+        assertThat(preview.getTrades().get(1).getNetPnl()).isEqualByComparingTo("111.2");
+        verify(trades, never()).saveAll(anyList());
+
+        var imported = service.importCsv(workspace.getId(), export, "", null, false);
+        assertThat(imported.getImported()).isEqualTo(2);
+        assertThat(imported.getInvalid()).isZero();
+        verify(trades).saveAll(argThat(saved -> {
+            List<BacktestingTrade> values = new ArrayList<>();
+            saved.forEach(values::add);
+            return values.size() == 2 && values.stream().map(BacktestingTrade::getNetPnl)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add).compareTo(new BigDecimal("-10")) == 0;
+        }));
+    }
     @Test void fullFixtureAnalyticsAgreeWithIndependentTotalsDespiteCumulativeResets() throws Exception {
         var parsed = parse(new String(fixture(), StandardCharsets.UTF_8));
         var metrics = service.calculateMetrics(parsed.trades());
@@ -80,7 +109,10 @@ class BacktestingReplayImportTest {
     }
     @Test void renamedFileRequiresExplicitSymbolAndAllowsVerifiedTimezone() throws Exception {
         var renamed = new MockMultipartFile("file", "replay.csv", "text/csv", fixture());
-        assertThatThrownBy(() -> service.importCsv(workspace.getId(), renamed)).hasMessageContaining("instrument is required");
+        assertThatThrownBy(() -> service.importCsv(workspace.getId(), renamed))
+                .hasMessageContaining("instrument is required").hasMessageContaining("CSV instrument field");
+        assertThatThrownBy(() -> service.importCsv(workspace.getId(), renamed, "X".repeat(65), null, true))
+                .hasMessageContaining("at most 64 characters").hasMessageNotContaining("is required");
         var result = service.importCsv(workspace.getId(), renamed, "GER40F", "Europe/Bucharest", true);
         assertThat(result.getTrades()).allSatisfy(t -> assertThat(t.getSourceTimezone()).isEqualTo("Europe/Bucharest"));
         assertThatThrownBy(() -> service.importCsv(workspace.getId(), renamed, "GER40F", "Invalid/Zone", true)).isInstanceOf(IllegalArgumentException.class);

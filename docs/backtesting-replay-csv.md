@@ -8,7 +8,7 @@ Open a backtesting workspace, select **Import**, choose the replay CSV, check th
 
 The existing TradeJAudit CSV format remains supported. Replay detection uses `Type`, `Date and time`, and `Trade number` / `Trade #` headers, plus the currency-qualified net PnL column.
 
-For the supplied filename, the instrument is inferred as `PEPPERSTONE:GER40F`. It is retained even when the workspace is labeled `GER40U2026`. Renamed replay exports need an explicit instrument because the CSV does not contain one. A mismatch warning appears in the review; importing does not rename the workspace.
+The instrument is inferred from both original dated TradingView filenames, such as `Replay_Trading_PEPPERSTONE_GER40F_2026-10-09_0eb11.csv`, and consolidated date-range filenames. Both resolve to `PEPPERSTONE:GER40F`. It is retained even when the workspace is labeled `GER40U2026`. Renamed replay exports need an explicit instrument because the CSV does not contain one; the dialog explains where to enter it when detection fails. A mismatch warning appears in the review; importing does not rename the workspace. The date in the filename is not used as the trade date.
 
 ## Pairing and duplicate protection
 

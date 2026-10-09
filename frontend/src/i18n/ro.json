@@ -3949,6 +3949,7 @@
       "destination": "Spațiu de lucru: {{name}} · {{symbol}}",
       "instrument": "Instrumentul din CSV",
       "instrumentHelp": "Exporturile Replay nu includ simbolul. Verifică simbolul dedus din numele fișierului sau introdu-l explicit. Simbolul spațiului de lucru rămâne același.",
+      "instrumentNotDetected": "Instrumentul nu a putut fi dedus din numele fișierului. Pentru un CSV Replay, introdu simbolul aici înainte de previzualizare, de exemplu PEPPERSTONE:GER40F.",
       "symbolMismatch": "Instrumentul CSV {{instrument}} diferă de {{workspace}}. Tranzacțiile păstrează instrumentul CSV.",
       "timezone": "Fusul orar al exportului (opțional)",
       "timezoneHelp": "Introdu fusul orar IANA al exportului dacă îl cunoști. Lasă gol dacă este necunoscut; orele sunt păstrate ca în export.",

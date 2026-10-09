@@ -37,9 +37,25 @@ describe('backtesting replay import review', () => {
     api.importBacktestingTrades.mockResolvedValue({ ...result, imported: 0, invalid: 0, duplicates: 25, errors: [], preview: true })
     setup()
     fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [new File(['csv'], 'renamed.csv')] } })
+    expect(screen.getByText(/instrument could not be detected/)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'CSV instrument' }), { target: { value: 'GER40F' } })
     await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
     expect(await screen.findByRole('button', { name: 'Import 0 trades' })).toBeDisabled()
-    fireEvent.change(screen.getByRole('textbox', { name: 'CSV instrument' }), { target: { value: 'GER40F' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'CSV instrument' }), { target: { value: 'PEPPERSTONE:GER40F' } })
     expect(screen.getByRole('button', { name: 'Preview import' })).toBeInTheDocument()
+  })
+  it.each([
+    'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09_0eb11.csv',
+    'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09.csv',
+    'replay_trading_pepperstone_ger40f_2026-10-09_0eb11 (1).CSV'
+  ])('detects the instrument in an original dated export: %s', async filename => {
+    api.importBacktestingTrades.mockResolvedValue({ ...result, imported: 2, rowCount: 4, invalid: 0, duplicates: 0, errors: [], preview: true })
+    setup()
+    const file = new File(['csv'], filename, { type: 'text/csv' })
+    fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [file] } })
+    expect(screen.getByRole('textbox', { name: 'CSV instrument' })).toHaveValue('PEPPERSTONE:GER40F')
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    expect(await screen.findByText(/2 closed trades ready/)).toBeInTheDocument()
+    expect(api.importBacktestingTrades).toHaveBeenLastCalledWith('workspace-1', file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: true })
   })
 })

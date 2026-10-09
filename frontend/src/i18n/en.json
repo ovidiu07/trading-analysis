@@ -3950,6 +3950,7 @@
       "destination": "Workspace: {{name}} · {{symbol}}",
       "instrument": "CSV instrument",
       "instrumentHelp": "Replay exports omit the symbol. Check the symbol inferred from the filename, or enter it explicitly. This does not change the workspace symbol.",
+      "instrumentNotDetected": "The instrument could not be detected from this filename. For a Replay CSV, enter the symbol here before previewing, for example PEPPERSTONE:GER40F.",
       "symbolMismatch": "CSV instrument {{instrument}} differs from workspace {{workspace}}. These trades keep the CSV instrument.",
       "timezone": "Export timezone (optional)",
       "timezoneHelp": "Enter the export’s IANA timezone if known. Leave blank to keep it unspecified; clock times are preserved as exported.",
