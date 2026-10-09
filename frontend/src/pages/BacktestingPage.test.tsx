@@ -16,6 +16,7 @@ const backtestingApiMock = vi.hoisted(() => ({
   listBacktestingTrades: vi.fn(),
   createBacktestingTrade: vi.fn(),
   updateBacktestingTrade: vi.fn(),
+  updateBacktestingTrades: vi.fn(),
   deleteBacktestingTrade: vi.fn(),
   importBacktestingTrades: vi.fn(),
   getBacktestingAnalytics: vi.fn(),
@@ -231,6 +232,29 @@ describe('BacktestingPage Evidence Engine', () => {
     expect(await screen.findByText('Result and R multiple point in opposite directions. Correct them before saving.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
     expect(backtestingApiMock.createBacktestingTrade).not.toHaveBeenCalled()
+  })
+
+  it('selects trades across pages, excludes live evidence, and scopes a bulk edit to the selected IDs', async () => {
+    const expanded = Array.from({ length: 26 }, (_, index) => ({ ...trades[index % 8], id: `bulk-${index}`, source: 'IMPORT' as const }))
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue([...expanded, trades[8]])
+    backtestingApiMock.updateBacktestingTrades.mockResolvedValue(expanded)
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Trades', exact: true }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select editable trades on this page' }))
+    expect(screen.getByText('25 trades selected')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Next', exact: true }))
+    expect(screen.getAllByRole('checkbox', { name: /at 09:30:00/, checked: false }).filter(checkbox => !checkbox.hasAttribute('disabled'))).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Select all 26 filtered trades' }))
+    expect(screen.getByText('26 trades selected')).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox').filter(checkbox => checkbox.hasAttribute('disabled'))).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Edit selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit 26 selected trades' })
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Change Planned R:R' }))
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /Calculate R from/ }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply to 26 trades' }))
+    expect(backtestingApiMock.updateBacktestingTrades).toHaveBeenCalledWith('workspace-1', expect.objectContaining({
+      tradeIds: expanded.map(trade => trade.id), fields: ['plannedRR'], changes: { plannedRR: 1.5 }, deriveRFromPlannedRR: true
+    }))
   })
 
   it('re-includes excluded evidence through an explicit confirmation without losing its snapshot', async () => {

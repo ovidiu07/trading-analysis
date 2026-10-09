@@ -22,6 +22,7 @@ import com.tradevault.dto.backtesting.BacktestingEdgeLensResponse;
 import com.tradevault.dto.backtesting.BacktestingImportResponse;
 import com.tradevault.dto.backtesting.BacktestingMetricResponse;
 import com.tradevault.dto.backtesting.BacktestingTradeRequest;
+import com.tradevault.dto.backtesting.BacktestingTradeBulkUpdateRequest;
 import com.tradevault.dto.backtesting.BacktestingTradeResponse;
 import com.tradevault.repository.BacktestingEdgeLensRepository;
 import com.tradevault.repository.BacktestingScreenshotRepository;
@@ -29,6 +30,7 @@ import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
 import com.tradevault.service.backtesting.ReplayCsvParser;
+import com.tradevault.service.backtesting.BacktestingSessionClassifier;
 import com.tradevault.dto.backtesting.BacktestingCurrencyMetricResponse;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +62,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -123,6 +127,74 @@ public class BacktestingResearchService {
         return toTradeResponse(tradeRepository.save(trade), screenshotCount(trade.getId()));
     }
 
+    /** One transaction: every selected ID must belong to this user's workspace. */
+    @Transactional
+    public List<BacktestingTradeResponse> updateTrades(UUID workspaceId, BacktestingTradeBulkUpdateRequest request) {
+        User user = currentUserService.getCurrentUser();
+        BacktestingWorkspace workspace = requireOwnedWorkspace(workspaceId, user);
+        if (request.getTradeIds() == null || request.getTradeIds().isEmpty() || request.getTradeIds().size() > 500)
+            throw new IllegalArgumentException("Select between 1 and 500 trades");
+        Set<String> fields = request.getFields() == null ? Set.of() : request.getFields();
+        Set<String> allowed = Set.of("plannedRR", "riskPercent", "pnlR", "setupName", "strategyId", "strategySource", "strategyNameSnapshot",
+                "contextTimeframe", "executionTimeframe", "entryTimeframe", "tags", "notes", "sourceTimezone");
+        if (!allowed.containsAll(fields)) throw new IllegalArgumentException("Unsupported bulk-edit field");
+        if (fields.isEmpty() && !request.isDeriveRFromPlannedRR() && !request.isRecalculateSession())
+            throw new IllegalArgumentException("Choose at least one change");
+        if (request.isDeriveRFromPlannedRR() && fields.contains("pnlR"))
+            throw new IllegalArgumentException("Choose either explicit R or R from planned reward/risk");
+        var values = Objects.requireNonNull(request.getChanges(), "changes are required");
+        if (fields.contains("sourceTimezone") && StringUtils.hasText(values.getSourceTimezone())) java.time.ZoneId.of(values.getSourceTimezone().trim());
+        Set<UUID> ids = new LinkedHashSet<>(request.getTradeIds());
+        List<BacktestingTrade> selected = tradeRepository.findAllById(ids);
+        if (selected.size() != ids.size() || selected.stream().anyMatch(trade -> !user.getId().equals(trade.getUser().getId())
+                || !workspaceId.equals(trade.getWorkspace().getId()) || trade.getSource() == BacktestingTradeSource.LIVE))
+            throw new EntityNotFoundException("One or more editable backtesting trades were not found in this workspace");
+        // Validate all numeric changes before mutating managed entities.
+        for (BacktestingTrade trade : selected) {
+            BigDecimal rr = fields.contains("plannedRR") ? values.getPlannedRR() : trade.getPlannedRR();
+            if (fields.contains("plannedRR") && rr != null && rr.signum() <= 0) throw new IllegalArgumentException("Planned R:R must be positive");
+            if (request.isDeriveRFromPlannedRR() && (rr == null || rr.signum() <= 0))
+                throw new IllegalArgumentException("Every selected trade needs a positive planned R:R");
+            if (fields.contains("pnlR")) validateRealizedR(trade.getResult(), values.getPnlR(), trade.getNetPnl() == null);
+        }
+        for (BacktestingTrade trade : selected) {
+            for (String field : fields) switch (field) {
+                case "plannedRR" -> trade.setPlannedRR(values.getPlannedRR());
+                case "riskPercent" -> trade.setRiskPercent(values.getRiskPercent());
+                case "pnlR" -> trade.setPnlR(values.getPnlR());
+                case "setupName" -> trade.setSetupName(normalizeText(values.getSetupName()));
+                case "strategyId" -> trade.setStrategyId(values.getStrategyId());
+                case "strategySource" -> trade.setStrategySource(normalizeStrategySource(values.getStrategySource()));
+                case "strategyNameSnapshot" -> trade.setStrategyNameSnapshot(normalizeText(values.getStrategyNameSnapshot()));
+                case "contextTimeframe" -> trade.setContextTimeframe(normalizeText(values.getContextTimeframe()));
+                case "executionTimeframe" -> trade.setExecutionTimeframe(normalizeText(values.getExecutionTimeframe()));
+                case "entryTimeframe" -> trade.setEntryTimeframe(normalizeText(values.getEntryTimeframe()));
+                case "tags" -> trade.setTagsJson(writeList(normalizeList(values.getTags())));
+                case "notes" -> trade.setNotes(normalizeText(values.getNotes()));
+                case "sourceTimezone" -> trade.setSourceTimezone(normalizeText(values.getSourceTimezone()));
+                default -> throw new IllegalArgumentException("Unsupported bulk-edit field");
+            }
+            if (request.isDeriveRFromPlannedRR()) trade.setPnlR(switch (trade.getResult()) {
+                case WIN -> trade.getPlannedRR();
+                case LOSS -> BigDecimal.ONE.negate();
+                case BREAKEVEN -> BigDecimal.ZERO;
+            });
+            if (request.isRecalculateSession() || fields.contains("sourceTimezone"))
+                trade.setSession(BacktestingSessionClassifier.classify(trade.getDate(), trade.getEntryTime(), trade.getSourceTimezone()));
+        }
+        tradeRepository.saveAll(selected);
+        workspace.setUpdatedAt(OffsetDateTime.now());
+        return toTradeResponses(selected);
+    }
+
+    private static void validateRealizedR(BacktestingTradeResult result, BigDecimal r, boolean required) {
+        if (r == null && required) throw new IllegalArgumentException("R is required for trades without monetary PnL");
+        if (r != null && ((result == BacktestingTradeResult.WIN && r.signum() <= 0)
+                || (result == BacktestingTradeResult.LOSS && r.signum() >= 0)
+                || (result == BacktestingTradeResult.BREAKEVEN && r.signum() != 0)))
+            throw new IllegalArgumentException("Realised R must match each trade's result");
+    }
+
     @Transactional
     public void deleteTrade(UUID tradeId) {
         User user = currentUserService.getCurrentUser();
@@ -174,7 +246,7 @@ public class BacktestingResearchService {
                     duplicates = parsed.duplicates();
                     warnings.add("Replay results are simulated. Initial stop/risk is absent; R, risk percentage and planned R:R are unavailable.");
                     warnings.add("Export cumulative PnL can reset between replay runs. Analytics recompute totals from each closed trade once.");
-                    if (!StringUtils.hasText(timezone)) warnings.add("Timezone is unspecified; timestamps and entry-hour breakdowns retain the exported local clock.");
+                    if (!StringUtils.hasText(timezone)) warnings.add("Timezone is unspecified; timestamps retain the exported local clock. Session classification treats this clock as Europe/Bucharest; provide the export timezone if different.");
                     if (symbol != null && !symbol.equalsIgnoreCase(workspace.getSymbol()))
                         warnings.add("Imported instrument " + symbol + " differs from workspace " + workspace.getSymbol() + ". The CSV instrument is retained.");
                 } else {
@@ -490,7 +562,11 @@ public class BacktestingResearchService {
         trade.setEntryTime(Objects.requireNonNull(request.getEntryTime(), "entryTime is required"));
         trade.setInstrument(requireText(request.getInstrument(), "instrument").toUpperCase(Locale.ROOT));
         trade.setDirection(Objects.requireNonNull(request.getDirection(), "direction is required"));
-        trade.setSession(normalizeText(request.getSession()));
+        if (request.getSourceTimezone() != null) {
+            if (StringUtils.hasText(request.getSourceTimezone())) java.time.ZoneId.of(request.getSourceTimezone().trim());
+            trade.setSourceTimezone(normalizeText(request.getSourceTimezone()));
+        }
+        trade.setSession(BacktestingSessionClassifier.classify(trade.getDate(), trade.getEntryTime(), trade.getSourceTimezone()));
         trade.setSetupName(normalizeText(request.getSetupName()));
         trade.setStrategyId(request.getStrategyId());
         trade.setStrategySource(normalizeStrategySource(request.getStrategySource()));
@@ -512,7 +588,7 @@ public class BacktestingResearchService {
         trade.setRiskPercent(request.getRiskPercent());
         trade.setPlannedRR(request.getPlannedRR());
         trade.setResult(Objects.requireNonNull(request.getResult(), "result is required"));
-        if (request.getPnlR() == null && trade.getNetPnl() == null) throw new IllegalArgumentException("pnlR is required for trades without monetary PnL");
+        validateRealizedR(trade.getResult(), request.getPnlR(), trade.getNetPnl() == null);
         trade.setPnlR(request.getPnlR());
         trade.setContextTimeframe(normalizeText(request.getContextTimeframe()));
         trade.setExecutionTimeframe(normalizeText(request.getExecutionTimeframe()));

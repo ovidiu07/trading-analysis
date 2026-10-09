@@ -128,6 +128,7 @@ public final class ReplayCsvParser {
                 .weekday(entry.at().getDayOfWeek().name().substring(0, 1) + entry.at().getDayOfWeek().name().substring(1).toLowerCase(Locale.ROOT))
                 .exitDate(exit.at().toLocalDate()).exitTime(exit.at().toLocalTime())
                 .instrument(instrument).direction(entry.direction()).entryPrice(entry.price()).exitPrice(exit.price())
+                .session(BacktestingSessionClassifier.classify(entry.at().toLocalDate(), entry.at().toLocalTime(), timezone))
                 .quantity(entry.quantity()).positionValue(decimal(entry.row(), "Size (value)"))
                 .netPnl(pnl).currency(currency).returnPercent(decimal(exit.row(), "Return %"))
                 .commission(commission).favorableExcursion(decimal(exit.row(), "Favorable excursion " + currency))

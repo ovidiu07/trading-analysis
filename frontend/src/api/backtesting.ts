@@ -242,6 +242,15 @@ export type BacktestingTrade = {
 
 export type BacktestingTradePayload = Omit<BacktestingTrade, 'id' | 'workspaceId' | 'weekday' | 'screenshotCount' | 'createdAt' | 'updatedAt'>
 
+export type BacktestingTradeBulkChanges = Pick<BacktestingTradePayload, 'plannedRR' | 'riskPercent' | 'pnlR' | 'setupName' | 'strategyId' | 'strategySource' | 'strategyNameSnapshot' | 'contextTimeframe' | 'executionTimeframe' | 'entryTimeframe' | 'tags' | 'notes' | 'sourceTimezone'>
+export type BacktestingTradeBulkPayload = {
+  tradeIds: string[]
+  fields: Array<keyof BacktestingTradeBulkChanges>
+  changes: Partial<BacktestingTradeBulkChanges>
+  deriveRFromPlannedRR: boolean
+  recalculateSession: boolean
+}
+
 export type BacktestingCurrencyMetric = {
   currency: string
   trades: number
@@ -480,6 +489,10 @@ export async function createBacktestingTrade(workspaceId: string, payload: Backt
 
 export async function updateBacktestingTrade(id: string, payload: BacktestingTradePayload) {
   return apiPatch<BacktestingTrade>(`/backtesting/trades/${encodeURIComponent(id)}`, payload)
+}
+
+export async function updateBacktestingTrades(workspaceId: string, payload: BacktestingTradeBulkPayload) {
+  return apiPatch<BacktestingTrade[]>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades/bulk`, payload)
 }
 
 export async function deleteBacktestingTrade(id: string) {

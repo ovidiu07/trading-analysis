@@ -36,7 +36,7 @@ Equity and drawdown are rebuilt from closed-trade results ordered by exit time. 
 
 Breakdowns cover exit date, entry hour, entry weekday, direction, session, instrument, exit reason, source and backtest/replay/live scope. The overview, charts, source comparison and edge analysis follow the active trade filters. Live regression uses the complete workspace and is labeled when filters are active. R-based live/historical regression is unavailable when either sample lacks R.
 
-Timestamps are retained as exported local clock times. The optional timezone is metadata, not a request to shift dates or session labels. Holding time uses the difference between exported clock timestamps, including overnight/weekend gaps. Comparing exports from different clock conventions requires normalizing their times first; DST and account-equity percentages are not inferred. Session, strategy/setup, initial stop, initial risk and planned R:R are absent from this CSV and are not guessed.
+Timestamps are retained as exported local clock times. The optional source timezone is used to convert the entry time to Europe/Bucharest for session classification; stored execution dates and clock times remain unchanged. Holding time uses the difference between exported clock timestamps, including overnight/weekend gaps. Comparing exports from different clock conventions requires normalizing their times first; account-equity percentages are not inferred. Strategy/setup, initial stop, initial risk and planned R:R are absent from this CSV and are not guessed. Sessions follow the explicitly configured time windows below. Realised R can be added explicitly or derived from a user-confirmed fixed reward/risk model.
 
 English and Romanian labels cover the import, metrics, breakdowns, limitations and trade-detail view. The existing desktop/mobile workspace structure is retained.
 
@@ -78,3 +78,25 @@ Fresh database validation applied all migrations through V75 and passed applicat
 A real local frontend/backend browser run checks the actual supplied file through preview/import/reload, duplicate preview, active loss filtering in source comparison, trade details, and desktop/mobile English/Romanian rendering. Screenshots and results are local verification artifacts. Deployment and production import are separate steps.
 
 On 9 October 2026, all 44 focused backend tests and 15 frontend tests passed, together with ESLint, TypeScript and the production build. The real local browser checks passed with no page errors, failed application requests or desktop/mobile page overflow. Detailed counts and verification screenshots are saved under `output/backtesting-replay-csv-2026-10-09/`.
+
+## Bulk editing and Bucharest sessions (9 October 2026)
+
+The Trades tab supports individual selection, selecting the current page, and selecting all filtered editable trades across pages. Live evidence is excluded from editing. Changing filters drops selections that are no longer visible in the filtered set. **Edit selected** opens a review dialog; only checked fields are changed, and a checked blank field clears its value. The request is limited to 500 trades. The backend validates ownership, workspace membership, source and values for the complete selection before saving it atomically. A missing, foreign or live trade rejects the complete batch.
+
+Editable fields include planned R:R, realised R, risk percent, setup and strategy label, context/execution/entry timeframes, source timezone, tags and notes. Trade identities, imported execution data, monetary PnL, results and fingerprints are preserved. Refreshing the workspace after a save rebuilds the analytics from the updated trades.
+
+**Set imported R:R to 1.5** selects the filtered imported trades and preselects planned R:R = 1.5 for review. Deriving realised R is a separate explicit option: winners receive +1.5R, losers -1R and breakevens 0R. More generally, winners receive their positive planned R:R. This is a user-confirmed fixed outcome model, not a calculation from an exported initial stop or cash risk. A single positive realised R cannot be applied to a mixed winner/loser selection. The user confirmed this model for all 39 imported trades in Five-sessions; those existing records were updated through the deployed application, producing 22 winners, 17 losers and 16R total.
+
+Sessions are derived from the trade's entry date and entry time, converted to **Europe/Bucharest** when a source timezone is present:
+
+| Bucharest entry time (inclusive whole minutes) | Session |
+|---|---|
+| 10:30–16:25 | London |
+| 16:30–23:00 | New York |
+| All other times, including 16:26–16:29 | Unclassified |
+
+Timezone conversion follows the date's daylight saving offset. Missing source timezones are explicitly assumed to use Bucharest clock time for classification. New imports and single-trade saves classify automatically. Bulk editing offers an explicit session recalculation option; changing the source timezone also recalculates the session. Existing records do not require a schema migration. The 39 updated production records classify as 18 London, 19 New York and 2 outside the windows.
+
+Validation for this addition passed 67 focused backend tests (including three PostgreSQL integration tests) and 32 focused frontend tests. These include boundary minutes, summer/winter timezone conversion, selection across pages, checked-field preservation, outcome consistency, authentication, ownership, atomic rejection and persistence after reload. New application code remains local until committed, pushed and deployed.
+
+The addition was also checked in a real local frontend/backend browser session using a disposable PostgreSQL database: selection persisted across both pages, 26 trades saved in one batch and retained their values after a full reload, and the bulk editor rendered in English and Romanian at desktop and 390px mobile widths without page overflow. UI component tests verify the read-only session changes immediately when the entry date, clock or source timezone changes. Verification images and the result record are under `output/backtesting-bulk-edit-2026-10-09/`.

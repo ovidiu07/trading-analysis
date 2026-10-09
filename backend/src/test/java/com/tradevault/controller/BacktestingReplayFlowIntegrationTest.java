@@ -22,6 +22,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
@@ -93,5 +95,30 @@ class BacktestingReplayFlowIntegrationTest {
             assertThat(mvc.perform(multipart(route + "/trades/import").file(fixture()).param("preview", preview).header("Authorization", "Bearer " + other)).andReturn().getResponse().getStatus()).isIn(403, 404);
         }
         assertThat(call(owner, get(route + "/trades")).size()).isZero();
+    }
+
+    @Test void bulkUpdatePersistsOutcomeBasedRAndSessionsAndRollsBackAnInvalidSelection() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        call(token, multipart(route + "/trades/import").file(fixture()));
+        var stored = call(token, get(route + "/trades"));
+        List<String> ids = new java.util.ArrayList<>(); stored.forEach(trade -> ids.add(trade.path("id").asText()));
+        var payload = mapper.writeValueAsString(Map.of("tradeIds", ids, "fields", List.of("plannedRR"), "changes", Map.of("plannedRR", 1.5),
+                "deriveRFromPlannedRR", true, "recalculateSession", true));
+        assertThat(call(token, patch(route + "/trades/bulk").contentType(MediaType.APPLICATION_JSON).content(payload)).size()).isEqualTo(25);
+        var reloaded = call(token, get(route + "/trades"));
+        reloaded.forEach(trade -> {
+            assertThat(trade.path("plannedRR").asDouble()).isEqualTo(1.5);
+            assertThat(trade.path("pnlR").asDouble()).isEqualTo(trade.path("result").asText().equals("WIN") ? 1.5 : -1);
+            assertThat(trade.path("source").asText()).isEqualTo("IMPORT");
+        });
+        assertThat(call(token, get(route + "/analytics")).path("baseline").path("totalR").asDouble()).isEqualTo(12.5);
+        assertThat(reloaded.get(0).path("session").asText()).isEqualTo("London");
+        assertThat(reloaded.get(1).path("session").asText()).isEqualTo("New York");
+        String invalid = mapper.writeValueAsString(Map.of("tradeIds", List.of(ids.get(0), UUID.randomUUID().toString()), "fields", List.of("plannedRR"), "changes", Map.of("plannedRR", 9)));
+        assertThat(mvc.perform(patch(route + "/trades/bulk").header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON).content(invalid)).andReturn().getResponse().getStatus()).isIn(403, 404);
+        assertThat(call(token, get(route + "/trades")).get(0).path("plannedRR").asDouble()).isEqualTo(1.5);
+        String other = actor();
+        assertThat(mvc.perform(patch(route + "/trades/bulk").header("Authorization", "Bearer " + other).contentType(MediaType.APPLICATION_JSON).content(payload)).andReturn().getResponse().getStatus()).isIn(403, 404);
+        assertThat(mvc.perform(patch(route + "/trades/bulk").contentType(MediaType.APPLICATION_JSON).content(payload)).andReturn().getResponse().getStatus()).isEqualTo(401);
     }
 }

@@ -25,6 +25,7 @@ import type {
 } from '../../api/backtesting'
 import type { StrategyResponse } from '../../api/strategies'
 import { useI18n } from '../../i18n'
+import { backtestingSession } from './session'
 
 const emptyWorkspace: BacktestingWorkspacePayload = {
   symbol: '',
@@ -256,7 +257,7 @@ export function ManualTradeDialog({
             <FormControl fullWidth><InputLabel>{t('backtesting.trades.result')}</InputLabel><Select disabled={Boolean(trade?.importFormat)} label={t('backtesting.trades.result')} value={draft.result} onChange={(event) => set('result', event.target.value as BacktestingTradePayload['result'])}>{(['WIN', 'LOSS', 'BREAKEVEN'] as const).map((result) => <MenuItem key={result} value={result}>{t(`backtesting.results.${result}`)}</MenuItem>)}</Select></FormControl>
           </Grid>
           <Grid item xs={12} sm={4}><TextField fullWidth required={!trade?.importFormat} type="number" label={t('backtesting.trades.rMultiple')} value={draft.pnlR ?? ''} onChange={(event) => set('pnlR', event.target.value === '' ? null : Number(event.target.value))} inputProps={{ step: 0.1 }} /></Grid>
-          <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.trades.session')} value={draft.session || ''} onChange={(event) => set('session', event.target.value)} /></Grid>
+          <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.trades.session')} value={backtestingSession(draft.date, draft.entryTime, draft.sourceTimezone)} InputProps={{ readOnly: true }} helperText={t('backtesting.bulk.sessionHelp')} /></Grid>
           <Grid item xs={12} sm={6}><TextField fullWidth label={t('backtesting.trades.setup')} value={draft.setupName || ''} onChange={(event) => set('setupName', event.target.value)} /></Grid>
           <Grid item xs={12} sm={6}>
             <FormControl fullWidth><InputLabel>{t('backtesting.workspace.linkedStrategy')}</InputLabel><Select label={t('backtesting.workspace.linkedStrategy')} value={draft.strategyId || ''} onChange={(event) => set('strategyId', event.target.value || null)}><MenuItem value="">{t('backtesting.common.none')}</MenuItem>{strategies.map((strategy) => <MenuItem key={`${strategy.source}-${strategy.id}`} value={strategy.id}>{strategy.name}</MenuItem>)}</Select></FormControl>
@@ -267,6 +268,7 @@ export function ManualTradeDialog({
             <Collapse in={advanced}>
               <Grid container spacing={1.5}>
                 <Grid item xs={12} sm={4}><TextField fullWidth disabled={Boolean(trade?.importFormat)} type="time" label={t('backtesting.trades.entryTime')} InputLabelProps={{ shrink: true }} value={draft.entryTime} onChange={(event) => set('entryTime', event.target.value)} /></Grid>
+                <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.replay.timezone')} value={draft.sourceTimezone || ''} placeholder="Europe/Bucharest" helperText={t('backtesting.bulk.sessionHelp')} onChange={(event) => set('sourceTimezone', event.target.value)} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth type="number" label={t('backtesting.trades.riskPercent')} value={draft.riskPercent ?? ''} onChange={(event) => set('riskPercent', event.target.value === '' ? null : Number(event.target.value))} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth type="number" label={t('backtesting.trades.plannedRR')} value={draft.plannedRR ?? ''} onChange={(event) => set('plannedRR', event.target.value === '' ? null : Number(event.target.value))} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.trades.contextTimeframe')} value={draft.contextTimeframe || ''} onChange={(event) => set('contextTimeframe', event.target.value)} /></Grid>

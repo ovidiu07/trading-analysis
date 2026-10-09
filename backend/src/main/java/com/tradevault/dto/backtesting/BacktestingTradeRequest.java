@@ -11,6 +11,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -30,6 +31,8 @@ public class BacktestingTradeRequest {
     @NotNull
     private BacktestingTradeDirection direction;
     private String session;
+    @Size(max = 64)
+    private String sourceTimezone;
     private String setupName;
     private UUID strategyId;
     private String strategySource;

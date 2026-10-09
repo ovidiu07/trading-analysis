@@ -3940,6 +3940,29 @@
     }
   },
   "backtesting": {
+    "bulk": {
+      "setupName": "Setup name",
+      "strategyName": "Strategy label",
+      "title": "Edit {{count}} selected trades",
+      "description": "Only checked fields are changed. Blank values clear those fields. Exported executions and live trades remain protected.",
+      "changeField": "Change {{field}}",
+      "clearHelp": "Leave blank to clear this field on the selected trades.",
+      "deriveR": "Calculate R from each trade’s result and planned R:R",
+      "deriveHelp": "Use only when every selected trade follows its full fixed target/stop: winner = +planned R:R, loser = −1R, breakeven = 0R. This uses your declared risk model, not risk measured from the CSV.",
+      "missingRR": "Set a positive planned R:R, or ensure every selected trade already has one.",
+      "recalculateSession": "Recalculate sessions from entry time",
+      "sessionHelp": "Bucharest entry time: London 10:30–16:25; New York 16:30–23:00, including the endpoint minutes. Other times are unclassified. Times without an export timezone are treated as Bucharest.",
+      "apply": "Apply to {{count}} trades",
+      "error": "Could not save the selected trades. No trades were changed.",
+      "selected": "{{count}} trades selected",
+      "selectTrade": "Select {{instrument}} on {{date}} at {{time}}",
+      "selectPage": "Select editable trades on this page",
+      "selectAll": "Select all {{count}} filtered trades",
+      "clearSelection": "Clear selection",
+      "editSelected": "Edit selected",
+      "importedPreset": "Set imported trades to R:R 1.5",
+      "saved": "{{count}} trades updated."
+    },
     "replay": {
       "drawdown": "Realized drawdown · {{currency}}",
       "regressionFilterNotice": "Live regression uses the complete workspace. The performance cards, charts and comparison use your active filters.",

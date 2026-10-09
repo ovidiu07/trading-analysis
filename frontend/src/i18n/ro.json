@@ -3939,6 +3939,29 @@
     }
   },
   "backtesting": {
+    "bulk": {
+      "setupName": "Nume setup",
+      "strategyName": "Etichetă strategie",
+      "title": "Editează {{count}} tranzacții selectate",
+      "description": "Se modifică doar câmpurile bifate. Valorile goale șterg câmpurile respective. Execuțiile exportate și tranzacțiile live rămân protejate.",
+      "changeField": "Modifică {{field}}",
+      "clearHelp": "Lasă gol pentru a șterge câmpul din tranzacțiile selectate.",
+      "deriveR": "Calculează R din rezultatul fiecărei tranzacții și R:R planificat",
+      "deriveHelp": "Folosește doar dacă fiecare tranzacție respectă integral ținta/stopul fix: câștig = +R:R planificat, pierdere = −1R, breakeven = 0R. Se folosește modelul de risc declarat de tine, nu riscul măsurat din CSV.",
+      "missingRR": "Setează un R:R planificat pozitiv sau verifică dacă fiecare tranzacție selectată are deja unul.",
+      "recalculateSession": "Recalculează sesiunile din ora intrării",
+      "sessionHelp": "Ora intrării în București: London 10:30–16:25; New York 16:30–23:00, inclusiv minutele de la capetele intervalelor. Celelalte ore rămân neclasificate. Orele fără un fus al exportului sunt tratate ca ore din București.",
+      "apply": "Aplică la {{count}} tranzacții",
+      "error": "Tranzacțiile selectate nu au putut fi salvate. Nu s-a modificat nicio tranzacție.",
+      "selected": "{{count}} tranzacții selectate",
+      "selectTrade": "Selectează {{instrument}} din {{date}} la {{time}}",
+      "selectPage": "Selectează tranzacțiile editabile de pe această pagină",
+      "selectAll": "Selectează toate cele {{count}} tranzacții filtrate",
+      "clearSelection": "Șterge selecția",
+      "editSelected": "Editează selecția",
+      "importedPreset": "Setează tranzacțiile importate la R:R 1,5",
+      "saved": "{{count}} tranzacții actualizate."
+    },
     "replay": {
       "drawdown": "Scădere realizată · {{currency}}",
       "regressionFilterNotice": "Regresia live folosește întregul spațiu de lucru. Indicatorii de performanță, graficele și comparația folosesc filtrele active.",

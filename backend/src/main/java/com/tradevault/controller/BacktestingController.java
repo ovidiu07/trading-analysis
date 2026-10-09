@@ -8,6 +8,7 @@ import com.tradevault.dto.backtesting.BacktestingImportResponse;
 import com.tradevault.dto.backtesting.BacktestingScreenshotRequest;
 import com.tradevault.dto.backtesting.BacktestingScreenshotResponse;
 import com.tradevault.dto.backtesting.BacktestingTradeRequest;
+import com.tradevault.dto.backtesting.BacktestingTradeBulkUpdateRequest;
 import com.tradevault.dto.backtesting.BacktestingTradeResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceResponse;
@@ -138,6 +139,12 @@ public class BacktestingController {
     public BacktestingTradeResponse updateTrade(@PathVariable UUID tradeId,
                                                 @Valid @RequestBody BacktestingTradeRequest request) {
         return researchService.updateTrade(tradeId, request);
+    }
+
+    @PatchMapping("/workspaces/{workspaceId}/trades/bulk")
+    public List<BacktestingTradeResponse> updateTrades(@PathVariable UUID workspaceId,
+            @Valid @RequestBody BacktestingTradeBulkUpdateRequest request) {
+        return researchService.updateTrades(workspaceId, request);
     }
 
     @DeleteMapping("/trades/{tradeId}")
