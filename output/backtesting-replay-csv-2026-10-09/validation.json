@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-09",
+  "scope": "Local checkout, disposable PostgreSQL, real local frontend/backend. No production import or deployment.",
+  "backend": {
+    "tests": 44,
+    "suites": [
+      {
+        "suite": "com.tradevault.service.BacktestingResearchServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.tradevault.service.BacktestingServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.tradevault.service.BacktestingReplayImportTest",
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.tradevault.service.backtesting.LiveTradeEvidenceSyncServiceTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.tradevault.service.backtesting.BacktestingWorkspaceCompatibilityServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.tradevault.controller.BacktestingReplayFlowIntegrationTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "frontend": {
+    "tests": 15,
+    "lint": "passed",
+    "typescript": "passed as part of production build",
+    "productionBuild": "passed"
+  },
+  "migration": {
+    "fresh": "All 75 migrations applied; application schema validation passed",
+    "existingRowProbe": "Legacy R preserved; nullable monetary row and duplicate uniqueness verified"
+  },
+  "browser": {
+    "source": "Real local API with disposable PostgreSQL; supplied CSV",
+    "workspaceId": "364904d5-06b3-4068-80e4-181063fa3474",
+    "completedTrades": 25,
+    "preview": true,
+    "import": true,
+    "duplicates": true,
+    "filters": true,
+    "details": true,
+    "reload": true,
+    "desktopNoOverflow": true,
+    "mobileNoOverflow": true,
+    "romanianNoOverflow": true,
+    "errors": [],
+    "failed": []
+  }
+}

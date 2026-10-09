@@ -235,27 +235,27 @@ export function ManualTradeDialog({
     next.contextTimeframe = workspace.contextTimeframe || ''
     next.executionTimeframe = workspace.executionTimeframe || ''
     next.entryTimeframe = workspace.entryTimeframe || ''
-    if (trade) Object.assign(next, trade, { entryTime: trade.entryTime.slice(0, 5), source: 'MANUAL', tradeScope: 'BACKTEST' })
+    if (trade) Object.assign(next, trade, { entryTime: trade.importFormat ? trade.entryTime : trade.entryTime.slice(0, 5) })
     setDraft(next)
     setTags((trade?.tags || []).join(', '))
     setAdvanced(false)
   }, [open, trade, workspace])
   const set = <K extends keyof BacktestingTradePayload>(key: K, value: BacktestingTradePayload[K]) => setDraft((current) => ({ ...current, [key]: value }))
-  const mismatch = (draft.result === 'WIN' && draft.pnlR < 0) || (draft.result === 'LOSS' && draft.pnlR > 0)
+  const mismatch = draft.pnlR != null && ((draft.result === 'WIN' && draft.pnlR < 0) || (draft.result === 'LOSS' && draft.pnlR > 0))
   return (
     <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="md" aria-labelledby="backtesting-trade-dialog-title">
       <DialogTitle id="backtesting-trade-dialog-title">{t(trade ? 'backtesting.dialogs.editManualTrade' : 'backtesting.dialogs.addManualTrade')}</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={1.5}>
-          <Grid item xs={12} sm={4}><TextField fullWidth required type="date" label={t('backtesting.trades.date')} InputLabelProps={{ shrink: true }} value={draft.date} onChange={(event) => set('date', event.target.value)} /></Grid>
-          <Grid item xs={12} sm={4}><TextField fullWidth required label={t('backtesting.trades.instrument')} value={draft.instrument} onChange={(event) => set('instrument', event.target.value.toUpperCase())} /></Grid>
+          <Grid item xs={12} sm={4}><TextField fullWidth disabled={Boolean(trade?.importFormat)} required type="date" label={t('backtesting.trades.date')} InputLabelProps={{ shrink: true }} value={draft.date} onChange={(event) => set('date', event.target.value)} /></Grid>
+          <Grid item xs={12} sm={4}><TextField fullWidth disabled={Boolean(trade?.importFormat)} required label={t('backtesting.trades.instrument')} value={draft.instrument} onChange={(event) => set('instrument', event.target.value.toUpperCase())} /></Grid>
           <Grid item xs={12} sm={4}>
-            <FormControl fullWidth><InputLabel>{t('backtesting.trades.direction')}</InputLabel><Select label={t('backtesting.trades.direction')} value={draft.direction} onChange={(event) => set('direction', event.target.value as BacktestingTradePayload['direction'])}><MenuItem value="LONG">{t('backtesting.direction.LONG')}</MenuItem><MenuItem value="SHORT">{t('backtesting.direction.SHORT')}</MenuItem></Select></FormControl>
+            <FormControl fullWidth><InputLabel>{t('backtesting.trades.direction')}</InputLabel><Select disabled={Boolean(trade?.importFormat)} label={t('backtesting.trades.direction')} value={draft.direction} onChange={(event) => set('direction', event.target.value as BacktestingTradePayload['direction'])}><MenuItem value="LONG">{t('backtesting.direction.LONG')}</MenuItem><MenuItem value="SHORT">{t('backtesting.direction.SHORT')}</MenuItem></Select></FormControl>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <FormControl fullWidth><InputLabel>{t('backtesting.trades.result')}</InputLabel><Select label={t('backtesting.trades.result')} value={draft.result} onChange={(event) => set('result', event.target.value as BacktestingTradePayload['result'])}>{(['WIN', 'LOSS', 'BREAKEVEN'] as const).map((result) => <MenuItem key={result} value={result}>{t(`backtesting.results.${result}`)}</MenuItem>)}</Select></FormControl>
+            <FormControl fullWidth><InputLabel>{t('backtesting.trades.result')}</InputLabel><Select disabled={Boolean(trade?.importFormat)} label={t('backtesting.trades.result')} value={draft.result} onChange={(event) => set('result', event.target.value as BacktestingTradePayload['result'])}>{(['WIN', 'LOSS', 'BREAKEVEN'] as const).map((result) => <MenuItem key={result} value={result}>{t(`backtesting.results.${result}`)}</MenuItem>)}</Select></FormControl>
           </Grid>
-          <Grid item xs={12} sm={4}><TextField fullWidth required type="number" label={t('backtesting.trades.rMultiple')} value={draft.pnlR} onChange={(event) => set('pnlR', Number(event.target.value))} inputProps={{ step: 0.1 }} /></Grid>
+          <Grid item xs={12} sm={4}><TextField fullWidth required={!trade?.importFormat} type="number" label={t('backtesting.trades.rMultiple')} value={draft.pnlR ?? ''} onChange={(event) => set('pnlR', event.target.value === '' ? null : Number(event.target.value))} inputProps={{ step: 0.1 }} /></Grid>
           <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.trades.session')} value={draft.session || ''} onChange={(event) => set('session', event.target.value)} /></Grid>
           <Grid item xs={12} sm={6}><TextField fullWidth label={t('backtesting.trades.setup')} value={draft.setupName || ''} onChange={(event) => set('setupName', event.target.value)} /></Grid>
           <Grid item xs={12} sm={6}>
@@ -266,7 +266,7 @@ export function ManualTradeDialog({
           <Grid item xs={12}>
             <Collapse in={advanced}>
               <Grid container spacing={1.5}>
-                <Grid item xs={12} sm={4}><TextField fullWidth type="time" label={t('backtesting.trades.entryTime')} InputLabelProps={{ shrink: true }} value={draft.entryTime} onChange={(event) => set('entryTime', event.target.value)} /></Grid>
+                <Grid item xs={12} sm={4}><TextField fullWidth disabled={Boolean(trade?.importFormat)} type="time" label={t('backtesting.trades.entryTime')} InputLabelProps={{ shrink: true }} value={draft.entryTime} onChange={(event) => set('entryTime', event.target.value)} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth type="number" label={t('backtesting.trades.riskPercent')} value={draft.riskPercent ?? ''} onChange={(event) => set('riskPercent', event.target.value === '' ? null : Number(event.target.value))} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth type="number" label={t('backtesting.trades.plannedRR')} value={draft.plannedRR ?? ''} onChange={(event) => set('plannedRR', event.target.value === '' ? null : Number(event.target.value))} /></Grid>
                 <Grid item xs={12} sm={4}><TextField fullWidth label={t('backtesting.trades.contextTimeframe')} value={draft.contextTimeframe || ''} onChange={(event) => set('contextTimeframe', event.target.value)} /></Grid>
@@ -279,19 +279,7 @@ export function ManualTradeDialog({
           </Grid>
         </Grid>
       </DialogContent>
-      <DialogActions sx={{ p: 2 }}><Button onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={saving || !draft.date || !draft.instrument || mismatch} onClick={() => onSave({ ...draft, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) })}>{saving ? t('backtesting.actions.saving') : t('backtesting.actions.save')}</Button></DialogActions>
-    </Dialog>
-  )
-}
-
-export function ImportTradesDialog({ open, importing, onClose, onImport }: { open: boolean; importing: boolean; onClose: () => void; onImport: (file: File) => void }) {
-  const { t } = useI18n()
-  const [file, setFile] = useState<File | null>(null)
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="backtesting-import-dialog-title">
-      <DialogTitle id="backtesting-import-dialog-title">{t('backtesting.dialogs.importTrades')}</DialogTitle>
-      <DialogContent dividers><Stack spacing={2}><Alert severity="info">{t('backtesting.dialogs.importDescription')}</Alert><Button component="label" variant="outlined">{file?.name || t('backtesting.actions.chooseCsv')}<input hidden type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] || null)} /></Button></Stack></DialogContent>
-      <DialogActions><Button onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={!file || importing} onClick={() => file && onImport(file)}>{importing ? t('backtesting.actions.importing') : t('backtesting.actions.import')}</Button></DialogActions>
+      <DialogActions sx={{ p: 2 }}><Button onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={saving || !draft.date || !draft.instrument || mismatch || (draft.pnlR == null && !trade?.importFormat)} onClick={() => onSave({ ...draft, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) })}>{saving ? t('backtesting.actions.saving') : t('backtesting.actions.save')}</Button></DialogActions>
     </Dialog>
   )
 }

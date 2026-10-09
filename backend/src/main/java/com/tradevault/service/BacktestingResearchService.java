@@ -28,6 +28,8 @@ import com.tradevault.repository.BacktestingScreenshotRepository;
 import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
+import com.tradevault.service.backtesting.ReplayCsvParser;
+import com.tradevault.dto.backtesting.BacktestingCurrencyMetricResponse;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
@@ -38,6 +40,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStreamReader;
+import java.io.PushbackReader;
+import java.time.LocalDateTime;
+import java.time.Duration;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -133,43 +138,83 @@ public class BacktestingResearchService {
 
     @Transactional
     public BacktestingImportResponse importCsv(UUID workspaceId, MultipartFile file) {
+        return importCsv(workspaceId, file, null, null, false);
+    }
+
+    @Transactional
+    public BacktestingImportResponse importCsv(UUID workspaceId, MultipartFile file, String instrument,
+                                               String timezone, boolean preview) {
         User user = currentUserService.getCurrentUser();
         BacktestingWorkspace workspace = requireOwnedWorkspace(workspaceId, user);
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("CSV file is required");
-        }
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("CSV file is required");
+        if (file.getSize() > 10 * 1024 * 1024) throw new IllegalArgumentException("CSV exceeds the 10 MB limit");
         List<String> errors = new ArrayList<>();
-        List<BacktestingTrade> imported = new ArrayList<>();
-        try (var reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8)) {
-            Iterable<CSVRecord> records = CSVFormat.DEFAULT.builder()
-                    .setHeader()
-                    .setSkipHeaderRecord(true)
-                    .setIgnoreSurroundingSpaces(true)
-                    .setTrim(true)
-                    .build()
-                    .parse(reader);
-            int rowNumber = 1;
-            for (CSVRecord record : records) {
-                rowNumber++;
-                try {
-                    BacktestingTradeRequest request = requestFromCsv(record.toMap());
-                    BacktestingTrade trade = BacktestingTrade.builder().workspace(workspace).user(user).build();
-                    applyTradeRequest(trade, request, BacktestingTradeSource.IMPORT);
-                    imported.add(tradeRepository.save(trade));
-                } catch (RuntimeException ex) {
-                    errors.add("Row " + rowNumber + ": " + ex.getMessage());
+        List<String> warnings = new ArrayList<>();
+        List<BacktestingTrade> candidates = new ArrayList<>();
+        String format;
+        int rowCount;
+        int duplicates = 0;
+        try (var reader = new PushbackReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8), 1)) {
+            int first = reader.read();
+            if (first != -1 && first != 0xfeff) reader.unread(first);
+            try (var parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
+                    .setIgnoreSurroundingSpaces(true).setTrim(true).build().parse(reader)) {
+                List<CSVRecord> records = new ArrayList<>();
+                for (CSVRecord record : parser) {
+                    if (records.size() >= 20000) throw new IllegalArgumentException("CSV exceeds the 20,000 row limit");
+                    records.add(record);
+                }
+                rowCount = records.size();
+                if (ReplayCsvParser.supports(parser.getHeaderNames())) {
+                    format = ReplayCsvParser.FORMAT;
+                    String symbol = StringUtils.hasText(instrument) ? instrument : ReplayCsvParser.symbolFromFilename(file.getOriginalFilename());
+                    var parsed = ReplayCsvParser.parse(records, parser.getHeaderNames(), symbol, timezone, file.getOriginalFilename());
+                    errors.addAll(parsed.errors());
+                    candidates.addAll(parsed.trades());
+                    duplicates = parsed.duplicates();
+                    warnings.add("Replay results are simulated. Initial stop/risk is absent; R, risk percentage and planned R:R are unavailable.");
+                    warnings.add("Export cumulative PnL can reset between replay runs. Analytics recompute totals from each closed trade once.");
+                    if (!StringUtils.hasText(timezone)) warnings.add("Timezone is unspecified; timestamps and entry-hour breakdowns retain the exported local clock.");
+                    if (symbol != null && !symbol.equalsIgnoreCase(workspace.getSymbol()))
+                        warnings.add("Imported instrument " + symbol + " differs from workspace " + workspace.getSymbol() + ". The CSV instrument is retained.");
+                } else {
+                    format = "TRADEJAUDIT_CSV";
+                    for (CSVRecord record : records) {
+                        try {
+                            if (!record.isConsistent()) throw new IllegalArgumentException("column count does not match header");
+                            BacktestingTrade trade = BacktestingTrade.builder().workspace(workspace).user(user).build();
+                            applyTradeRequest(trade, requestFromCsv(record.toMap()), BacktestingTradeSource.IMPORT);
+                            candidates.add(trade);
+                        } catch (RuntimeException ex) { errors.add("Row " + (record.getRecordNumber() + 1) + ": " + ex.getMessage()); }
+                    }
                 }
             }
-        } catch (Exception ex) {
-            throw new IllegalArgumentException("Could not import CSV: " + ex.getMessage());
+        } catch (Exception ex) { throw new IllegalArgumentException("Could not import CSV: " + ex.getMessage(), ex); }
+        Map<String, BacktestingTrade> existing = tradeRepository
+                .findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId()).stream()
+                .filter(t -> t.getImportFingerprint() != null)
+                .collect(Collectors.toMap(BacktestingTrade::getImportFingerprint, Function.identity(), (a, b) -> a));
+        List<BacktestingTrade> imported = new ArrayList<>();
+        for (BacktestingTrade trade : candidates) {
+            trade.setWorkspace(workspace);
+            trade.setUser(user);
+            String key = trade.getImportFingerprint();
+            if (key != null && existing.containsKey(key)) {
+                if (existing.get(key).getNetPnl().compareTo(trade.getNetPnl()) != 0)
+                    errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different net PnL; review it before reimporting");
+                else duplicates++;
+                continue;
+            }
+            if (key != null) existing.put(key, trade);
+            imported.add(trade);
         }
-        workspace.setUpdatedAt(OffsetDateTime.now());
-        return BacktestingImportResponse.builder()
-                .imported(imported.size())
-                .invalid(errors.size())
-                .errors(errors)
-                .trades(toTradeResponses(imported))
-                .build();
+        if (!preview && !imported.isEmpty()) {
+            tradeRepository.saveAll(imported);
+            workspace.setUpdatedAt(OffsetDateTime.now());
+        }
+        return BacktestingImportResponse.builder().format(format).rowCount(rowCount).duplicates(duplicates).preview(preview)
+                .warnings(warnings).imported(imported.size()).invalid(errors.size()).errors(errors.stream().limit(100).toList())
+                .trades(imported.stream().map(t -> toTradeResponse(t, 0)).toList()).build();
     }
 
     @Transactional(readOnly = true)
@@ -204,7 +249,7 @@ public class BacktestingResearchService {
         }
         List<BacktestingTrade> historical = trades.stream().filter(trade -> trade.getSource() != BacktestingTradeSource.LIVE).toList();
         List<BacktestingTrade> live = trades.stream().filter(trade -> trade.getSource() == BacktestingTradeSource.LIVE).toList();
-        BigDecimal liveGap = live.isEmpty() ? null : scale(calculateMetrics(live).getExpectancy().subtract(calculateMetrics(historical).getExpectancy()));
+        BigDecimal liveGap = difference(calculateMetrics(live).getExpectancy(), calculateMetrics(historical).getExpectancy());
         List<BacktestingTrade> recentLive = live.stream()
                 .sorted(Comparator.comparing(BacktestingTrade::getDate).thenComparing(BacktestingTrade::getEntryTime).reversed())
                 .limit(evidenceAssessmentService.recentLiveWindow())
@@ -283,7 +328,13 @@ public class BacktestingResearchService {
     }
 
     public BacktestingMetricResponse calculateMetrics(List<BacktestingTrade> trades) {
-        List<BacktestingTrade> rows = trades == null ? List.of() : trades;
+        List<BacktestingTrade> rows = trades == null ? List.of() : trades.stream().sorted(realizedOrder()).toList();
+        int rCount = (int) rows.stream().filter(t -> t.getPnlR() != null).count();
+        boolean completeR = rCount == rows.size();
+        Map<String, BacktestingCurrencyMetricResponse> currencies = new LinkedHashMap<>();
+        rows.stream().filter(t -> t.getNetPnl() != null && t.getCurrency() != null)
+                .collect(Collectors.groupingBy(BacktestingTrade::getCurrency, LinkedHashMap::new, Collectors.toList()))
+                .forEach((currency, items) -> currencies.put(currency, currencyMetrics(currency, items)));
         int total = rows.size();
         int wins = (int) rows.stream().filter(item -> item.getResult() == BacktestingTradeResult.WIN).count();
         int losses = (int) rows.stream().filter(item -> item.getResult() == BacktestingTradeResult.LOSS).count();
@@ -306,7 +357,7 @@ public class BacktestingResearchService {
             if (cumulative.compareTo(peak) > 0) peak = cumulative;
             BigDecimal drawdown = peak.subtract(cumulative);
             if (drawdown.compareTo(maximumDrawdown) > 0) maximumDrawdown = drawdown;
-            if (value.compareTo(BigDecimal.ZERO) < 0) {
+            if (row.getResult() == BacktestingTradeResult.LOSS) {
                 losingStreak++;
                 maximumLosingStreak = Math.max(maximumLosingStreak, losingStreak);
             } else {
@@ -314,6 +365,7 @@ public class BacktestingResearchService {
             }
         }
         return BacktestingMetricResponse.builder()
+                .rSampleSize(rCount).currencyMetrics(currencies)
                 .trades(total)
                 .wins(wins)
                 .losses(losses)
@@ -321,20 +373,62 @@ public class BacktestingResearchService {
                 .winRate(rate(wins, total))
                 .lossRate(rate(losses, total))
                 .breakevenRate(rate(breakevens, total))
-                .totalR(scale(totalR))
-                .averageR(total == 0 ? BigDecimal.ZERO : scale(totalR.divide(BigDecimal.valueOf(total), 4, RoundingMode.HALF_UP)))
-                .expectancy(total == 0 ? BigDecimal.ZERO : scale(totalR.divide(BigDecimal.valueOf(total), 4, RoundingMode.HALF_UP)))
-                .profitFactor(grossLoss.compareTo(BigDecimal.ZERO) == 0 ? (grossWin.compareTo(BigDecimal.ZERO) > 0 ? null : BigDecimal.ZERO) : scale(grossWin.divide(grossLoss, 4, RoundingMode.HALF_UP)))
-                .averageWinR(avgWin)
-                .averageLossR(avgLoss)
-                .largestWinR(rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).max(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
-                .largestLossR(rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).min(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
-                .medianR(medianR)
-                .maximumDrawdownR(scale(maximumDrawdown))
+                .totalR(completeR ? (scale(totalR)) : null)
+                .averageR(completeR ? (total == 0 ? BigDecimal.ZERO : scale(totalR.divide(BigDecimal.valueOf(total), 4, RoundingMode.HALF_UP))) : null)
+                .expectancy(completeR ? (total == 0 ? BigDecimal.ZERO : scale(totalR.divide(BigDecimal.valueOf(total), 4, RoundingMode.HALF_UP))) : null)
+                .profitFactor(completeR ? (grossLoss.compareTo(BigDecimal.ZERO) == 0 ? (grossWin.compareTo(BigDecimal.ZERO) > 0 ? null : BigDecimal.ZERO) : scale(grossWin.divide(grossLoss, 4, RoundingMode.HALF_UP))) : null)
+                .averageWinR(completeR ? (avgWin) : null)
+                .averageLossR(completeR ? (avgLoss) : null)
+                .largestWinR(completeR ? (rows.stream().map(BacktestingTrade::getPnlR).filter(v -> v != null && v.signum() > 0).max(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO)) : null)
+                .largestLossR(completeR ? (rows.stream().map(BacktestingTrade::getPnlR).filter(v -> v != null && v.signum() < 0).min(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO)) : null)
+                .medianR(completeR ? (medianR) : null)
+                .maximumDrawdownR(completeR ? (scale(maximumDrawdown)) : null)
                 .maximumLosingStreak(maximumLosingStreak)
                 .currentLosingStreak(losingStreak)
                 .sampleQuality(sampleQuality(total))
                 .build();
+    }
+
+    private Comparator<BacktestingTrade> realizedOrder() {
+        return Comparator.comparing((BacktestingTrade t) -> t.getExitDate() != null ? t.getExitDate() : t.getDate(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(t -> t.getExitTime() != null ? t.getExitTime() : t.getEntryTime(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(BacktestingTrade::getDate, Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(BacktestingTrade::getEntryTime, Comparator.nullsFirst(Comparator.naturalOrder()));
+    }
+
+    private BacktestingCurrencyMetricResponse currencyMetrics(String currency, List<BacktestingTrade> rows) {
+        List<BigDecimal> values = rows.stream().map(BacktestingTrade::getNetPnl).toList();
+        List<BigDecimal> winners = values.stream().filter(v -> v.signum() > 0).toList();
+        List<BigDecimal> losers = values.stream().filter(v -> v.signum() < 0).toList();
+        BigDecimal grossWin = winners.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal grossLoss = losers.stream().reduce(BigDecimal.ZERO, BigDecimal::add).abs();
+        BigDecimal total = values.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cumulative = BigDecimal.ZERO, peak = BigDecimal.ZERO, drawdown = BigDecimal.ZERO;
+        for (BigDecimal value : values) {
+            cumulative = cumulative.add(value);
+            peak = peak.max(cumulative);
+            drawdown = drawdown.max(peak.subtract(cumulative));
+        }
+        List<BigDecimal> durations = rows.stream().filter(t -> t.getExitDate() != null && t.getExitTime() != null)
+                .map(t -> BigDecimal.valueOf(Duration.between(LocalDateTime.of(t.getDate(), t.getEntryTime()),
+                        LocalDateTime.of(t.getExitDate(), t.getExitTime())).toSeconds()).divide(BigDecimal.valueOf(60), 8, RoundingMode.HALF_UP)).toList();
+        return BacktestingCurrencyMetricResponse.builder().currency(currency).trades(rows.size())
+                .netPnl(scale(total)).grossProfit(scale(grossWin)).grossLoss(scale(grossLoss)).expectancy(average(values))
+                .profitFactor(grossLoss.signum() == 0 ? (grossWin.signum() > 0 ? null : BigDecimal.ZERO) : scale(grossWin.divide(grossLoss, 8, RoundingMode.HALF_UP)))
+                .averageWinner(average(winners)).averageLoser(average(losers))
+                .largestWinner(winners.stream().max(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
+                .largestLoser(losers.stream().min(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
+                .maximumDrawdown(scale(drawdown))
+                .commission(sumKnown(rows, BacktestingTrade::getCommission))
+                .averageHoldingMinutes(averageKnown(durations))
+                .averageDurationBars(averageKnown(rows.stream().map(BacktestingTrade::getDurationBars).filter(Objects::nonNull).map(BigDecimal::valueOf).toList()))
+                .averageFavorableExcursion(averageKnown(rows.stream().map(BacktestingTrade::getFavorableExcursion).filter(Objects::nonNull).toList()))
+                .averageAdverseExcursion(averageKnown(rows.stream().map(BacktestingTrade::getAdverseExcursion).filter(Objects::nonNull).toList())).build();
+    }
+
+    private BigDecimal averageKnown(List<BigDecimal> values) { return values.isEmpty() ? null : average(values); }
+    private BigDecimal sumKnown(List<BacktestingTrade> rows, Function<BacktestingTrade, BigDecimal> field) {
+        return rows.stream().anyMatch(t -> field.apply(t) == null) ? null : scale(rows.stream().map(field).reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     public String sampleQuality(int trades) {
@@ -357,8 +451,8 @@ public class BacktestingResearchService {
                 .filter(entry -> StringUtils.hasText(entry.getKey()))
                 .map(entry -> {
                     BacktestingMetricResponse metrics = calculateMetrics(entry.getValue());
-                    BigDecimal expectancyDelta = scale(metrics.getExpectancy().subtract(baseline.getExpectancy()));
-                    BigDecimal totalRDelta = scale(metrics.getTotalR().subtract(baseline.getTotalR()));
+                    BigDecimal expectancyDelta = difference(metrics.getExpectancy(), baseline.getExpectancy());
+                    BigDecimal totalRDelta = difference(metrics.getTotalR(), baseline.getTotalR());
                     return BacktestingBreakdownRowResponse.builder()
                             .dimension(dimension)
                             .label(entry.getKey())
@@ -367,16 +461,22 @@ public class BacktestingResearchService {
                             .expectancyDelta(expectancyDelta)
                             .totalRDelta(totalRDelta)
                             .verdict(verdict(metrics.getTrades(), expectancyDelta))
-                            .warning(metrics.getTrades() < 10 && expectancyDelta.compareTo(BigDecimal.ZERO) > 0
+                            .warning(expectancyDelta != null && metrics.getTrades() < 10 && expectancyDelta.compareTo(BigDecimal.ZERO) > 0
                                     ? "Caution: this filter improves expectancy but only " + metrics.getTrades() + " trades remain. Gather more evidence before changing your trading plan."
                                     : null)
                             .build();
                 })
-                .sorted(Comparator.comparing((BacktestingBreakdownRowResponse row) -> row.getMetrics().getExpectancy()).reversed())
+                .sorted(Comparator.comparing((BacktestingBreakdownRowResponse row) -> row.getMetrics().getExpectancy(), Comparator.nullsFirst(Comparator.naturalOrder())).reversed())
                 .toList();
     }
 
     private void applyTradeRequest(BacktestingTrade trade, BacktestingTradeRequest request, BacktestingTradeSource fallbackSource) {
+        if (trade.getImportFormat() != null && (!Objects.equals(trade.getDate(), request.getDate())
+                || !Objects.equals(trade.getEntryTime(), request.getEntryTime())
+                || !trade.getInstrument().equalsIgnoreCase(Objects.toString(request.getInstrument(), ""))
+                || trade.getDirection() != request.getDirection() || trade.getResult() != request.getResult())) {
+            throw new IllegalArgumentException("Replay execution fields are preserved from the export; edit classification, notes or explicit R only");
+        }
         if (request.getGapEntryPositionPercent() != null && (request.getGapEntryPositionPercent().compareTo(BigDecimal.ZERO) < 0 || request.getGapEntryPositionPercent().compareTo(BigDecimal.valueOf(100)) > 0)) {
             throw new IllegalArgumentException("gapEntryPositionPercent must be between 0 and 100");
         }
@@ -412,15 +512,16 @@ public class BacktestingResearchService {
         trade.setRiskPercent(request.getRiskPercent());
         trade.setPlannedRR(request.getPlannedRR());
         trade.setResult(Objects.requireNonNull(request.getResult(), "result is required"));
-        trade.setPnlR(Objects.requireNonNull(request.getPnlR(), "pnlR is required"));
+        if (request.getPnlR() == null && trade.getNetPnl() == null) throw new IllegalArgumentException("pnlR is required for trades without monetary PnL");
+        trade.setPnlR(request.getPnlR());
         trade.setContextTimeframe(normalizeText(request.getContextTimeframe()));
         trade.setExecutionTimeframe(normalizeText(request.getExecutionTimeframe()));
         trade.setEntryTimeframe(normalizeText(request.getEntryTimeframe()));
         trade.setTagsJson(writeList(normalizeList(request.getTags())));
         trade.setNotes(normalizeText(request.getNotes()));
-        trade.setSource(request.getSource() == null || request.getSource() == BacktestingTradeSource.LIVE
+        trade.setSource(trade.getImportFormat() != null ? BacktestingTradeSource.IMPORT : request.getSource() == null || request.getSource() == BacktestingTradeSource.LIVE
                 ? fallbackSource : request.getSource());
-        trade.setTradeScope(request.getTradeScope() == null ? BacktestingTradeScope.BACKTEST : request.getTradeScope());
+        trade.setTradeScope(trade.getImportFormat() != null ? BacktestingTradeScope.REPLAY : request.getTradeScope() == null ? BacktestingTradeScope.BACKTEST : request.getTradeScope());
     }
 
     private BacktestingTradeRequest requestFromCsv(Map<String, String> values) {
@@ -494,6 +595,30 @@ public class BacktestingResearchService {
                 .plannedRR(trade.getPlannedRR())
                 .result(trade.getResult())
                 .pnlR(trade.getPnlR())
+                .exitDate(trade.getExitDate())
+                .exitTime(trade.getExitTime())
+                .entryPrice(trade.getEntryPrice())
+                .exitPrice(trade.getExitPrice())
+                .quantity(trade.getQuantity())
+                .positionValue(trade.getPositionValue())
+                .netPnl(trade.getNetPnl())
+                .currency(trade.getCurrency())
+                .returnPercent(trade.getReturnPercent())
+                .commission(trade.getCommission())
+                .favorableExcursion(trade.getFavorableExcursion())
+                .adverseExcursion(trade.getAdverseExcursion())
+                .favorableExcursionPercent(trade.getFavorableExcursionPercent())
+                .adverseExcursionPercent(trade.getAdverseExcursionPercent())
+                .reportedCumulativePnl(trade.getReportedCumulativePnl())
+                .reportedCumulativePercent(trade.getReportedCumulativePercent())
+                .durationBars(trade.getDurationBars())
+                .entrySignal(trade.getEntrySignal())
+                .exitSignal(trade.getExitSignal())
+                .importFormat(trade.getImportFormat())
+                .importFileName(trade.getImportFileName())
+                .importTradeNumber(trade.getImportTradeNumber())
+                .importFingerprint(trade.getImportFingerprint())
+                .sourceTimezone(trade.getSourceTimezone())
                 .contextTimeframe(trade.getContextTimeframe())
                 .executionTimeframe(trade.getExecutionTimeframe())
                 .entryTimeframe(trade.getEntryTimeframe())
@@ -502,9 +627,9 @@ public class BacktestingResearchService {
                 .source(trade.getSource())
                 .tradeScope(trade.getTradeScope())
                 .syncStatus("SYNCED")
-                .classificationStatus("COMPLETE")
+                .classificationStatus(trade.getImportFormat() != null ? "PARTIAL" : "COMPLETE")
                 .includedInAnalytics(true)
-                .ruleBreakCount(0)
+                .ruleBreakCount(trade.getImportFormat() != null ? null : 0)
                 .screenshotCount(screenshotCount)
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
@@ -590,6 +715,7 @@ public class BacktestingResearchService {
     }
 
     private String verdict(int trades, BigDecimal expectancyDelta) {
+        if (expectancyDelta == null) return "R unavailable";
         if (trades < 10) return "Exploratory only";
         if (expectancyDelta.abs().compareTo(BigDecimal.valueOf(0.05)) < 0) return "Neutral";
         if (expectancyDelta.compareTo(BigDecimal.ZERO) > 0 && trades >= 30) return "Strong improvement";
@@ -625,12 +751,17 @@ public class BacktestingResearchService {
     }
 
     private String regressionStatus(List<BacktestingTrade> historical, List<BacktestingTrade> recentLive) {
-        if (recentLive.size() < 5 || historical.isEmpty()) return "INSUFFICIENT_LIVE_DATA";
+        if (recentLive.size() < 5 || historical.isEmpty() || historical.stream().anyMatch(t -> t.getPnlR() == null)
+                || recentLive.stream().anyMatch(t -> t.getPnlR() == null)) return "INSUFFICIENT_LIVE_DATA";
         BigDecimal delta = calculateMetrics(recentLive).getExpectancy().subtract(calculateMetrics(historical).getExpectancy());
         if (delta.compareTo(evidenceAssessmentService.materialExpectancyGap().negate()) <= 0) return "DETERIORATING";
         if (delta.compareTo(BigDecimal.valueOf(-0.2)) < 0) return "WATCH";
         if (delta.compareTo(BigDecimal.valueOf(0.2)) > 0) return "IMPROVING";
         return "STABLE";
+    }
+
+    private BigDecimal difference(BigDecimal left, BigDecimal right) {
+        return left == null || right == null ? null : scale(left.subtract(right));
     }
 
     private BigDecimal scale(BigDecimal value) {

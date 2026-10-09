@@ -1,0 +1,404 @@
+// This Pine Script® code is subject to the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+strategy("Devtrader - FVG Trend Continuation v2", overlay=true, pyramiding=0,
+     initial_capital=10000, currency=currency.USD, default_qty_type=strategy.fixed, default_qty_value=0.1,
+     commission_type=strategy.commission.percent, commission_value=0, slippage=0,
+     margin_long=100, margin_short=100, calc_on_every_tick=false, calc_on_order_fills=false,
+     process_orders_on_close=false, use_bar_magnifier=true, max_bars_back=5000,
+     max_lines_count=500, max_labels_count=500, max_boxes_count=200)
+
+string GT = "1. Trend"
+string GF = "2. Five-minute FVG setups"
+string GR = "3. Stop and target"
+string GS = "4. Position sizing"
+string GV = "5. Trade drawings / all-timeframe viewer"
+string GD = "6. Entry dates"
+string tf1 = input.timeframe("240", "Primary trend timeframe", group=GT)
+string tf2 = input.timeframe("60", "Confirmation trend timeframe", group=GT)
+string trendMethod = input.string("Structure breaks", "Trend method", options=["Structure breaks", "Strict HH/HL", "EMA alignment"], group=GT,
+     tooltip="Structure breaks: a confirmed close above/below the last confirmed swing changes bias; bias persists until the opposite break. Strict HH/HL is the original, more restrictive rule.")
+int swingLen = input.int(3, "HTF swing strength", minval=1, maxval=50, group=GT)
+int fastLen = input.int(20, "Fast EMA", minval=1, maxval=500, group=GT)
+int slowLen = input.int(50, "Slow EMA", minval=2, maxval=1000, group=GT)
+string allowedSide = input.string("Both", "Trade direction", options=["Both", "Long only", "Short only"], group=GT)
+float fvgThresholdPercent = input.float(0.0, "Threshold %", minval=0, maxval=100, step=0.1, group=GF)
+bool fvgThresholdAuto = input.bool(true, "Automatic threshold (original detector)", group=GF,
+     tooltip="Same cumulative threshold as devtrader-chart.pine. Turn off with Threshold 0 to include every gap satisfying the original three-candle pattern.")
+float entryDepth = input.float(0, "Entry depth (%)", minval=0, maxval=100, step=5, group=GF,
+     tooltip="0 = first touch / near edge; 50 = midpoint; 100 = far edge.")
+int expiryBars = input.int(288, "Zone lifetime (5-minute bars)", minval=1, maxval=5000, group=GF)
+int maxZones = input.int(200, "Maximum tracked zones", minval=10, maxval=500, group=GF)
+bool freshOnly = input.bool(true, "Only first retest of the entry level", group=GF,
+     tooltip="Retire a zone if its entry was already touched while no order was active. Disable to allow later retests of zones not invalidated by a close through the far edge.")
+float targetRR = input.float(1, "Target reward / risk", minval=1, step=0.25, group=GR)
+string stopMethod = input.string("FVG far edge", "Stop anchor", options=["FVG far edge", "Three-candle extreme"], group=GR)
+int bufferTicks = input.int(1, "Stop buffer (ticks)", minval=1, group=GR)
+int minRiskTicks = input.int(1, "Minimum stop distance (ticks)", minval=1, group=GR)
+string sizing = input.string("Strategy Properties", "Sizing source", options=["Strategy Properties", "Risk % of equity", "Risk cash"], group=GS,
+     tooltip="Properties honours fixed units, cash notional, or % equity NOTIONAL. Risk modes instead size from the stop distance and override Properties order size. Cash risk uses the account currency from Properties.")
+float riskPercent = input.float(1, "Risk % of equity", minval=0.01, maxval=100, step=0.1, group=GS)
+float riskCash = input.float(100, "Cash at risk (account currency)", minval=0.01, group=GS)
+float riskExposure = input.float(1, "Risk sizing: maximum notional / equity", minval=0.1, maxval=100, step=0.5, group=GS,
+     tooltip="Risk modes cap exposure at 95% of equity times this multiplier. Default 1 is unleveraged and may risk LESS than the requested amount. For leveraged tests set this AND Properties leverage deliberately; this input cannot change broker margin.")
+string smallOrder = input.string("Skip and explain", "Below minimum quantity", options=["Skip and explain", "Use minimum (exceeds budget)"], group=GS,
+     tooltip="Default never silently increases your requested size. The optional minimum-quantity policy can exceed the requested notional or stop-risk budget. Capital/margin requirements still apply.")
+int keepTrades = input.int(80, "Completed trades to draw", minval=1, maxval=120, group=GV)
+int minLineMinutes = input.int(30, "Minimum line length (minutes)", minval=5, maxval=10080, group=GV)
+int minViewBars = input.int(3, "Minimum line length (viewing bars)", minval=1, maxval=20, group=GV)
+int lineWidth = input.int(2, "Trade line width", minval=1, maxval=4, group=GV)
+bool drawLabels = input.bool(true, "Label Entry / SL / TP", group=GV)
+bool drawZones = input.bool(true, "Show pending FVG", group=GV)
+bool showDashboard = input.bool(true, "Show diagnostics", group=GV)
+bool exportSnapshot = input.bool(false, "Export filled trades to Pine Logs", group=GV,
+     tooltip="On 5m, enable then copy the DTFVG2 lines from Pine Logs into the snapshot field. Those exact trades can then be displayed on any chart interval. Toggle off/on to refresh after new trades.")
+string snapshot = input.text_area("", "Filled-trade snapshot for other timeframes", group=GV,
+     tooltip="Paste DTFVG2 lines exported on 5m. Each row carries the symbol, actual fill time/price, planned SL/TP, and exit time. Snapshot is a fixed record, not a live sync or another backtest.")
+int startDate = input.time(timestamp("01 Jan 2020 00:00 +0000"), "Allow entries from", group=GD)
+int endDate = input.time(timestamp("01 Jan 2099 00:00 +0000"), "Allow entries before", group=GD)
+
+bool executionChart = timeframe.isminutes and timeframe.multiplier == 5
+bool nativeMode = executionChart and chart.is_standard
+if barstate.isfirst
+    if timeframe.in_seconds(tf1) <= 300 or timeframe.in_seconds(tf2) <= 300
+        runtime.error("Trend timeframes must be higher than 5 minutes.")
+    if startDate >= endDate or (trendMethod == "EMA alignment" and fastLen >= slowLen)
+        runtime.error("Check entry dates and EMA lengths.")
+
+type Zone
+    int born
+    int side
+    float top
+    float bottom
+    float entry
+    float stop
+    float target
+
+type TradeMap
+    int opened
+    int closed
+    float entry
+    float stop
+    float target
+    float qty
+    line entryLine
+    line stopLine
+    line targetLine
+    label entryLabel
+    label stopLabel
+    label targetLabel
+
+f_delete(TradeMap t) =>
+    line.delete(t.entryLine)
+    line.delete(t.stopLine)
+    line.delete(t.targetLine)
+    label.delete(t.entryLabel)
+    label.delete(t.stopLabel)
+    label.delete(t.targetLabel)
+
+f_draw(int opened, int closed, float entry, float stop, float target, float qty, string tag) =>
+    int right = math.max(closed, opened + int(math.max(minLineMinutes * 60, timeframe.in_seconds() * minViewBars)) * 1000)
+    line le = line.new(opened, entry, right, entry, xloc=xloc.bar_time, color=color.aqua, width=lineWidth)
+    line ls = line.new(opened, stop, right, stop, xloc=xloc.bar_time, color=color.red, width=lineWidth)
+    line lt = line.new(opened, target, right, target, xloc=xloc.bar_time, color=color.lime, width=lineWidth)
+    string detail = tag + "\n" + str.format_time(opened, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nQty " + str.tostring(qty)
+    label el = na
+    label sl = na
+    label tl = na
+    if drawLabels
+        el := label.new(right, entry, (qty > 0 ? "LONG ENTRY " : "SHORT ENTRY ") + str.tostring(entry, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.blue, 15), textcolor=color.white, size=size.small, tooltip=detail)
+        sl := label.new(right, stop, "SL " + str.tostring(stop, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.red, 15), textcolor=color.white, size=size.small, tooltip=detail)
+        tl := label.new(right, target, "TP " + str.tostring(target, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(color.green, 15), textcolor=color.white, size=size.small, tooltip=detail)
+    TradeMap.new(opened, closed, entry, stop, target, qty, le, ls, lt, el, sl, tl)
+
+f_extend(TradeMap t, int nowTime) =>
+    int right = math.max(nowTime, t.opened + int(math.max(minLineMinutes * 60, timeframe.in_seconds() * minViewBars)) * 1000)
+    line.set_x2(t.entryLine, right)
+    line.set_x2(t.stopLine, right)
+    line.set_x2(t.targetLine, right)
+    label.set_x(t.entryLabel, right)
+    label.set_x(t.stopLabel, right)
+    label.set_x(t.targetLabel, right)
+
+f_trend() =>
+    float ph = ta.pivothigh(high, swingLen, swingLen)
+    float pl = ta.pivotlow(low, swingLen, swingLen)
+    float hh = ta.valuewhen(not na(ph), ph, 0)
+    float hp = ta.valuewhen(not na(ph), ph, 1)
+    float ll = ta.valuewhen(not na(pl), pl, 0)
+    float lp = ta.valuewhen(not na(pl), pl, 1)
+    var int structure = 0
+    if not na(hh) and close > hh
+        structure := 1
+    else if not na(ll) and close < ll
+        structure := -1
+    int strict = hh > hp and ll > lp and close >= ll ? 1 : hh < hp and ll < lp and close <= hh ? -1 : 0
+    float fast = ta.ema(close, fastLen)
+    float slow = ta.ema(close, slowLen)
+    int ema = bar_index < slowLen - 1 ? 0 : close > fast and fast > slow ? 1 : close < fast and fast < slow ? -1 : 0
+    trendMethod == "Structure breaks" ? structure : trendMethod == "Strict HH/HL" ? strict : ema
+
+// On the final confirmed 5m bar of an HTF interval, use that now-closed HTF
+// state immediately. Between boundaries use the established [1]/lookahead_on pattern.
+// Current HTF values are NEVER used before that closing boundary.
+int trend1 = 0
+int trend2 = 0
+if nativeMode
+    int prior1 = request.security(syminfo.tickerid, tf1, f_trend()[1], lookahead=barmerge.lookahead_on)
+    int prior2 = request.security(syminfo.tickerid, tf2, f_trend()[1], lookahead=barmerge.lookahead_on)
+    int closing1 = request.security(syminfo.tickerid, tf1, f_trend(), lookahead=barmerge.lookahead_off)
+    int closing2 = request.security(syminfo.tickerid, tf2, f_trend(), lookahead=barmerge.lookahead_off)
+    trend1 := barstate.isconfirmed and time_close == time_close(tf1) ? closing1 : prior1
+    trend2 := barstate.isconfirmed and time_close == time_close(tf2) ? closing2 : prior2
+int bias = trend1 == 1 and trend2 == 1 ? 1 : trend1 == -1 and trend2 == -1 ? -1 : 0
+bool sideAllowed = (bias == 1 and allowedSide != "Short only") or (bias == -1 and allowedSide != "Long only")
+
+// These two functions are copied verbatim from published/devtrader-chart.pine.
+f_fvgThreshold() =>
+    fvgThresholdAuto ? (bar_index > 0 ? ta.cum((high - low) / low) / bar_index : 0.0) : fvgThresholdPercent / 100.0
+
+f_fvgDetectPayload() =>
+    float threshold = f_fvgThreshold()
+    bool bullFvg = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
+    bool bearFvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
+    float recordMax = bullFvg ? low : bearFvg ? low[2] : na
+    float recordMin = bullFvg ? high[2] : bearFvg ? high : na
+    [bullFvg, bearFvg, recordMax, recordMin, time, time[2], bar_index]
+
+[bullFvg, bearFvg, top, bottom, sourceTime, anchorTime, sourceBar] = f_fvgDetectPayload()
+float patternLow = ta.lowest(low, 3)
+float patternHigh = ta.highest(high, 3)
+float minQty = syminfo.mincontract
+
+f_size(float entry, float stop) =>
+    float unitRisk = strategy.convert_to_account(math.abs(entry - stop) * syminfo.pointvalue)
+    float budget = sizing == "Risk % of equity" ? strategy.equity * riskPercent / 100 : riskCash
+    float requested = sizing == "Strategy Properties" ? strategy.default_entry_qty(entry) : unitRisk > 0 ? budget / unitRisk : na
+    float exposureQty = strategy.convert_to_symbol(strategy.equity * riskExposure * 0.95) / (entry * syminfo.pointvalue)
+    float capped = sizing == "Strategy Properties" ? requested : math.min(requested, exposureQty)
+    float normalized = not na(minQty) and minQty > 0 ? math.floor(capped / minQty + 0.00000001) * minQty : na
+    // Native default_entry_qty can already round a positive cash budget to zero.
+    // The explicit minimum policy therefore also handles a zero returned quantity.
+    bool bumped = not na(requested) and requested >= 0 and normalized < minQty and strategy.equity > 0 and smallOrder == "Use minimum (exceeds budget)"
+    float actual = bumped ? minQty : normalized
+    [requested, actual, bumped]
+
+var array<Zone> zones = array.new<Zone>()
+var array<TradeMap> history = array.new<TradeMap>()
+var TradeMap liveDrawing = na
+var int pendingBorn = na
+var int pendingSide = 0
+var float plannedEntry = na
+var float plannedStop = na
+var float plannedTarget = na
+var box pendingBox = na
+var int detected = 0
+var int discarded = 0
+var int armed = 0
+var int processedClosed = 0
+var float lastRequested = na
+var float lastNormalized = na
+var string sizeStatus = "Waiting for eligible FVG"
+var int loadedSnapshot = 0
+bool inDates = time >= startDate and time_close < endDate
+
+if nativeMode and barstate.isconfirmed
+    bool closedNow = strategy.closedtrades > processedClosed
+    bool openNow = strategy.position_size != 0
+    // Record actual emulator fills, including trades that open and close in one candle.
+    if closedNow
+        for n = processedClosed to strategy.closedtrades - 1
+            TradeMap done = f_draw(strategy.closedtrades.entry_time(n), strategy.closedtrades.exit_time(n), strategy.closedtrades.entry_price(n), plannedStop, plannedTarget, strategy.closedtrades.size(n), "Filled trade #" + str.tostring(n + 1))
+            array.push(history, done)
+            if array.size(history) > keepTrades
+                f_delete(array.shift(history))
+        processedClosed := strategy.closedtrades
+    if openNow or closedNow
+        // A filled zone can never be selected again, even after a partial exit.
+        if array.size(zones) > 0
+            for i = array.size(zones) - 1 to 0
+                if array.get(zones, i).born == pendingBorn
+                    array.remove(zones, i)
+        pendingBorn := na
+        box.delete(pendingBox)
+        pendingBox := na
+    if openNow and na(liveDrawing)
+        liveDrawing := f_draw(strategy.opentrades.entry_time(0), time_close, strategy.position_avg_price, plannedStop, plannedTarget, strategy.position_size, "Open filled trade")
+    if openNow
+        liveDrawing.qty := strategy.position_size
+        f_extend(liveDrawing, time_close)
+    else if not na(liveDrawing)
+        f_delete(liveDrawing)
+        liveDrawing := na
+
+    // Maintain ALL stored zones, including ones formed before trend alignment.
+    // No blanket hourly cancellation and no discard merely because a newer gap formed.
+    if array.size(zones) > 0
+        for i = array.size(zones) - 1 to 0
+            Zone z = array.get(zones, i)
+            bool invalid = z.side == 1 ? close < z.bottom : close > z.top
+            bool touched = z.side == 1 ? low <= z.entry : high >= z.entry
+            bool missedFresh = freshOnly and bar_index > z.born and touched and (na(pendingBorn) or z.born != pendingBorn)
+            if invalid or bar_index - z.born >= expiryBars or missedFresh
+                array.remove(zones, i)
+                discarded += 1
+    if (bullFvg or bearFvg) and inDates
+        int side = bullFvg ? 1 : -1
+        float entry = math.round_to_mintick(side == 1 ? top - (top - bottom) * entryDepth / 100 : bottom + (top - bottom) * entryDepth / 100)
+        float stopAnchor = stopMethod == "FVG far edge" ? (side == 1 ? bottom : top) : (side == 1 ? patternLow : patternHigh)
+        float stop = math.round_to_mintick(stopAnchor - side * bufferTicks * syminfo.mintick)
+        float riskTicks = math.round(side * (entry - stop) / syminfo.mintick)
+        float target = math.round_to_mintick(entry + side * math.ceil(riskTicks * targetRR) * syminfo.mintick)
+        detected += 1
+        if riskTicks >= minRiskTicks
+            array.push(zones, Zone.new(bar_index, side, top, bottom, entry, stop, target))
+            if array.size(zones) > maxZones
+                array.shift(zones)
+                discarded += 1
+
+    if not openNow
+        // The closest eligible zone is encountered first during a pullback.
+        // Ties favour the newest; other zones remain available for later trades.
+        int chosen = na
+        float nearest = na
+        float orderQty = na
+        bool overrideQty = false
+        string selectedStatus = ""
+        float selectedRequested = na
+        if inDates and sideAllowed and array.size(zones) > 0
+            for i = array.size(zones) - 1 to 0
+                Zone z = array.get(zones, i)
+                bool approach = z.side == 1 ? close > z.entry : close < z.entry
+                if z.side == bias and approach
+                    [requested, qty, bumped] = f_size(z.entry, z.stop)
+                    if na(nearest) or math.abs(close - z.entry) < nearest
+                        lastRequested := requested
+                        lastNormalized := qty
+                        if na(qty) or na(requested)
+                            sizeStatus := "Quantity / currency conversion unavailable"
+                        else if qty < minQty or strategy.equity <= 0
+                            sizeStatus := "Blocked: quantity below minimum / no equity"
+                        else
+                            chosen := i
+                            nearest := math.abs(close - z.entry)
+                            orderQty := qty
+                            overrideQty := sizing != "Strategy Properties" or bumped
+                            selectedRequested := requested
+                            selectedStatus := bumped ? "Minimum quantity: EXCEEDS requested budget" : sizing != "Strategy Properties" and qty < requested - minQty ? "Risk reduced by exposure cap / quantity step" : "Quantity valid; Properties margin still applies"
+        if na(chosen)
+            strategy.cancel_all()
+            pendingBorn := na
+            box.delete(pendingBox)
+            pendingBox := na
+            plannedEntry := na
+            plannedStop := na
+            plannedTarget := na
+        else
+            Zone z = array.get(zones, chosen)
+            lastRequested := selectedRequested
+            lastNormalized := orderQty
+            sizeStatus := selectedStatus
+            bool changed = na(pendingBorn) or pendingBorn != z.born
+            if changed
+                strategy.cancel_all()
+                box.delete(pendingBox)
+                pendingBox := na
+                armed += 1
+                if drawZones
+                    pendingBox := box.new(time, z.top, time_close, z.bottom, xloc=xloc.bar_time, bgcolor=color.new(z.side == 1 ? color.teal : color.red, 85), border_color=color.gray)
+            pendingBorn := z.born
+            pendingSide := z.side
+            plannedEntry := z.entry
+            plannedStop := z.stop
+            plannedTarget := z.target
+            // na explicitly delegates quantity to native Properties for fixed, cash,
+            // and % equity, preserving TradingView's currency conversion and sizing.
+            float sentQty = overrideQty ? orderQty : na
+            if z.side == 1
+                strategy.entry("Long", strategy.long, qty=sentQty, limit=z.entry)
+                strategy.exit("Long exit", "Long", stop=z.stop, limit=z.target)
+            else
+                strategy.entry("Short", strategy.short, qty=sentQty, limit=z.entry)
+                strategy.exit("Short exit", "Short", stop=z.stop, limit=z.target)
+            if not na(pendingBox)
+                box.set_right(pendingBox, time_close + 300000)
+    else
+        if strategy.position_size > 0
+            strategy.exit("Long exit", "Long", stop=plannedStop, limit=plannedTarget)
+        else
+            strategy.exit("Short exit", "Short", stop=plannedStop, limit=plannedTarget)
+
+// Snapshot rows are independent of the viewing chart's bar indices and OHLC.
+// They preserve actual five-minute fills; no lower-TF reconstruction is called a fill.
+if not nativeMode and barstate.isfirst and str.length(str.trim(snapshot)) > 0
+    array<string> rows = str.split(snapshot, "\n")
+    for row in rows
+        int marker = str.pos(row, "DTFVG2|")
+        if not na(marker)
+            array<string> fields = str.split(str.substring(row, marker), "|")
+            if array.size(fields) != 10
+                runtime.error("Incomplete snapshot row. Copy a complete DTFVG2 line from Pine Logs.")
+            if array.get(fields, 1) != syminfo.tickerid
+                runtime.error("Snapshot symbol does not match this chart.")
+            int opened = int(str.tonumber(array.get(fields, 2)))
+            int closed = int(str.tonumber(array.get(fields, 3)))
+            float entry = str.tonumber(array.get(fields, 4))
+            float stop = str.tonumber(array.get(fields, 5))
+            float target = str.tonumber(array.get(fields, 6))
+            float qty = str.tonumber(array.get(fields, 7))
+            int captured = int(str.tonumber(array.get(fields, 8)))
+            string capturedState = str.trim(array.get(fields, 9))
+            if na(opened) or na(closed) or na(entry) or na(stop) or na(target) or na(qty) or na(captured) or closed < opened or qty == 0
+                runtime.error("Invalid values in trade snapshot.")
+            if capturedState != "OPEN" and capturedState != "CLOSED"
+                runtime.error("Invalid snapshot trade state.")
+            array.push(history, f_draw(opened, closed, entry, stop, target, qty, capturedState + " at 5m snapshot " + str.format_time(captured, "yyyy-MM-dd HH:mm", syminfo.timezone)))
+            loadedSnapshot += 1
+            if array.size(history) > keepTrades
+                f_delete(array.shift(history))
+    if loadedSnapshot == 0
+        runtime.error("No DTFVG2 trade rows found. Paste the exported five-minute trade snapshot.")
+
+if nativeMode and exportSnapshot and barstate.islastconfirmedhistory
+    for t in history
+        log.info("DTFVG2|" + syminfo.tickerid + "|" + str.tostring(t.opened) + "|" + str.tostring(t.closed) + "|" + str.tostring(t.entry, format.mintick) + "|" + str.tostring(t.stop, format.mintick) + "|" + str.tostring(t.target, format.mintick) + "|" + str.tostring(t.qty, "#.########") + "|" + str.tostring(time_close) + "|CLOSED")
+    if not na(liveDrawing)
+        TradeMap t = liveDrawing
+        log.info("DTFVG2|" + syminfo.tickerid + "|" + str.tostring(t.opened) + "|" + str.tostring(time_close) + "|" + str.tostring(t.entry, format.mintick) + "|" + str.tostring(t.stop, format.mintick) + "|" + str.tostring(t.target, format.mintick) + "|" + str.tostring(t.qty, "#.########") + "|" + str.tostring(time_close) + "|OPEN")
+
+plot(nativeMode and not na(pendingBorn) ? plannedEntry : na, "Pending entry (not filled)", color=color.new(color.aqua, 30), style=plot.style_linebr)
+plot(nativeMode and not na(pendingBorn) ? plannedStop : na, "Pending SL", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(nativeMode and not na(pendingBorn) ? plannedTarget : na, "Pending TP", color=color.new(color.green, 30), style=plot.style_linebr)
+
+var table dash = table.new(position.bottom_left, 2, 9, bgcolor=color.new(color.black, 12))
+if (barstate.islast or barstate.islastconfirmedhistory) and showDashboard
+    table.clear(dash, 0, 0, 1, 8)
+    if not nativeMode
+        table.cell(dash, 0, 0, "Mode", text_color=color.white)
+        table.cell(dash, 1, 0, loadedSnapshot > 0 ? "5m filled-trade snapshot" : "Run on 5m, then paste a snapshot", text_color=color.white)
+        table.cell(dash, 0, 1, "Records shown", text_color=color.white)
+        table.cell(dash, 1, 1, str.tostring(array.size(history)) + " / " + str.tostring(loadedSnapshot), text_color=color.white)
+        table.cell(dash, 0, 2, "Prices / quantity", text_color=color.white)
+        table.cell(dash, 1, 2, "Recorded 5m fills; see label tooltips", text_color=color.white)
+        table.cell(dash, 0, 3, "Refresh", text_color=color.white)
+        table.cell(dash, 1, 3, "Replace snapshot after new trades", text_color=color.white)
+    else
+        string status = not nativeMode ? (loadedSnapshot > 0 ? "5m filled-trade snapshot (fixed)" : "5m backtest / paste snapshot to view here") : strategy.position_size != 0 ? "Position open" : not na(pendingBorn) ? "Pending pullback" : not inDates ? "Outside entry dates" : not sideAllowed ? "HTF disagreement / disabled side" : "Waiting for eligible FVG / size"
+        float minimumNotional = strategy.convert_to_account(close * syminfo.pointvalue * minQty)
+        table.cell(dash, 0, 0, "Mode", text_color=color.white)
+        table.cell(dash, 1, 0, status, text_color=color.white)
+        table.cell(dash, 0, 1, "HTF " + tf1 + " / " + tf2, text_color=color.white)
+        table.cell(dash, 1, 1, nativeMode ? str.tostring(trend1) + " / " + str.tostring(trend2) + " (+1 up, -1 down)" : "Source: exported 5m fills", text_color=color.white)
+        table.cell(dash, 0, 2, "Detected / stored / armed", text_color=color.white)
+        table.cell(dash, 1, 2, str.tostring(detected) + " / " + str.tostring(array.size(zones)) + " / " + str.tostring(armed), text_color=color.white)
+        table.cell(dash, 0, 3, "Sizing source", text_color=color.white)
+        table.cell(dash, 1, 3, sizing, text_color=color.white)
+        table.cell(dash, 0, 4, "Requested / rounded qty", text_color=color.white)
+        table.cell(dash, 1, 4, str.tostring(lastRequested, "#.########") + " / " + str.tostring(lastNormalized, "#.########"), text_color=color.white)
+        table.cell(dash, 0, 5, "Minimum qty / notional", text_color=color.white)
+        table.cell(dash, 1, 5, str.tostring(minQty) + " / " + str.tostring(minimumNotional, "#.##") + " " + strategy.account_currency, text_color=color.white)
+        table.cell(dash, 0, 6, "Last size check", text_color=color.white)
+        table.cell(dash, 1, 6, sizeStatus, text_color=color.white)
+        table.cell(dash, 0, 7, "Margin / costs", text_color=color.white)
+        table.cell(dash, 1, 7, "Configure in Properties (default margin 100%)", text_color=color.white)
+        table.cell(dash, 0, 8, "Completed / snapshot rows", text_color=color.white)
+        table.cell(dash, 1, 8, str.tostring(strategy.closedtrades) + " / " + str.tostring(loadedSnapshot), text_color=color.white)

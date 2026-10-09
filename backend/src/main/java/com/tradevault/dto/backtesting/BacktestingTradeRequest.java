@@ -54,7 +54,6 @@ public class BacktestingTradeRequest {
     private BigDecimal plannedRR;
     @NotNull
     private BacktestingTradeResult result;
-    @NotNull
     private BigDecimal pnlR;
     private String contextTimeframe;
     private String executionTimeframe;

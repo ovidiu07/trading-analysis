@@ -124,7 +124,7 @@ export type BacktestingSummary = {
   importedTrades?: number
   liveTrades?: number
   averageWinRate: number
-  averageExpectancy?: number
+  averageExpectancy?: number | null
   strategiesNeedingReview?: number
   bestPerformer?: string | null
 }
@@ -198,7 +198,31 @@ export type BacktestingTrade = {
   riskPercent?: number | null
   plannedRR?: number | null
   result: BacktestingTradeResult
-  pnlR: number
+  pnlR: number | null
+  exitDate?: string | null
+  exitTime?: string | null
+  entryPrice?: number | null
+  exitPrice?: number | null
+  quantity?: number | null
+  positionValue?: number | null
+  netPnl?: number | null
+  currency?: string | null
+  returnPercent?: number | null
+  commission?: number | null
+  favorableExcursion?: number | null
+  adverseExcursion?: number | null
+  favorableExcursionPercent?: number | null
+  adverseExcursionPercent?: number | null
+  reportedCumulativePnl?: number | null
+  reportedCumulativePercent?: number | null
+  durationBars?: number | null
+  entrySignal?: string | null
+  exitSignal?: string | null
+  importFormat?: string | null
+  importFileName?: string | null
+  importTradeNumber?: string | null
+  importFingerprint?: string | null
+  sourceTimezone?: string | null
   contextTimeframe?: string | null
   executionTimeframe?: string | null
   entryTimeframe?: string | null
@@ -210,7 +234,7 @@ export type BacktestingTrade = {
   classificationStatus?: BacktestingClassificationStatus | null
   includedInAnalytics?: boolean
   excludedReason?: string | null
-  ruleBreakCount?: number
+  ruleBreakCount?: number | null
   screenshotCount?: number
   createdAt?: string | null
   updatedAt?: string | null
@@ -218,7 +242,29 @@ export type BacktestingTrade = {
 
 export type BacktestingTradePayload = Omit<BacktestingTrade, 'id' | 'workspaceId' | 'weekday' | 'screenshotCount' | 'createdAt' | 'updatedAt'>
 
+export type BacktestingCurrencyMetric = {
+  currency: string
+  trades: number
+  netPnl: number
+  grossProfit: number
+  grossLoss: number
+  expectancy: number | null
+  profitFactor: number | null
+  averageWinner: number
+  averageLoser: number
+  largestWinner: number
+  largestLoser: number
+  maximumDrawdown: number
+  commission: number | null
+  averageHoldingMinutes: number | null
+  averageDurationBars: number | null
+  averageFavorableExcursion: number | null
+  averageAdverseExcursion: number | null
+}
+
 export type BacktestingMetric = {
+  rSampleSize?: number
+  currencyMetrics?: Record<string, BacktestingCurrencyMetric>
   trades: number
   wins: number
   losses: number
@@ -226,16 +272,16 @@ export type BacktestingMetric = {
   winRate: number
   lossRate: number
   breakevenRate: number
-  totalR: number
-  averageR: number
-  expectancy: number
+  totalR: number | null
+  averageR: number | null
+  expectancy: number | null
   profitFactor?: number | null
-  averageWinR: number
-  averageLossR: number
-  largestWinR: number
-  largestLossR: number
-  medianR?: number
-  maximumDrawdownR?: number
+  averageWinR: number | null
+  averageLossR: number | null
+  largestWinR: number | null
+  largestLossR: number | null
+  medianR?: number | null
+  maximumDrawdownR?: number | null
   maximumLosingStreak?: number
   currentLosingStreak?: number
   sampleQuality: string
@@ -246,8 +292,8 @@ export type BacktestingBreakdownRow = {
   label: string
   filters: Record<string, unknown>
   metrics: BacktestingMetric
-  expectancyDelta: number
-  totalRDelta: number
+  expectancyDelta: number | null
+  totalRDelta: number | null
   verdict: string
   warning?: string | null
 }
@@ -358,7 +404,14 @@ export type BacktestingEdgeLensPayload = {
   filterDefinition: Record<string, unknown>
 }
 
+export type BacktestingImportOptions = { instrument?: string; timezone?: string; preview?: boolean }
+
 export type BacktestingImportResponse = {
+  format?: string
+  rowCount?: number
+  duplicates?: number
+  preview?: boolean
+  warnings?: string[]
   imported: number
   invalid: number
   errors: string[]
@@ -433,9 +486,12 @@ export async function deleteBacktestingTrade(id: string) {
   return apiDelete(`/backtesting/trades/${encodeURIComponent(id)}`)
 }
 
-export async function importBacktestingTrades(workspaceId: string, file: File) {
+export async function importBacktestingTrades(workspaceId: string, file: File, options: BacktestingImportOptions = {}) {
   const formData = new FormData()
   formData.append('file', file)
+  if (options.instrument) formData.append('instrument', options.instrument)
+  if (options.timezone) formData.append('timezone', options.timezone)
+  if (options.preview) formData.append('preview', 'true')
   return apiPostMultipart<BacktestingImportResponse>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades/import`, formData)
 }
 

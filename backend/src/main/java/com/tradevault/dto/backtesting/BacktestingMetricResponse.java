@@ -1,13 +1,19 @@
 package com.tradevault.dto.backtesting;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
 import lombok.Builder;
 import lombok.Value;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 @Value
 @Builder
 public class BacktestingMetricResponse {
+    @Getter(onMethod_ = @JsonProperty("rSampleSize"))
+    Integer rSampleSize;
+    Map<String, BacktestingCurrencyMetricResponse> currencyMetrics;
     Integer trades;
     Integer wins;
     Integer losses;

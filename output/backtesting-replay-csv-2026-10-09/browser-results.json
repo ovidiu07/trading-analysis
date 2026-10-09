@@ -1,0 +1,16 @@
+{
+  "source": "Real local API with disposable PostgreSQL; supplied CSV",
+  "workspaceId": "364904d5-06b3-4068-80e4-181063fa3474",
+  "completedTrades": 25,
+  "preview": true,
+  "import": true,
+  "duplicates": true,
+  "filters": true,
+  "details": true,
+  "reload": true,
+  "desktopNoOverflow": true,
+  "mobileNoOverflow": true,
+  "romanianNoOverflow": true,
+  "errors": [],
+  "failed": []
+}

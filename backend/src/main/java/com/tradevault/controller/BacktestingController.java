@@ -148,8 +148,11 @@ public class BacktestingController {
 
     @PostMapping(value = "/workspaces/{workspaceId}/trades/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public BacktestingImportResponse importTrades(@PathVariable UUID workspaceId,
-                                                  @RequestParam("file") MultipartFile file) {
-        return researchService.importCsv(workspaceId, file);
+                                                  @RequestParam("file") MultipartFile file,
+                                                  @RequestParam(value = "instrument", required = false) String instrument,
+                                                  @RequestParam(value = "timezone", required = false) String timezone,
+                                                  @RequestParam(value = "preview", defaultValue = "false") boolean preview) {
+        return researchService.importCsv(workspaceId, file, instrument, timezone, preview);
     }
 
     @GetMapping("/workspaces/{workspaceId}/analytics")

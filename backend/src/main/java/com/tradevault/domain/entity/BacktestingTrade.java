@@ -143,7 +143,7 @@ public class BacktestingTrade {
     @Column(nullable = false, length = 16)
     private BacktestingTradeResult result;
 
-    @Column(name = "pnl_r", nullable = false, precision = 12, scale = 4)
+    @Column(name = "pnl_r", precision = 12, scale = 4)
     private BigDecimal pnlR;
 
     @Column(name = "context_timeframe", length = 40)
@@ -168,6 +168,78 @@ public class BacktestingTrade {
     @Enumerated(EnumType.STRING)
     @Column(name = "trade_scope", nullable = false, length = 16)
     private BacktestingTradeScope tradeScope;
+
+    @Column(name = "exit_date")
+    private LocalDate exitDate;
+
+    @Column(name = "exit_time")
+    private LocalTime exitTime;
+
+    @Column(name = "entry_price", precision = 24, scale = 8)
+    private BigDecimal entryPrice;
+
+    @Column(name = "exit_price", precision = 24, scale = 8)
+    private BigDecimal exitPrice;
+
+    @Column(name = "quantity", precision = 24, scale = 8)
+    private BigDecimal quantity;
+
+    @Column(name = "position_value", precision = 24, scale = 8)
+    private BigDecimal positionValue;
+
+    @Column(name = "net_pnl", precision = 24, scale = 8)
+    private BigDecimal netPnl;
+
+    @Column(name = "currency", length = 3)
+    private String currency;
+
+    @Column(name = "return_percent", precision = 24, scale = 8)
+    private BigDecimal returnPercent;
+
+    @Column(name = "commission", precision = 24, scale = 8)
+    private BigDecimal commission;
+
+    @Column(name = "favorable_excursion", precision = 24, scale = 8)
+    private BigDecimal favorableExcursion;
+
+    @Column(name = "adverse_excursion", precision = 24, scale = 8)
+    private BigDecimal adverseExcursion;
+
+    @Column(name = "favorable_excursion_percent", precision = 24, scale = 8)
+    private BigDecimal favorableExcursionPercent;
+
+    @Column(name = "adverse_excursion_percent", precision = 24, scale = 8)
+    private BigDecimal adverseExcursionPercent;
+
+    @Column(name = "reported_cumulative_pnl", precision = 24, scale = 8)
+    private BigDecimal reportedCumulativePnl;
+
+    @Column(name = "reported_cumulative_percent", precision = 24, scale = 8)
+    private BigDecimal reportedCumulativePercent;
+
+    @Column(name = "duration_bars")
+    private Integer durationBars;
+
+    @Column(name = "entry_signal", length = 255)
+    private String entrySignal;
+
+    @Column(name = "exit_signal", length = 255)
+    private String exitSignal;
+
+    @Column(name = "import_format", length = 64)
+    private String importFormat;
+
+    @Column(name = "import_file_name", length = 255)
+    private String importFileName;
+
+    @Column(name = "import_trade_number", length = 64)
+    private String importTradeNumber;
+
+    @Column(name = "import_fingerprint", length = 64)
+    private String importFingerprint;
+
+    @Column(name = "source_timezone", length = 64)
+    private String sourceTimezone;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import {
   Alert,
   Box,
@@ -68,7 +68,6 @@ import {
   getBacktestingAnalytics,
   getBacktestingResearchInbox,
   getBacktestingWorkspace,
-  importBacktestingTrades,
   listBacktestingEdgeLenses,
   listBacktestingScreenshots,
   listBacktestingTrades,
@@ -87,7 +86,6 @@ import SecureAssetImage from '../components/assets/SecureAssetImage'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import {
-  ImportTradesDialog,
   ManualTradeDialog,
   WorkspaceDialog
 } from '../features/backtesting/BacktestingDialogs'
@@ -99,9 +97,11 @@ import {
   sourceCounts
 } from '../features/backtesting/research'
 import ResearchInboxPanel from '../features/backtesting/ResearchInboxPanel'
+import ImportTradesDialog from '../features/backtesting/ImportTradesDialog'
+import ResearchPerformance, { AnalysisBasis, basisExpectancy, formatBasis, formatMoney } from '../features/backtesting/ResearchPerformance'
+import ReplayTradeDetails from '../features/backtesting/ReplayTradeDetails'
 import { useI18n } from '../i18n'
 
-const BacktestingCharts = lazy(() => import('../features/backtesting/BacktestingCharts'))
 type WorkspaceTab = 'overview' | 'trades' | 'edge' | 'evidence' | 'notes'
 
 export default function BacktestingPage() {
@@ -168,15 +168,6 @@ export default function BacktestingPage() {
     },
     onError: (caught) => mutationError(caught, 'backtesting.errors.archive')
   })
-  const importMutation = useMutation({
-    mutationFn: ({ id, file }: { id: string; file: File }) => importBacktestingTrades(id, file),
-    onSuccess: async (result, variables) => {
-      setFeedback(t('backtesting.feedback.imported', { count: result.imported, invalid: result.invalid }))
-      setImportTarget(null)
-      await invalidate(variables.id)
-    },
-    onError: (caught) => mutationError(caught, 'backtesting.errors.import')
-  })
 
   const saveWorkspace = (payload: BacktestingWorkspacePayload) => {
     if (workspaceDialog === 'new') createWorkspaceMutation.mutate(payload)
@@ -241,12 +232,7 @@ export default function BacktestingPage() {
           onError={(caught) => mutationError(caught, 'backtesting.errors.tradeSave')}
         />
       )}
-      <ImportTradesDialog
-        open={Boolean(importTarget)}
-        importing={importMutation.isLoading}
-        onClose={() => setImportTarget(null)}
-        onImport={(file) => importTarget && importMutation.mutate({ id: importTarget.id, file })}
-      />
+      {importTarget && <ImportTradesDialog workspace={importTarget} onClose={() => setImportTarget(null)} onImported={() => invalidate(importTarget.id)} />}
     </Stack>
   )
 }
@@ -390,7 +376,7 @@ function WorkspaceDetail({ workspace, strategies, onBack, onEdit, onArchive, onI
       <WorkspaceHeader workspace={workspace} metrics={metrics} locale={locale} onEdit={onEdit} onArchive={onArchive} onImport={onImport} onAddManual={onAddManual} />
       <ResearchFilterBar filters={filters} setFilters={setFilters} resultCount={filtered.length} mobile={isMobile} onOpenMobile={() => setFilterDialog(true)} />
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        {isMobile ? <Box sx={{ p: 1 }}><Select fullWidth size="small" value={tab} onChange={(event) => setTab(event.target.value as WorkspaceTab)} aria-label={t('backtesting.accessibility.sectionNavigation')}>{tabs.map((value) => <MenuItem key={value} value={value}>{t(`backtesting.tabs.${value}`)}</MenuItem>)}</Select></Box> : <Tabs value={tab} onChange={(_, value) => setTab(value)} aria-label={t('backtesting.accessibility.sectionNavigation')}>{tabs.map((value) => <Tab key={value} value={value} label={t(`backtesting.tabs.${value}`)} />)}</Tabs>}
+        {isMobile ? <Box sx={{ p: 1 }}><Select fullWidth size="small" value={tab} onChange={(event) => setTab(event.target.value as WorkspaceTab)} inputProps={{ 'aria-label': t('backtesting.accessibility.sectionNavigation') }}>{tabs.map((value) => <MenuItem key={value} value={value}>{t(`backtesting.tabs.${value}`)}</MenuItem>)}</Select></Box> : <Tabs value={tab} onChange={(_, value) => setTab(value)} aria-label={t('backtesting.accessibility.sectionNavigation')}>{tabs.map((value) => <Tab key={value} value={value} label={t(`backtesting.tabs.${value}`)} />)}</Tabs>}
         <Divider />
         <Box sx={{ p: { xs: 1.25, md: 2 } }}>
           {tab === 'overview' && <OverviewSection trades={filtered} allTrades={trades} metrics={metrics} analytics={analyticsQuery.data} />}
@@ -432,22 +418,34 @@ function ResearchFilterFields({ filters, setFilters }: { filters: ResearchFilter
 }
 
 function OverviewSection({ trades, allTrades, metrics, analytics }: { trades: BacktestingTrade[]; allTrades: BacktestingTrade[]; metrics: BacktestingMetric; analytics?: BacktestingAnalytics }) {
-  const { t, locale } = useI18n()
-  return <Stack spacing={2}><Grid container spacing={1.25}>{[
-    ['totalCompleted', metrics.trades], ['winRate', formatPercent(metrics.winRate, locale)], ['totalR', formatR(metrics.totalR, locale)], ['expectancy', formatR(metrics.expectancy, locale)], ['profitFactor', formatNumber(metrics.profitFactor, locale)], ['maximumDrawdown', formatR(metrics.maximumDrawdownR, locale)]
-  ].map(([key, value]) => <Grid key={key} item xs={6} md={4} lg={2}><MetricCard label={t(`backtesting.metrics.${key}`)} value={value} /></Grid>)}</Grid><ManualLiveComparison trades={trades} analytics={analytics} /><RegressionPanel analytics={analytics} /><Suspense fallback={<LoadingState rows={2} height={280} />}><BacktestingCharts trades={trades} /></Suspense>{allTrades.length !== trades.length && <Alert severity="info">{t('backtesting.overview.filteredNotice', { visible: trades.length, total: allTrades.length })}</Alert>}</Stack>
+  const { t } = useI18n()
+  return <Stack spacing={2}><ResearchPerformance trades={trades} metrics={metrics} /><ManualLiveComparison trades={trades} /><RegressionPanel analytics={analytics} />{allTrades.length !== trades.length && <Alert severity="info">{t('backtesting.replay.regressionFilterNotice')}</Alert>}{allTrades.length !== trades.length && <Alert severity="info">{t('backtesting.overview.filteredNotice', { visible: trades.length, total: allTrades.length })}</Alert>}</Stack>
 }
 
-function ManualLiveComparison({ trades, analytics }: { trades: BacktestingTrade[]; analytics?: BacktestingAnalytics }) {
+function ManualLiveComparison({ trades }: { trades: BacktestingTrade[] }) {
   const { t, locale } = useI18n()
+  const baseline = computeResearchMetrics(trades)
+  const [selection, setSelection] = useState<string | null>(null)
+  const currencies = Object.keys(baseline.currencyMetrics || {})
+  const currency = selection != null && (selection === '' || currencies.includes(selection)) ? selection : currencies[0] || ''
   const sources = (['MANUAL', 'IMPORT', 'LIVE'] as const).map((source) => {
-    const sourceTrades = trades.filter((trade) => trade.source === source)
-    return { source, sourceTrades, metrics: analytics?.sourceMetrics?.[source] || computeResearchMetrics(sourceTrades) }
+    const sourceTrades = trades.filter((trade) => trade.source === source && (!currency || (trade.currency === currency && trade.netPnl != null)))
+    return { source, sourceTrades, metrics: computeResearchMetrics(sourceTrades) }
   })
   const historical = computeResearchMetrics(trades.filter((trade) => trade.source !== 'LIVE'))
   const live = computeResearchMetrics(trades.filter((trade) => trade.source === 'LIVE'))
-  const gap = live.trades ? live.expectancy - historical.expectancy : null
-  return <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}><Box><Typography component="h2" variant="h6" sx={{ fontWeight: 850 }}>{t('backtesting.comparison.title')}</Typography><Typography variant="body2" color="text.secondary">{t('backtesting.comparison.description')}</Typography></Box>{gap !== null && <Alert severity={gap < -0.5 ? 'warning' : gap > 0.2 ? 'success' : 'info'}>{gap < 0 ? t('backtesting.comparison.liveUnderperforms', { gap: formatR(Math.abs(gap), locale), count: live.trades }) : t('backtesting.comparison.liveConfirms', { gap: formatR(gap, locale), count: live.trades })}</Alert>}<TableContainer><Table size="small"><TableHead><TableRow><TableCell>{t('backtesting.filters.source')}</TableCell>{['trades', 'winRate', 'averageR', 'expectancy', 'profitFactor', 'averageWinner', 'averageLoser', 'maximumDrawdown', 'ruleBreakFrequency'].map((key) => <TableCell key={key} align="right">{t(`backtesting.metrics.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{sources.map(({ source, sourceTrades, metrics }) => <TableRow key={source}><TableCell><SourceBadge source={source} /></TableCell><TableCell align="right">{metrics.trades}</TableCell><TableCell align="right">{formatPercent(metrics.winRate, locale)}</TableCell><TableCell align="right">{formatR(metrics.averageR, locale)}</TableCell><TableCell align="right">{formatR(metrics.expectancy, locale)}</TableCell><TableCell align="right">{formatNumber(metrics.profitFactor, locale)}</TableCell><TableCell align="right">{formatR(metrics.averageWinR, locale)}</TableCell><TableCell align="right">{formatR(metrics.averageLossR, locale)}</TableCell><TableCell align="right">{formatR(metrics.maximumDrawdownR, locale)}</TableCell><TableCell align="right">{formatPercent(sourceTrades.length ? (sourceTrades.filter((trade) => (trade.ruleBreakCount || 0) > 0).length / sourceTrades.length) * 100 : 0, locale)}</TableCell></TableRow>)}</TableBody></Table></TableContainer></Stack></Paper>
+  const gap = live.trades && historical.trades && live.expectancy != null && historical.expectancy != null ? live.expectancy - historical.expectancy : null
+  const headings = ['trades', 'winRate', currency ? 'replay.netPnl' : 'averageR', 'expectancy', 'profitFactor', 'averageWinner', 'averageLoser', 'maximumDrawdown', 'ruleBreakFrequency']
+  const amount = (value: number | null | undefined) => formatBasis(value, currency, locale)
+  return <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}><Box><Typography component="h2" variant="h6" sx={{ fontWeight: 850 }}>{t('backtesting.comparison.title')}</Typography><Typography variant="body2" color="text.secondary">{t('backtesting.comparison.description')}</Typography></Box><AnalysisBasis metrics={baseline} value={currency} onChange={setSelection} /></Stack>
+    {gap !== null && <Alert severity={gap < -0.5 ? 'warning' : gap > 0.2 ? 'success' : 'info'}>{gap < 0 ? t('backtesting.comparison.liveUnderperforms', { gap: formatR(Math.abs(gap), locale), count: live.trades }) : t('backtesting.comparison.liveConfirms', { gap: formatR(gap, locale), count: live.trades })}</Alert>}
+    <TableContainer><Table size="small" aria-label={t('backtesting.comparison.title')}><TableHead><TableRow><TableCell>{t('backtesting.filters.source')}</TableCell>{headings.map(key => <TableCell key={key} align="right">{t(key.startsWith('replay.') ? `backtesting.${key}` : `backtesting.metrics.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{sources.map(({ source, sourceTrades, metrics }) => {
+      const money = metrics.currencyMetrics?.[currency]
+      const ruleKnown = sourceTrades.filter(trade => trade.ruleBreakCount != null)
+      return <TableRow key={source}><TableCell><SourceBadge source={source} /></TableCell><TableCell align="right">{metrics.trades}</TableCell><TableCell align="right">{formatPercent(metrics.winRate, locale)}</TableCell><TableCell align="right">{amount(currency ? money?.netPnl : metrics.averageR)}</TableCell><TableCell align="right">{amount(basisExpectancy(metrics, currency))}</TableCell><TableCell align="right">{formatNumber(currency ? money?.profitFactor : metrics.profitFactor, locale)}</TableCell><TableCell align="right">{amount(currency ? money?.averageWinner : metrics.averageWinR)}</TableCell><TableCell align="right">{amount(currency ? money?.averageLoser : metrics.averageLossR)}</TableCell><TableCell align="right">{amount(currency ? money?.maximumDrawdown : metrics.maximumDrawdownR)}</TableCell><TableCell align="right">{formatPercent(ruleKnown.length ? ruleKnown.filter(trade => (trade.ruleBreakCount || 0) > 0).length / ruleKnown.length * 100 : null, locale)}</TableCell></TableRow>
+    })}</TableBody></Table></TableContainer>
+  </Stack></Paper>
 }
 
 function RegressionPanel({ analytics }: { analytics?: BacktestingAnalytics }) {
@@ -462,6 +460,7 @@ function TradesSection({ trades, locale, onAdd, onEdit, onFeedback, onError, inv
   const theme = useTheme()
   const mobile = useMediaQuery(theme.breakpoints.down('md'))
   const [page, setPage] = useState(0)
+  const [detail, setDetail] = useState<BacktestingTrade | null>(null)
   const pageSize = 25
   const pageCount = Math.max(1, Math.ceil(trades.length / pageSize))
   const visiblePage = Math.min(page, pageCount - 1)
@@ -469,21 +468,25 @@ function TradesSection({ trades, locale, onAdd, onEdit, onFeedback, onError, inv
   const deleteMutation = useMutation({ mutationFn: deleteBacktestingTrade, onSuccess: async () => { onFeedback(t('backtesting.feedback.tradeDeleted')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.tradeDelete') })
   const evidenceMutation = useMutation({ mutationFn: excludeBacktestingEvidence, onSuccess: async () => { onFeedback(t('backtesting.feedback.evidenceExcluded')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.evidenceUpdate') })
   if (!trades.length) return <EmptyState title={t('backtesting.empty.tradesTitle')} description={t('backtesting.empty.tradesBody')} action={<Button variant="contained" onClick={onAdd}>{t('backtesting.actions.addManualTrade')}</Button>} />
-  const actions = (trade: BacktestingTrade) => trade.source === 'LIVE' ? <Stack direction="row" spacing={0.5}><Button size="small" startIcon={<OpenInNewRoundedIcon />} href={`/trades?tradeId=${trade.liveTradeId}`}>{t('backtesting.actions.openLiveTrade')}</Button><Button size="small" color="warning" onClick={() => evidenceMutation.mutate(trade.id)}>{t('backtesting.actions.exclude')}</Button></Stack> : <Stack direction="row" spacing={0.5}><Button size="small" onClick={() => onEdit(trade)}>{t('backtesting.actions.edit')}</Button><Button size="small" color="error" onClick={() => { if (window.confirm(t('backtesting.dialogs.deleteTradeConfirm'))) deleteMutation.mutate(trade.id) }}>{t('backtesting.actions.delete')}</Button></Stack>
-  const content = mobile ? <Stack spacing={1}>{visibleTrades.map((trade) => <Paper key={trade.id} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={1}><Stack direction="row" justifyContent="space-between" spacing={1}><Box><Typography variant="subtitle2" sx={{ fontWeight: 850 }}>{trade.instrument} · {t(`backtesting.direction.${trade.direction}`)}</Typography><Typography variant="caption" color="text.secondary">{formatDate(trade.date, locale)} · {trade.session || t('backtesting.workspace.anySession')}</Typography></Box><ResultBadge result={trade.result} /></Stack><Typography variant="body2">{trade.strategyNameSnapshot || trade.setupName || t('backtesting.workspace.unlinkedStrategy')}</Typography><Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap"><SourceBadge source={trade.source} /><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /><Chip size="small" label={formatR(trade.pnlR, locale)} /></Stack>{actions(trade)}</Stack></Paper>)}</Stack> : <TableContainer><Table size="small"><TableHead><TableRow>{['date', 'instrument', 'direction', 'strategySetup', 'session', 'source', 'result', 'r', 'classification', 'actions'].map((key) => <TableCell key={key}>{t(`backtesting.trades.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{visibleTrades.map((trade) => <TableRow key={trade.id} hover><TableCell>{formatDate(trade.date, locale)}</TableCell><TableCell>{trade.instrument}</TableCell><TableCell>{t(`backtesting.direction.${trade.direction}`)}</TableCell><TableCell>{trade.strategyNameSnapshot || trade.setupName || '-'}</TableCell><TableCell>{trade.session || '-'}</TableCell><TableCell><SourceBadge source={trade.source} /></TableCell><TableCell><ResultBadge result={trade.result} /></TableCell><TableCell sx={{ fontWeight: 800 }}>{formatR(trade.pnlR, locale)}</TableCell><TableCell><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /></TableCell><TableCell>{actions(trade)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>
-  return <Stack spacing={1}>{content}{pageCount > 1 && <Stack direction="row" justifyContent="flex-end" spacing={1} alignItems="center"><Button size="small" disabled={visiblePage === 0} onClick={() => setPage(visiblePage - 1)}>{t('backtesting.pagination.previous')}</Button><Typography variant="caption" aria-live="polite">{t('backtesting.pagination.status', { current: visiblePage + 1, total: pageCount })}</Typography><Button size="small" disabled={visiblePage >= pageCount - 1} onClick={() => setPage(visiblePage + 1)}>{t('backtesting.pagination.next')}</Button></Stack>}</Stack>
+  const actions = (trade: BacktestingTrade) => trade.source === 'LIVE' ? <Stack direction="row" spacing={0.5}><Button size="small" startIcon={<OpenInNewRoundedIcon />} href={`/trades?tradeId=${trade.liveTradeId}`}>{t('backtesting.actions.openLiveTrade')}</Button><Button size="small" color="warning" onClick={() => evidenceMutation.mutate(trade.id)}>{t('backtesting.actions.exclude')}</Button></Stack> : <Stack direction="row" spacing={0.5}>{trade.importFormat && <Button size="small" onClick={() => setDetail(trade)}>{t('backtesting.replay.details')}</Button>}<Button size="small" onClick={() => onEdit(trade)}>{t('backtesting.actions.edit')}</Button><Button size="small" color="error" onClick={() => { if (window.confirm(t('backtesting.dialogs.deleteTradeConfirm'))) deleteMutation.mutate(trade.id) }}>{t('backtesting.actions.delete')}</Button></Stack>
+  const content = mobile ? <Stack spacing={1}>{visibleTrades.map((trade) => <Paper key={trade.id} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={1}><Stack direction="row" justifyContent="space-between" spacing={1}><Box><Typography variant="subtitle2" sx={{ fontWeight: 850 }}>{trade.instrument} · {t(`backtesting.direction.${trade.direction}`)}</Typography><Typography variant="caption" color="text.secondary">{formatDate(trade.date, locale)} · {trade.session || t('backtesting.workspace.anySession')}</Typography></Box><ResultBadge result={trade.result} /></Stack><Typography variant="body2">{trade.strategyNameSnapshot || trade.setupName || t('backtesting.workspace.unlinkedStrategy')}</Typography><Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap"><SourceBadge source={trade.source} /><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /><Chip size="small" label={trade.netPnl != null ? formatMoney(trade.netPnl, trade.currency, locale) : formatR(trade.pnlR, locale)} /></Stack>{actions(trade)}</Stack></Paper>)}</Stack> : <TableContainer><Table size="small"><TableHead><TableRow>{['date', 'instrument', 'direction', 'strategySetup', 'session', 'source', 'result', 'r', 'classification', 'actions'].map((key) => <TableCell key={key}>{t(`backtesting.trades.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{visibleTrades.map((trade) => <TableRow key={trade.id} hover><TableCell>{formatDate(trade.date, locale)}</TableCell><TableCell>{trade.instrument}</TableCell><TableCell>{t(`backtesting.direction.${trade.direction}`)}</TableCell><TableCell>{trade.strategyNameSnapshot || trade.setupName || '-'}</TableCell><TableCell>{trade.session || '-'}</TableCell><TableCell><SourceBadge source={trade.source} /></TableCell><TableCell><ResultBadge result={trade.result} /></TableCell><TableCell sx={{ fontWeight: 800 }}>{formatR(trade.pnlR, locale)}{trade.netPnl != null && <Typography variant="body2">{formatMoney(trade.netPnl, trade.currency, locale)}</Typography>}</TableCell><TableCell><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /></TableCell><TableCell>{actions(trade)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>
+  return <Stack spacing={1}>{detail && <ReplayTradeDetails trade={detail} onClose={() => setDetail(null)} />}{content}{pageCount > 1 && <Stack direction="row" justifyContent="flex-end" spacing={1} alignItems="center"><Button size="small" disabled={visiblePage === 0} onClick={() => setPage(visiblePage - 1)}>{t('backtesting.pagination.previous')}</Button><Typography variant="caption" aria-live="polite">{t('backtesting.pagination.status', { current: visiblePage + 1, total: pageCount })}</Typography><Button size="small" disabled={visiblePage >= pageCount - 1} onClick={() => setPage(visiblePage + 1)}>{t('backtesting.pagination.next')}</Button></Stack>}</Stack>
 }
 
 function EdgeAnalysisSection({ trades, baseline, lenses, filters, setFilters, workspaceId, onFeedback, onError, invalidate }: { trades: BacktestingTrade[]; baseline: BacktestingMetric; lenses: BacktestingEdgeLens[]; filters: ResearchFilters; setFilters: (value: ResearchFilters) => void; workspaceId: string; onFeedback: (message: string) => void; onError: (caught: unknown, key: string) => void; invalidate: () => Promise<void> }) {
   const { t, locale } = useI18n()
   const lensMutation = useMutation({ mutationFn: ({ id, name, definition }: { id?: string; name: string; definition: Record<string, unknown> }) => id ? updateBacktestingEdgeLens(id, { name, filterDefinition: definition }) : createBacktestingEdgeLens(workspaceId, { name, filterDefinition: definition }), onSuccess: async () => { onFeedback(t('backtesting.feedback.lensSaved')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.lensSave') })
   const deleteMutation = useMutation({ mutationFn: deleteBacktestingEdgeLens, onSuccess: async () => { onFeedback(t('backtesting.feedback.lensDeleted')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.lensDelete') })
-  const breakdowns = buildEdgeBreakdowns(trades)
-  const supported = breakdowns.filter((row) => row.metrics.trades >= 5)
-  const best = [...supported].sort((left, right) => right.metrics.expectancy - left.metrics.expectancy)[0]
-  const weakest = [...supported].sort((left, right) => left.metrics.expectancy - right.metrics.expectancy)[0]
+  const [basis, setBasis] = useState<string | null>(null)
+  const currencies = Object.keys(baseline.currencyMetrics || {})
+  const currency = basis != null && (basis === '' || currencies.includes(basis)) ? basis : currencies[0] || ''
+  const analyzed = currency ? trades.filter(trade => trade.currency === currency && trade.netPnl != null) : trades
+  const breakdowns = buildEdgeBreakdowns(analyzed)
+  const supported = breakdowns.filter((row) => row.metrics.trades >= 5 && basisExpectancy(row.metrics, currency) != null)
+  const best = [...supported].sort((left, right) => (basisExpectancy(right.metrics, currency) ?? 0) - (basisExpectancy(left.metrics, currency) ?? 0))[0]
+  const weakest = [...supported].sort((left, right) => (basisExpectancy(left.metrics, currency) ?? 0) - (basisExpectancy(right.metrics, currency) ?? 0))[0]
   const saveLens = () => { const name = window.prompt(t('backtesting.dialogs.lensNamePrompt')); if (name?.trim()) lensMutation.mutate({ name: name.trim(), definition: filters }) }
-  return <Stack spacing={2}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}><Box><Typography component="h2" variant="h6" sx={{ fontWeight: 850 }}>{t('backtesting.edge.title')}</Typography><Typography variant="body2" color="text.secondary">{t('backtesting.edge.description')}</Typography></Box><Button variant="outlined" onClick={saveLens}>{t('backtesting.actions.saveEdgeLens')}</Button></Stack><Grid container spacing={1.5}><Grid item xs={12} md={6}><FindingCard title={t('backtesting.edge.bestSupported')} finding={best} locale={locale} /></Grid><Grid item xs={12} md={6}><FindingCard title={t('backtesting.edge.weakestSupported')} finding={weakest} locale={locale} /></Grid></Grid>{breakdowns.length ? <TableContainer><Table size="small"><TableHead><TableRow>{['condition', 'tradeCount', 'winRate', 'expectancy', 'sourceMix', 'strength'].map((key) => <TableCell key={key}>{t(`backtesting.edge.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{breakdowns.map((row) => <TableRow key={`${row.dimension}-${row.label}`}><TableCell><Typography variant="caption" color="text.secondary">{t(`backtesting.edge.dimension.${row.dimension}`)}</Typography><Typography variant="body2" sx={{ fontWeight: 800 }}>{row.label}</Typography></TableCell><TableCell>{row.metrics.trades}</TableCell><TableCell>{formatPercent(row.metrics.winRate, locale)}</TableCell><TableCell>{formatR(row.metrics.expectancy, locale)}</TableCell><TableCell><Stack direction="row" spacing={0.35}>{Object.entries(sourceCounts(row.trades)).filter(([, count]) => count).map(([source, count]) => <Chip key={source} size="small" label={`${t(`backtesting.sources.${source}`)} ${count}`} />)}</Stack></TableCell><TableCell><EvidenceStatusBadge status={row.metrics.trades >= 50 && row.metrics.expectancy >= 0 ? 'VALIDATED_EVIDENCE' : row.metrics.trades >= 30 ? 'DEVELOPING_EDGE' : row.metrics.trades >= 10 ? 'EARLY_SIGNAL' : row.metrics.trades >= 5 ? 'EXPLORATORY' : 'INSUFFICIENT_DATA'} /></TableCell></TableRow>)}</TableBody></Table></TableContainer> : <EmptyState title={t('backtesting.empty.edgeTitle')} description={t('backtesting.empty.edgeBody')} />}<Paper variant="outlined" sx={{ p: 1.25 }}><Typography variant="subtitle2" sx={{ fontWeight: 850, mb: 1 }}>{t('backtesting.edge.savedLenses')}</Typography>{lenses.length ? <Stack spacing={0.75}>{lenses.map((lens) => <Stack key={lens.id} direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} justifyContent="space-between"><Box><Typography variant="body2" sx={{ fontWeight: 800 }}>{lens.name}</Typography><Typography variant="caption" color="text.secondary">{t('backtesting.filters.resultCount', { count: lens.metrics.trades })}</Typography></Box><Stack direction="row" spacing={0.5}><Button size="small" onClick={() => setFilters({ ...emptyResearchFilters, ...(lens.filterDefinition as Partial<ResearchFilters>) })}>{t('backtesting.actions.apply')}</Button><IconButton size="small" aria-label={t('backtesting.actions.duplicate')} onClick={() => lensMutation.mutate({ name: `${lens.name} · ${t('backtesting.edge.copy')}`, definition: lens.filterDefinition })}><ContentCopyRoundedIcon fontSize="small" /></IconButton><IconButton size="small" color="error" aria-label={t('backtesting.actions.delete')} onClick={() => deleteMutation.mutate(lens.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton></Stack></Stack>)}</Stack> : <Typography variant="body2" color="text.secondary">{t('backtesting.empty.lenses')}</Typography>}</Paper><Alert severity="info">{t('backtesting.edge.sampleWarning', { count: baseline.trades })}</Alert></Stack>
+  return <Stack spacing={2}><Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}><Box><Typography component="h2" variant="h6" sx={{ fontWeight: 850 }}>{t('backtesting.edge.title')}</Typography><Typography variant="body2" color="text.secondary">{t('backtesting.edge.description')}</Typography></Box><AnalysisBasis value={currency} onChange={setBasis} metrics={baseline} /><Button variant="outlined" onClick={saveLens}>{t('backtesting.actions.saveEdgeLens')}</Button></Stack><Grid container spacing={1.5}><Grid item xs={12} md={6}><FindingCard currency={currency} title={t('backtesting.edge.bestSupported')} finding={best} locale={locale} /></Grid><Grid item xs={12} md={6}><FindingCard currency={currency} title={t('backtesting.edge.weakestSupported')} finding={weakest} locale={locale} /></Grid></Grid>{breakdowns.length ? <TableContainer><Table size="small"><TableHead><TableRow>{['condition', 'tradeCount', 'winRate', 'expectancy', 'sourceMix', 'strength'].map((key) => <TableCell key={key}>{t(`backtesting.edge.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{breakdowns.map((row) => <TableRow key={`${row.dimension}-${row.label}`}><TableCell><Typography variant="caption" color="text.secondary">{t(`backtesting.edge.dimension.${row.dimension}`)}</Typography><Typography variant="body2" sx={{ fontWeight: 800 }}>{row.label}</Typography></TableCell><TableCell>{row.metrics.trades}</TableCell><TableCell>{formatPercent(row.metrics.winRate, locale)}</TableCell><TableCell>{formatBasis(basisExpectancy(row.metrics, currency), currency, locale)}</TableCell><TableCell><Stack direction="row" spacing={0.35}>{Object.entries(sourceCounts(row.trades)).filter(([, count]) => count).map(([source, count]) => <Chip key={source} size="small" label={`${t(`backtesting.sources.${source}`)} ${count}`} />)}</Stack></TableCell><TableCell><EvidenceStatusBadge status={row.metrics.trades >= 50 && (basisExpectancy(row.metrics, currency) ?? -1) >= 0 ? 'VALIDATED_EVIDENCE' : row.metrics.trades >= 30 ? 'DEVELOPING_EDGE' : row.metrics.trades >= 10 ? 'EARLY_SIGNAL' : row.metrics.trades >= 5 ? 'EXPLORATORY' : 'INSUFFICIENT_DATA'} /></TableCell></TableRow>)}</TableBody></Table></TableContainer> : <EmptyState title={t('backtesting.empty.edgeTitle')} description={t('backtesting.empty.edgeBody')} />}<Paper variant="outlined" sx={{ p: 1.25 }}><Typography variant="subtitle2" sx={{ fontWeight: 850, mb: 1 }}>{t('backtesting.edge.savedLenses')}</Typography>{lenses.length ? <Stack spacing={0.75}>{lenses.map((lens) => <Stack key={lens.id} direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} justifyContent="space-between"><Box><Typography variant="body2" sx={{ fontWeight: 800 }}>{lens.name}</Typography><Typography variant="caption" color="text.secondary">{t('backtesting.filters.resultCount', { count: lens.metrics.trades })}</Typography></Box><Stack direction="row" spacing={0.5}><Button size="small" onClick={() => setFilters({ ...emptyResearchFilters, ...(lens.filterDefinition as Partial<ResearchFilters>) })}>{t('backtesting.actions.apply')}</Button><IconButton size="small" aria-label={t('backtesting.actions.duplicate')} onClick={() => lensMutation.mutate({ name: `${lens.name} · ${t('backtesting.edge.copy')}`, definition: lens.filterDefinition })}><ContentCopyRoundedIcon fontSize="small" /></IconButton><IconButton size="small" color="error" aria-label={t('backtesting.actions.delete')} onClick={() => deleteMutation.mutate(lens.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton></Stack></Stack>)}</Stack> : <Typography variant="body2" color="text.secondary">{t('backtesting.empty.lenses')}</Typography>}</Paper><Alert severity="info">{t('backtesting.edge.sampleWarning', { count: analyzed.length })}</Alert></Stack>
 }
 
 function EvidenceSection({ workspace, screenshots, trades, onFeedback, onError, invalidate }: { workspace: BacktestingWorkspace; screenshots: BacktestingScreenshot[]; trades: BacktestingTrade[]; onFeedback: (message: string) => void; onError: (caught: unknown, key: string) => void; invalidate: () => Promise<void> }) {
@@ -570,7 +573,8 @@ function MetricCard({ label, value }: { label: string; value: unknown }) {
 
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<readonly [string, string]> }) {
   const { t } = useI18n()
-  return <FormControl fullWidth size="small"><InputLabel>{label}</InputLabel><Select label={label} value={value} onChange={(event) => onChange(event.target.value)}><MenuItem value="">{t('backtesting.common.all')}</MenuItem>{options.map(([option, display]) => <MenuItem key={option} value={option}>{display}</MenuItem>)}</Select></FormControl>
+  const labelId = useId()
+  return <FormControl fullWidth size="small"><InputLabel id={labelId}>{label}</InputLabel><Select labelId={labelId} label={label} value={value} onChange={(event) => onChange(event.target.value)}><MenuItem value="">{t('backtesting.common.all')}</MenuItem>{options.map(([option, display]) => <MenuItem key={option} value={option}>{display}</MenuItem>)}</Select></FormControl>
 }
 
 function EvidenceStatusBadge({ status }: { status: BacktestingEvidenceStatus }) {
@@ -609,9 +613,9 @@ const buildEdgeBreakdowns = (trades: BacktestingTrade[]): EdgeRow[] => {
   }).sort((left, right) => right.metrics.trades - left.metrics.trades)
 }
 
-function FindingCard({ title, finding, locale }: { title: string; finding?: EdgeRow; locale: string }) {
+function FindingCard({ title, finding, locale, currency }: { title: string; finding?: EdgeRow; locale: string; currency: string }) {
   const { t } = useI18n()
-  return <Paper variant="outlined" sx={{ p: 1.25, height: '100%' }}><Typography variant="caption" color="text.secondary">{title}</Typography>{finding ? <Stack spacing={0.5} sx={{ mt: 0.5 }}><Typography variant="subtitle1" sx={{ fontWeight: 850 }}>{finding.label}</Typography><Typography variant="body2">{t('backtesting.edge.findingSummary', { count: finding.metrics.trades, expectancy: formatR(finding.metrics.expectancy, locale), winRate: formatPercent(finding.metrics.winRate, locale) })}</Typography></Stack> : <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t('backtesting.edge.notEnoughSupported')}</Typography>}</Paper>
+  return <Paper variant="outlined" sx={{ p: 1.25, height: '100%' }}><Typography variant="caption" color="text.secondary">{title}</Typography>{finding ? <Stack spacing={0.5} sx={{ mt: 0.5 }}><Typography variant="subtitle1" sx={{ fontWeight: 850 }}>{finding.label}</Typography><Typography variant="body2">{t('backtesting.edge.findingSummary', { count: finding.metrics.trades, expectancy: formatBasis(basisExpectancy(finding.metrics, currency), currency, locale), winRate: formatPercent(finding.metrics.winRate, locale) })}</Typography></Stack> : <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t('backtesting.edge.notEnoughSupported')}</Typography>}</Paper>
 }
 
 const workspacePayload = (workspace: BacktestingWorkspace): BacktestingWorkspacePayload => ({

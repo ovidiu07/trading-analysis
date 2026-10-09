@@ -210,6 +210,18 @@ describe('BacktestingPage Evidence Engine', () => {
     expect(screen.getByText(/Insufficient live data/)).toBeInTheDocument()
   })
 
+  it('recalculates source comparisons from filtered trades even when server source metrics are stale', async () => {
+    backtestingApiMock.getBacktestingAnalytics.mockResolvedValue({ baseline: {}, breakdowns: {}, impactRows: [], sourceMetrics: { IMPORT: { trades: 42, winRate: 99 } } })
+    renderPage('/backtesting/workspace-1')
+    await screen.findByRole('heading', { name: 'Manual versus live' })
+    await userEvent.click(screen.getByRole('combobox', { name: 'Result', exact: true }))
+    await userEvent.click(screen.getByRole('option', { name: 'Loser', exact: true }))
+    const rows = within(screen.getByRole('table', { name: 'Manual versus live' })).getAllByRole('row')
+    expect(within(rows[1]).getAllByRole('cell')[1]).toHaveTextContent('0')
+    expect(within(rows[2]).getAllByRole('cell')[1]).toHaveTextContent('1')
+    expect(within(rows[3]).getAllByRole('cell')[1]).toHaveTextContent('4')
+  })
+
   it('requires a consistent result and R multiple before saving a manual trade', async () => {
     renderPage('/backtesting/workspace-1')
     await screen.findByRole('heading', { name: 'NQ Liquidity Research' })

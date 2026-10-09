@@ -415,11 +415,11 @@ public class BacktestingService {
                 .max(Comparator.comparing(BacktestingWorkspaceResponse::getWinRate))
                 .map(item -> item.getSymbol() + " · " + (item.getStrategyName() == null ? "Manual strategy" : item.getStrategyName()))
                 .orElse(null);
-        BigDecimal averageExpectancy = workspaces.isEmpty() ? BigDecimal.ZERO : workspaces.stream()
-                .map(BacktestingWorkspaceResponse::getExpectancy)
-                .filter(Objects::nonNull)
+        List<BigDecimal> knownExpectancies = workspaces.stream().map(BacktestingWorkspaceResponse::getExpectancy)
+                .filter(Objects::nonNull).toList();
+        BigDecimal averageExpectancy = knownExpectancies.isEmpty() ? null : knownExpectancies.stream()
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .divide(BigDecimal.valueOf(workspaces.size()), 2, RoundingMode.HALF_UP);
+                .divide(BigDecimal.valueOf(knownExpectancies.size()), 2, RoundingMode.HALF_UP);
         return BacktestingSummaryResponse.builder()
                 .totalBacktests(workspaces.size())
                 .totalScreenshots(totalScreenshots)
@@ -458,7 +458,8 @@ public class BacktestingService {
                 .filter(trade -> trade.getSource() != com.tradevault.domain.enums.BacktestingTradeSource.LIVE).toList());
         BacktestingMetricResponse liveMetrics = researchService.calculateMetrics(structuredTrades.stream()
                 .filter(trade -> trade.getSource() == com.tradevault.domain.enums.BacktestingTradeSource.LIVE).toList());
-        BigDecimal liveGap = liveCount == 0 ? null : liveMetrics.getExpectancy().subtract(manualBaseline.getExpectancy());
+        BigDecimal liveGap = liveCount == 0 || liveMetrics.getExpectancy() == null || manualBaseline.getExpectancy() == null
+                ? null : liveMetrics.getExpectancy().subtract(manualBaseline.getExpectancy());
         int sourceTypes = (manualCount > 0 ? 1 : 0) + (importedCount > 0 ? 1 : 0) + (liveCount > 0 ? 1 : 0);
         String strategyName = item.getStrategy() != null ? item.getStrategy().getName() : item.getStrategyNameSnapshot();
         return BacktestingWorkspaceResponse.builder()

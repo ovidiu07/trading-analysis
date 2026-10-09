@@ -4,11 +4,12 @@ name: CI
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
+  # Build pushes on these branches and pull requests targeting main.
   push:
     branches:
       - "main"
       - "develop"
+      - "redesign-upgraded-improved"
   pull_request:
     branches:
       - "main"
@@ -16,9 +17,8 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+# Deployment runs only after the build and image publishing succeed.
 jobs:
-  # This workflow contains a single job called "build"
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
@@ -58,6 +58,7 @@ jobs:
         run: npm run build
 
       - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Build Backend Docker image
@@ -67,10 +68,19 @@ jobs:
         run: docker build --platform linux/amd64 -t marley2022/tradejaudit:frontend-service ./frontend
 
       - name: Push Backend Docker image
+        if: github.event_name != 'pull_request'
         run: docker push marley2022/tradejaudit:audit-service
 
       - name: Push Frontend Docker image
+        if: github.event_name != 'pull_request'
         run: docker push marley2022/tradejaudit:frontend-service
 
       - name: Final message
         run: echo Finished !
+
+  deploy:
+    name: Deploy after successful build
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/redesign-upgraded-improved'
+    uses: ./.github/workflows/deploy-docker-images.yml
+    secrets: inherit
