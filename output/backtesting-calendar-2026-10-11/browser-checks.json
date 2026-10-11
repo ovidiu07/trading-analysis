@@ -1,0 +1,65 @@
+{
+  "source": "Mocked API using the repository 25-trade replay fixture; no backend authentication or persistence exercised.",
+  "checks": [
+    {
+      "name": "desktop-en-dark",
+      "width": 1440,
+      "height": 1100,
+      "language": "en",
+      "theme": "DARK",
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      },
+      "weeklyRows": 5,
+      "dayDrilldown": true,
+      "errors": []
+    },
+    {
+      "name": "tablet-en-light",
+      "width": 768,
+      "height": 1024,
+      "language": "en",
+      "theme": "LIGHT",
+      "overflow": {
+        "viewport": 768,
+        "document": 768,
+        "body": 768
+      },
+      "weeklyRows": 5,
+      "dayDrilldown": true,
+      "errors": []
+    },
+    {
+      "name": "mobile-ro-light",
+      "width": 390,
+      "height": 844,
+      "language": "ro",
+      "theme": "LIGHT",
+      "overflow": {
+        "viewport": 390,
+        "document": 390,
+        "body": 390
+      },
+      "weeklyRows": 5,
+      "dayDrilldown": true,
+      "errors": []
+    },
+    {
+      "name": "mobile-en-dark",
+      "width": 375,
+      "height": 812,
+      "language": "en",
+      "theme": "DARK",
+      "overflow": {
+        "viewport": 375,
+        "document": 375,
+        "body": 375
+      },
+      "weeklyRows": 5,
+      "dayDrilldown": true,
+      "errors": []
+    }
+  ]
+}

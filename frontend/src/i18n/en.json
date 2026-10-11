@@ -3940,6 +3940,27 @@
     }
   },
   "backtesting": {
+    "calendar": {
+      "title": "Backtesting calendar",
+      "description": "Backtest and replay trades from this workspace, using your active filters. Results follow exit dates when available, otherwise the recorded trade date. Exported local dates are preserved.",
+      "jumpToMonth": "Jump to month",
+      "latestTrade": "Latest trade",
+      "monthlyR": "Monthly total R",
+      "weeklySummary": "Weekly performance",
+      "weeklyDescription": "Monday–Sunday weeks. Boundary weeks show only dates in the displayed month, so weekly totals add up to the month. Click a week to review its trades.",
+      "week": "Week",
+      "bestWeeks": "Best weeks",
+      "bestMonths": "Best months",
+      "rankingDescription": "Top five periods by total {{basis}} across the filtered backtest/replay sample. Rankings use full calendar weeks and months, including partially tested periods. R rankings require complete R coverage; cash rankings use known results in the selected currency. Counts show the sample behind each result.",
+      "coverage": "{{known}}/{{total}} with data",
+      "unavailable": "— = no trades or metric unavailable",
+      "selectCurrency": "Select a cash currency",
+      "noRankedPeriods": "No periods have results for this metric yet.",
+      "emptyMonth": "No backtested trades in this month",
+      "emptyBody": "Choose another month, adjust the workspace filters, or add/import backtest or replay trades.",
+      "dayAria": "View backtested trades for {{date}}. {{count}} trades. Result {{value}}",
+      "periodTrades": "Backtested trades · {{period}}"
+    },
     "bulk": {
       "setupName": "Setup name",
       "strategyName": "Strategy label",
@@ -4138,6 +4159,7 @@
       }
     },
     "tabs": {
+      "calendar": "Calendar",
       "overview": "Overview",
       "trades": "Trades",
       "edge": "Edge analysis",
@@ -4490,6 +4512,7 @@
       "notesSaved": "Research notes saved."
     },
     "errors": {
+      "loadTrades": "Could not load workspace trades. Retry to see calendar results.",
       "workspaceSave": "Could not save the research workspace.",
       "archive": "Could not archive the research workspace.",
       "import": "Could not import historical trades.",

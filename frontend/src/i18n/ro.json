@@ -3939,6 +3939,27 @@
     }
   },
   "backtesting": {
+    "calendar": {
+      "title": "Calendar de backtesting",
+      "description": "Tranzacții de backtest și replay din acest spațiu de lucru, cu filtrele active. Rezultatele folosesc data ieșirii, când există, sau data înregistrată a tranzacției. Datele locale din export sunt păstrate.",
+      "jumpToMonth": "Mergi la luna",
+      "latestTrade": "Ultima tranzacție",
+      "monthlyR": "Total R lunar",
+      "weeklySummary": "Performanță săptămânală",
+      "weeklyDescription": "Săptămâni de luni până duminică. La limitele lunii sunt incluse doar datele din luna afișată, astfel încât totalurile săptămânale însumate corespund lunii. Apasă o săptămână pentru a vedea tranzacțiile.",
+      "week": "Săptămână",
+      "bestWeeks": "Cele mai bune săptămâni",
+      "bestMonths": "Cele mai bune luni",
+      "rankingDescription": "Primele cinci perioade după totalul {{basis}} din eșantionul filtrat de backtest/replay. Clasamentul folosește săptămâni și luni calendaristice întregi, inclusiv perioade testate parțial. Clasamentul R necesită R pentru toate tranzacțiile; cel monetar folosește rezultatele cunoscute în moneda selectată. Numărul tranzacțiilor arată eșantionul fiecărui rezultat.",
+      "coverage": "{{known}}/{{total}} cu date",
+      "unavailable": "— = fără tranzacții sau indicator indisponibil",
+      "selectCurrency": "Selectează o monedă",
+      "noRankedPeriods": "Nu există încă perioade cu rezultate pentru acest indicator.",
+      "emptyMonth": "Nicio tranzacție de backtest în această lună",
+      "emptyBody": "Alege altă lună, ajustează filtrele sau adaugă/importă tranzacții de backtest ori replay.",
+      "dayAria": "Vezi tranzacțiile de backtest din {{date}}. {{count}} tranzacții. Rezultat {{value}}",
+      "periodTrades": "Tranzacții de backtest · {{period}}"
+    },
     "bulk": {
       "setupName": "Nume setup",
       "strategyName": "Etichetă strategie",
@@ -4137,6 +4158,7 @@
       }
     },
     "tabs": {
+      "calendar": "Calendar",
       "overview": "Prezentare generală",
       "trades": "Tranzacții",
       "edge": "Analiza avantajului",
@@ -4489,6 +4511,7 @@
       "notesSaved": "Notițele de cercetare au fost salvate."
     },
     "errors": {
+      "loadTrades": "Tranzacțiile din spațiul de lucru nu au putut fi încărcate. Reîncearcă pentru a vedea rezultatele calendarului.",
       "workspaceSave": "Spațiul de cercetare nu a putut fi salvat.",
       "archive": "Spațiul de cercetare nu a putut fi arhivat.",
       "import": "Tranzacțiile istorice nu au putut fi importate.",

@@ -211,6 +211,30 @@ describe('BacktestingPage Evidence Engine', () => {
     expect(screen.getByText(/Insufficient live data/)).toBeInTheDocument()
   })
 
+  it('shows a calendar scoped to the selected workspace and the active research filters', async () => {
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Calendar', exact: true }))
+    expect(backtestingApiMock.listBacktestingTrades).toHaveBeenCalledWith('workspace-1')
+    expect(screen.getByRole('heading', { name: 'Backtesting calendar' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /for 2026-07-01. 1 trades. Result 1R/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /for 2026-07-09. 0 trades/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('combobox', { name: 'Result', exact: true }))
+    await userEvent.click(screen.getByRole('option', { name: 'Loser', exact: true }))
+    expect(screen.getByRole('button', { name: /for 2026-07-01. 0 trades/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /for 2026-07-08. 1 trades. Result -0.6R/ })).toBeInTheDocument()
+  })
+
+  it('shows a retryable error instead of an empty calendar when workspace trades fail to load', async () => {
+    backtestingApiMock.listBacktestingTrades.mockRejectedValue(new Error('unavailable'))
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Calendar', exact: true }))
+    expect(screen.getByText('Could not load workspace trades. Retry to see calendar results.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Backtesting calendar' })).not.toBeInTheDocument()
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue(trades)
+    await userEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }))
+    expect(await screen.findByRole('heading', { name: 'Backtesting calendar' })).toBeInTheDocument()
+  })
+
   it('recalculates source comparisons from filtered trades even when server source metrics are stale', async () => {
     backtestingApiMock.getBacktestingAnalytics.mockResolvedValue({ baseline: {}, breakdowns: {}, impactRows: [], sourceMetrics: { IMPORT: { trades: 42, winRate: 99 } } })
     renderPage('/backtesting/workspace-1')

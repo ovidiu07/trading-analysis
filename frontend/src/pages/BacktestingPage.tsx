@@ -102,9 +102,10 @@ import ImportTradesDialog from '../features/backtesting/ImportTradesDialog'
 import ResearchPerformance, { AnalysisBasis, basisExpectancy, formatBasis, formatMoney } from '../features/backtesting/ResearchPerformance'
 import ReplayTradeDetails from '../features/backtesting/ReplayTradeDetails'
 import BulkTradeEditDialog from '../features/backtesting/BulkTradeEditDialog'
+import BacktestingCalendar from '../features/backtesting/BacktestingCalendar'
 import { useI18n } from '../i18n'
 
-type WorkspaceTab = 'overview' | 'trades' | 'edge' | 'evidence' | 'notes'
+type WorkspaceTab = 'overview' | 'trades' | 'calendar' | 'edge' | 'evidence' | 'notes'
 
 export default function BacktestingPage() {
   const { workspaceId } = useParams<{ workspaceId?: string }>()
@@ -370,19 +371,21 @@ function WorkspaceDetail({ workspace, strategies, onBack, onEdit, onArchive, onI
   const trades = useMemo(() => tradesQuery.data || [], [tradesQuery.data])
   const filtered = useMemo(() => filterResearchTrades(trades, filters), [filters, trades])
   const metrics = useMemo(() => computeResearchMetrics(filtered), [filtered])
-  const tabs: WorkspaceTab[] = ['overview', 'trades', 'edge', 'evidence', 'notes']
+  const tabs: WorkspaceTab[] = ['overview', 'trades', 'calendar', 'edge', 'evidence', 'notes']
   if (tradesQuery.isLoading) return <LoadingState rows={5} height={88} />
   return (
     <Stack spacing={1.5}>
       <Button startIcon={<ArrowBackRoundedIcon />} onClick={onBack} sx={{ alignSelf: 'flex-start' }}>{t('backtesting.actions.backToLibrary')}</Button>
       <WorkspaceHeader workspace={workspace} metrics={metrics} locale={locale} onEdit={onEdit} onArchive={onArchive} onImport={onImport} onAddManual={onAddManual} />
       <ResearchFilterBar filters={filters} setFilters={setFilters} resultCount={filtered.length} mobile={isMobile} onOpenMobile={() => setFilterDialog(true)} />
+      {tradesQuery.isError && <Alert severity="error" action={<Button color="inherit" onClick={() => void tradesQuery.refetch()}>{t('common.retry')}</Button>}>{t('backtesting.errors.loadTrades')}</Alert>}
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        {isMobile ? <Box sx={{ p: 1 }}><Select fullWidth size="small" value={tab} onChange={(event) => setTab(event.target.value as WorkspaceTab)} inputProps={{ 'aria-label': t('backtesting.accessibility.sectionNavigation') }}>{tabs.map((value) => <MenuItem key={value} value={value}>{t(`backtesting.tabs.${value}`)}</MenuItem>)}</Select></Box> : <Tabs value={tab} onChange={(_, value) => setTab(value)} aria-label={t('backtesting.accessibility.sectionNavigation')}>{tabs.map((value) => <Tab key={value} value={value} label={t(`backtesting.tabs.${value}`)} />)}</Tabs>}
+        {isMobile ? <Box sx={{ p: 1 }}><Select fullWidth size="small" value={tab} onChange={(event) => setTab(event.target.value as WorkspaceTab)} inputProps={{ 'aria-label': t('backtesting.accessibility.sectionNavigation') }}>{tabs.map((value) => <MenuItem key={value} value={value}>{t(`backtesting.tabs.${value}`)}</MenuItem>)}</Select></Box> : <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" scrollButtons="auto" aria-label={t('backtesting.accessibility.sectionNavigation')}>{tabs.map((value) => <Tab key={value} value={value} label={t(`backtesting.tabs.${value}`)} />)}</Tabs>}
         <Divider />
         <Box sx={{ p: { xs: 1.25, md: 2 } }}>
           {tab === 'overview' && <OverviewSection trades={filtered} allTrades={trades} metrics={metrics} analytics={analyticsQuery.data} />}
           {tab === 'trades' && <TradesSection workspaceId={workspace.id} trades={filtered} locale={locale} onAdd={onAddManual} onEdit={onEditManual} onFeedback={onFeedback} onError={onError} invalidate={invalidate} />}
+          {tab === 'calendar' && !tradesQuery.isError && <BacktestingCalendar key={workspace.id} workspaceId={workspace.id} trades={filtered} />}
           {tab === 'edge' && <EdgeAnalysisSection trades={filtered} baseline={metrics} lenses={lensesQuery.data || []} filters={filters} setFilters={setFilters} workspaceId={workspace.id} onFeedback={onFeedback} onError={onError} invalidate={invalidate} />}
           {tab === 'evidence' && <EvidenceSection workspace={workspace} screenshots={screenshotsQuery.data || []} trades={trades} onFeedback={onFeedback} onError={onError} invalidate={invalidate} />}
           {tab === 'notes' && <NotesSection workspace={workspace} onFeedback={onFeedback} onError={onError} invalidate={invalidate} />}
