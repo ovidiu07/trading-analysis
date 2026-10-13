@@ -15,6 +15,10 @@ lineExtendModeInput = input.string("Both", "Vertical Line Extend", options = ["B
 maxHistoricalMarkers = input.int(300, "Maximum Historical Lines/Labels", minval = 50, maxval = 500, group = groupGeneral, tooltip = "Limit the number of objects on chart to maintain performance.")
 showCurrentProfileLabel = input.bool(false, "Show Status Label", group = groupGeneral, tooltip = "Shows which profile is currently active on the right side of the chart.")
 
+// Match the native Visibility tab captured on 2026-10-13 (display only).
+useConfiguredVisibility = input.bool(true, "Use Configured Interval Visibility", group = groupGeneral, tooltip = "Show on ticks, ranges, 1-59 seconds, and 1-12 minutes. Disable to draw on other intervals. TradingView's Visibility tab can further restrict display.")
+bool configuredChartVisible = not useConfiguredVisibility or timeframe.isticks or chart.is_range or (timeframe.isseconds and timeframe.multiplier <= 59) or (timeframe.isminutes and timeframe.multiplier <= 12)
+
 // --- Helper Functions ---
 f_symbolMatches(string configuredSymbol) =>
     string normalizedConfigured = str.upper(str.trim(configuredSymbol))
@@ -71,12 +75,12 @@ f_drawVerticalMarker(
      color labelTextColor,
      string labelSizeText
  ) =>
-    if shouldDraw
+    if shouldDraw and configuredChartVisible
         line newLine = line.new(
              bar_index,
-             0,
+             low,
              bar_index,
-             1,
+             math.max(high, low + syminfo.mintick),
              xloc = xloc.bar_index,
              extend = f_extendMode(lineExtendModeInput),
              color = lineColor,
@@ -152,12 +156,12 @@ f_processInterval(
 // Ticker 1 - GER40
 groupT1 = "Ticker 1 - GER40"
 t1_en = input.bool(true, "Enable Ticker Profile", group = groupT1)
-t1_sym = input.string("GER40", "Ticker Match Text", group = groupT1)
-t1_tz = input.string("Europe/Berlin", "Timezone", group = groupT1)
+t1_sym = input.string("GER", "Ticker Match Text", group = groupT1)
+t1_tz = input.string("Europe/Bucharest", "Timezone", group = groupT1)
 t1_i1_en = input.bool(true, "Int 1 Enabled", group = groupT1)
-t1_i1_ses = input.session("1120-1400", "Int 1 Session", group = groupT1)
+t1_i1_ses = input.session("1015-1400", "Int 1 Session", group = groupT1)
 t1_i1_txt = input.string("GER40 Main", "Int 1 Label", group = groupT1)
-t1_i1_col = input.color(#089981, "Int 1 Color", group = groupT1)
+t1_i1_col = input.color(color.white, "Int 1 Color", group = groupT1)
 t1_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT1)
 t1_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
 t1_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT1)
@@ -165,9 +169,9 @@ t1_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT1)
 t1_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT1)
 
 t1_i2_en = input.bool(true, "Int 2 Enabled", group = groupT1)
-t1_i2_ses = input.session("1900-2200", "Int 2 Session", group = groupT1)
+t1_i2_ses = input.session("1645-1930", "Int 2 Session", group = groupT1)
 t1_i2_txt = input.string("GER40 Evening", "Int 2 Label", group = groupT1)
-t1_i2_col = input.color(#089981, "Int 2 Color", group = groupT1)
+t1_i2_col = input.color(color.white, "Int 2 Color", group = groupT1)
 t1_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT1)
 t1_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
 t1_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT1)
@@ -193,21 +197,21 @@ t1_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT1)
 groupT2 = "Ticker 2 - NQ"
 t2_en = input.bool(true, "Enable Ticker Profile", group = groupT2)
 t2_sym = input.string("NQ", "Ticker Match Text", group = groupT2)
-t2_tz = input.string("America/New_York", "Timezone", group = groupT2)
+t2_tz = input.string("Europe/Bucharest", "Timezone", group = groupT2)
 t2_i1_en = input.bool(true, "Int 1 Enabled", group = groupT2)
-t2_i1_ses = input.session("0945-1100", "Int 1 Session", group = groupT2)
+t2_i1_ses = input.session("1645-1830", "Int 1 Session", group = groupT2)
 t2_i1_txt = input.string("NQ Open", "Int 1 Label", group = groupT2)
-t2_i1_col = input.color(#5b9cf6, "Int 1 Color", group = groupT2)
-t2_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT2)
+t2_i1_col = input.color(color.white, "Int 1 Color", group = groupT2)
+t2_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT2)
 t2_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
 t2_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT2)
 t2_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT2)
 t2_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT2)
 
 t2_i2_en = input.bool(true, "Int 2 Enabled", group = groupT2)
-t2_i2_ses = input.session("1400-1500", "Int 2 Session", group = groupT2)
+t2_i2_ses = input.session("1915-2200", "Int 2 Session", group = groupT2)
 t2_i2_txt = input.string("NQ PM", "Int 2 Label", group = groupT2)
-t2_i2_col = input.color(#5b9cf6, "Int 2 Color", group = groupT2)
+t2_i2_col = input.color(color.white, "Int 2 Color", group = groupT2)
 t2_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT2)
 t2_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
 t2_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT2)
@@ -233,21 +237,21 @@ t2_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT2)
 groupT3 = "Ticker 3 - UK100"
 t3_en = input.bool(true, "Enable Ticker Profile", group = groupT3)
 t3_sym = input.string("UK100", "Ticker Match Text", group = groupT3)
-t3_tz = input.string("Europe/London", "Timezone", group = groupT3)
+t3_tz = input.string("Europe/Bucharest", "Timezone", group = groupT3)
 t3_i1_en = input.bool(true, "Int 1 Enabled", group = groupT3)
-t3_i1_ses = input.session("1120-1400", "Int 1 Session", group = groupT3)
+t3_i1_ses = input.session("1045-1445", "Int 1 Session", group = groupT3)
 t3_i1_txt = input.string("UK100 Main", "Int 1 Label", group = groupT3)
-t3_i1_col = input.color(#f23645, "Int 1 Color", group = groupT3)
-t3_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT3)
+t3_i1_col = input.color(color.white, "Int 1 Color", group = groupT3)
+t3_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT3)
 t3_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
 t3_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT3)
 t3_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT3)
 t3_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT3)
-t3_i2_en = input.bool(false, "Int 2 Enabled", group = groupT3)
-t3_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT3)
+t3_i2_en = input.bool(true, "Int 2 Enabled", group = groupT3)
+t3_i2_ses = input.session("1650-1945", "Int 2 Session", group = groupT3)
 t3_i2_txt = input.string("", "Int 2 Label", group = groupT3)
-t3_i2_col = input.color(#f23645, "Int 2 Color", group = groupT3)
-t3_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT3)
+t3_i2_col = input.color(color.white, "Int 2 Color", group = groupT3)
+t3_i2_wid = input.int(2, "Int 2 Width", 1, 5, group = groupT3)
 t3_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
 t3_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT3)
 t3_i3_en = input.bool(false, "Int 3 Enabled", group = groupT3)
@@ -268,22 +272,22 @@ t3_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT3)
 // Ticker 4 - INTC
 groupT4 = "Ticker 4 - INTC"
 t4_en = input.bool(true, "Enable Ticker Profile", group = groupT4)
-t4_sym = input.string("INTC", "Ticker Match Text", group = groupT4)
-t4_tz = input.string("America/New_York", "Timezone", group = groupT4)
+t4_sym = input.string("GBPUSD", "Ticker Match Text", group = groupT4)
+t4_tz = input.string("Europe/Bucharest", "Timezone", group = groupT4)
 t4_i1_en = input.bool(true, "Int 1 Enabled", group = groupT4)
-t4_i1_ses = input.session("0930-1100", "Int 1 Session", group = groupT4)
-t4_i1_txt = input.string("INTC Open", "Int 1 Label", group = groupT4)
-t4_i1_col = input.color(color.orange, "Int 1 Color", group = groupT4)
-t4_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT4)
+t4_i1_ses = input.session("0945-1415", "Int 1 Session", group = groupT4)
+t4_i1_txt = input.string("GU Open", "Int 1 Label", group = groupT4)
+t4_i1_col = input.color(color.white, "Int 1 Color", group = groupT4)
+t4_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT4)
 t4_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
 t4_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT4)
 t4_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT4)
 t4_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT4)
-t4_i2_en = input.bool(false, "Int 2 Enabled", group = groupT4)
-t4_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT4)
+t4_i2_en = input.bool(true, "Int 2 Enabled", group = groupT4)
+t4_i2_ses = input.session("1600-1715", "Int 2 Session", group = groupT4)
 t4_i2_txt = input.string("", "Int 2 Label", group = groupT4)
-t4_i2_col = input.color(color.orange, "Int 2 Color", group = groupT4)
-t4_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT4)
+t4_i2_col = input.color(color.white, "Int 2 Color", group = groupT4)
+t4_i2_wid = input.int(2, "Int 2 Width", 1, 5, group = groupT4)
 t4_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
 t4_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT4)
 t4_i3_en = input.bool(false, "Int 3 Enabled", group = groupT4)
@@ -542,7 +546,7 @@ if t8Matched
 
 // --- Status Label ---
 var label statusLabel = na
-if barstate.islast and showCurrentProfileLabel
+if barstate.islast and showCurrentProfileLabel and configuredChartVisible
     label.delete(statusLabel)
 
     string labelTxt = ""

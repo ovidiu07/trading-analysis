@@ -16,7 +16,7 @@ It is designed as an analysis and decision-support tool. It does not place order
 - **Session context:** tracks Asia, London, and New York windows, with optional developing session highs and lows.
 - **Higher-timeframe context:** combines two configurable higher timeframes to provide directional context and inject confirmed HTF liquidity into the active chart.
 - **Important market levels:** optionally displays the previous day, week, and month highs/lows, previous close, daily open, and New York midnight open.
-- **Fair Value Gaps:** detects bullish and bearish FVGs on the chart timeframe or a configurable higher timeframe, tracks mitigation, and supports static or dynamic rendering.
+- **Fair Value Gaps:** detects bullish and bearish FVGs on the chart timeframe or a configurable higher timeframe, tracks mitigation, and supports static or dynamic rendering. An optional percentage line inside each static box marks an editable depth from the retest edge.
 - **Adaptive rendering:** offers full, compact, and right-side-only level layouts, together with label-clutter controls for cleaner charts.
 - **Trader Dashboard:** summarizes current bias, nearby liquidity, the active event, structure state, session timing, and a plain-language contextual read.
 
@@ -46,6 +46,44 @@ No single label should be used in isolation. A sweep is an event, not automatica
 - Adjust the reclaim, rejection, penetration, depth, volume, and timeout controls to suit the instrument and timeframe.
 - Configure the session times for the exchange, instrument, and timezone you trade.
 - Use the rendering and clutter settings to control how much historical and right-side chart information is displayed.
+
+## FVG percentage line
+
+Under **Fair Value Gaps**, enable **Show FVG Percentage Line** to draw a horizontal
+reference across each static FVG box. It is **disabled by default**, with
+**FVG Line Percentage = 25%**. The percentage accepts decimal values from 0 to 100.
+
+The percentage starts at the retest edge:
+
+- Bullish gap: 0% is the top; the line moves downward toward the bottom.
+- Bearish gap: 0% is the bottom; the line moves upward toward the top.
+- 50% is the midpoint; 100% is the opposite edge.
+
+For a gap from 100 to 120, 25% marks **115 for a bullish gap** and **105 for a
+bearish gap**. Line colors, width, and solid/dashed/dotted style are editable.
+The line spans the same horizontal anchors as its box and is removed with the
+box on mitigation or active-record trimming. It is a display reference and has
+no effect on gap detection, mitigation, alerts, or other indicator calculations.
+Dynamic mode draws fills instead of boxes, so this box-only line is hidden there.
+
+## Defaults captured on 13 October 2026
+
+Input defaults match the active **Devtrader Chart Analysis** indicator on the
+**Devtrader-BlackV1** TradingView desktop layout. The complete 123-input code
+preset (117 existing inputs plus six new percentage-line inputs) is recorded in
+`devtrader-chart-defaults-2026-10-13.json`.
+
+The configured session input values are Asia **00:00–09:00**, London
+**10:00–16:00**, and New York **16:30–23:00**. The existing code interprets these
+session inputs in **UTC**; that behavior is preserved. The sweep qualification
+windows retain their existing London/New York time zones.
+
+Other active preferences include CHoCH/BOS display off, Trader Dashboard off,
+previous-week high/low on, right-side-only level rendering, width 2 for active and
+passive levels, Small level/structure labels, and the existing theme colors and
+transparencies. FVG defaults are **0.04% threshold, Auto off, chart detection
+timeframe, Extend 20, Dynamic off, time-based objects on, 80 active records, and
+30% box opacity**. All native interval visibility categories remain enabled.
 
 ## Alerts
 

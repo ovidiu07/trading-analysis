@@ -1,6 +1,6 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Sessions POI values & Price actions", overlay = true, max_lines_count = 500, max_labels_count = 250, max_boxes_count = 500, dynamic_requests = true)
+indicator("Sessions POI values & Price actions", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, dynamic_requests = true)
 
 // --- Groups ---
 groupSetup         = "Sweep Setup Logic"
@@ -8,6 +8,8 @@ groupStyle         = "Visual Style"
 groupDailyLevels   = "Daily High / Low"
 groupSessionLevels = "Session High / Low"
 groupOrb           = "Opening Range / ORB"
+groupFiveSessions  = "Five Sessions Direction"
+groupChartVisibility = "Chart Visibility"
 groupMovingAverage = "Moving Average Cross"
 groupHTFFVG        = "Higher Timeframe FVG Blocks"
 groupRightFVG      = "Higher Timeframe FVG Blocks"
@@ -48,45 +50,66 @@ const string ORB_STYLE_DASHED = "Dashed"
 const string ORB_STYLE_DOTTED = "Dotted"
 // Eight retained ORBs use at most 16 lines, 8 boxes, and 16 labels, leaving headroom for existing drawings.
 const int ORB_MAX_SESSIONS = 8
+const int FIVE_SESSION_LOOKBACK = 5
+const int FIVE_SESSION_OPENING_MS = 15 * 60 * 1000
+const int FIVE_SESSION_MAX_DRAWINGS = 20
 
 const string FIRST_SESSION_GROUP = "First Session"
 showFirstSession         = input.bool(true, "Show session", group = FIRST_SESSION_GROUP)
 firstSessionName         = input.string("Tokyo", "Displayed name", group = FIRST_SESSION_GROUP, active = showFirstSession)
-firstSessionTime         = input.session("0900-1500", "Session time", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionTime         = input.session("0900-1800", "Session time", group = FIRST_SESSION_GROUP, active = showFirstSession)
 firstSessionTimezone     = input.string("Asia/Tokyo", "Session timezone", group = FIRST_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showFirstSession)
-firstSessionSeparatorClr = input.color(#2962FF, "Separator color", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = FIRST_SESSION_GROUP, active = showFirstSession)
 
 const string SECOND_SESSION_GROUP = "Second Session"
 showSecondSession         = input.bool(true, "Show session", group = SECOND_SESSION_GROUP)
 secondSessionName         = input.string("London", "Displayed name", group = SECOND_SESSION_GROUP, active = showSecondSession)
-secondSessionTime         = input.session("0830-1630", "Session time", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionTime         = input.session("0800-1600", "Session time", group = SECOND_SESSION_GROUP, active = showSecondSession)
 secondSessionTimezone     = input.string("Europe/London", "Session timezone", group = SECOND_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showSecondSession)
-secondSessionSeparatorClr = input.color(#FF9800, "Separator color", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = SECOND_SESSION_GROUP, active = showSecondSession)
 
 const string THIRD_SESSION_GROUP = "Third Session"
 showThirdSession         = input.bool(true, "Show session", group = THIRD_SESSION_GROUP)
 thirdSessionName         = input.string("New York", "Displayed name", group = THIRD_SESSION_GROUP, active = showThirdSession)
 thirdSessionTime         = input.session("0930-1600", "Session time", group = THIRD_SESSION_GROUP, active = showThirdSession)
 thirdSessionTimezone     = input.string("America/New_York", "Session timezone", group = THIRD_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showThirdSession)
-thirdSessionSeparatorClr = input.color(#089981, "Separator color", group = THIRD_SESSION_GROUP, active = showThirdSession)
+thirdSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = THIRD_SESSION_GROUP, active = showThirdSession)
+
+// --- Inputs: Five Sessions Direction ---
+// One chronological history across enabled sessions, independent of ORB / H-L visibility.
+showFiveSessionLine    = input.bool(false, "Show direction line", group = groupFiveSessions, tooltip = "Connect the high of exactly five preceding enabled sessions to the confirmed close of the last candle in this session's first 15 minutes. Sessions are counted chronologically, not separately by name. Later sessions take ownership of overlaps, like Session High / Low.")
+showFiveSessionText    = input.bool(true, "Show direction text", group = groupFiveSessions)
+fiveSessionKeep        = input.int(8, "Session drawings to keep", minval = 1, maxval = FIVE_SESSION_MAX_DRAWINGS, group = groupFiveSessions)
+fiveSessionLongColor   = input.color(#089981, "LONG color", inline = "fiveColors", group = groupFiveSessions)
+fiveSessionShortColor  = input.color(#f23645, "SHORT color", inline = "fiveColors", group = groupFiveSessions)
+fiveSessionFlatColor   = input.color(#787B86, "Neutral / unavailable", group = groupFiveSessions)
+fiveSessionLineWidth   = input.int(1, "Line width", minval = 1, maxval = 4, group = groupFiveSessions, active = showFiveSessionLine)
+fiveSessionTextFormat  = input.string("{session} · {trend} {angle}°", "Text format", group = groupFiveSessions, active = showFiveSessionText, tooltip = "Editable placeholders: {session}, {trend}, {angle}. Example: {trend} | {angle}°. A flat line is NEUTRAL; missing history / opening data is UNAVAILABLE.")
+fiveSessionLongText    = input.string("LONG", "Upward text", inline = "fiveWords", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionShortText   = input.string("SHORT", "Downward text", inline = "fiveWords", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextSize    = input.string("Tiny", "Text size", options = ["Tiny", "Small", "Normal"], group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextBg      = input.color(color.new(#131722, 15), "Text background", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextX       = input.int(5, "Text offset (minutes)", minval = 0, maxval = 120, group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextY       = input.int(0, "Text offset (ticks)", minval = -1000, maxval = 1000, group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionAngleUnit   = input.float(1.0, "Angle price units per 15 minutes", minval = 0.00000001, group = groupFiveSessions, tooltip = "Angle = atan((closing price - reference high) / price units / elapsed 15-minute units), in degrees. This is a signed, zoom-independent normalized slope, not a screen/pixel angle. Adjust for your instrument's price scale. Changing this never changes LONG / SHORT.")
 
 // --- Inputs: Opening Range / ORB ---
-enableOrb              = input.bool(false, "Enable ORB", group = groupOrb)
+enableOrb              = input.bool(true, "Enable ORB", group = groupOrb)
 enableFirstSessionOrb  = input.bool(true, "Enable first session ORB", inline = "orbSessions1", group = groupOrb, active = enableOrb and showFirstSession)
 enableSecondSessionOrb = input.bool(true, "Second", inline = "orbSessions1", group = groupOrb, active = enableOrb and showSecondSession)
 enableThirdSessionOrb  = input.bool(true, "Third", inline = "orbSessions1", group = groupOrb, active = enableOrb and showThirdSession)
 orbDurationMinutes     = input.int(15, "ORB duration (minutes)", minval = 1, maxval = 60, group = groupOrb, active = enableOrb, tooltip = "Bars are included when their opening time is at or after the session start and strictly before the ORB end.")
 orbDisplayMode         = input.string(ORB_DISPLAY_BOX_LINES, "Display mode", options = [ORB_DISPLAY_BOX, ORB_DISPLAY_LINES, ORB_DISPLAY_BOX_LINES], group = groupOrb, active = enableOrb)
-orbExtensionMode       = input.string(ORB_EXTENSION_SESSION, "Horizontal extension", options = [ORB_EXTENSION_PERIOD, ORB_EXTENSION_SESSION], group = groupOrb, active = enableOrb)
+orbExtensionMode       = input.string(ORB_EXTENSION_PERIOD, "Horizontal extension", options = [ORB_EXTENSION_PERIOD, ORB_EXTENSION_SESSION], group = groupOrb, active = enableOrb)
 orbSessionsToKeep      = input.int(5, "Historical ORBs to keep", minval = 1, maxval = ORB_MAX_SESSIONS, group = groupOrb, active = enableOrb, tooltip = "Shared across all enabled sessions. The cap protects headroom under this script's existing drawing limits.")
-orbBoxFillColor        = input.color(#2962FF, "Box fill", inline = "orbBoxFill", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
+orbBoxFillColor        = input.color(#ffeb3b, "Box fill", inline = "orbBoxFill", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
 orbBoxFillTransparency = input.int(85, "Transparency", minval = 0, maxval = 100, inline = "orbBoxFill", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
 orbBorderColor         = input.color(color.new(#787B86, 15), "Box border", inline = "orbBorder", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
 orbBorderWidth         = input.int(1, "Width", minval = 0, maxval = 3, inline = "orbBorder", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
 orbBorderStyleInput    = input.string(ORB_STYLE_SOLID, "Box border style", options = [ORB_STYLE_SOLID, ORB_STYLE_DASHED, ORB_STYLE_DOTTED], group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_LINES)
 orbHighColor           = input.color(#089981, "ORB High", inline = "orbLines", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_BOX)
 orbLowColor            = input.color(#f23645, "ORB Low", inline = "orbLines", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_BOX)
-orbLineWidth           = input.int(2, "Width", minval = 1, maxval = 4, inline = "orbLines", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_BOX)
+orbLineWidth           = input.int(1, "Width", minval = 1, maxval = 4, inline = "orbLines", group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_BOX)
 orbLineStyleInput      = input.string(ORB_STYLE_DASHED, "Boundary line style", options = [ORB_STYLE_SOLID, ORB_STYLE_DASHED, ORB_STYLE_DOTTED], group = groupOrb, active = enableOrb and orbDisplayMode != ORB_DISPLAY_BOX)
 showOrbLabels          = input.bool(false, "Show ORB labels", group = groupOrb, active = enableOrb)
 orbLabelTextColor      = input.color(color.white, "Label text", inline = "orbLabels", group = groupOrb, active = enableOrb and showOrbLabels)
@@ -102,22 +125,22 @@ bullColor     = input.color(#089981, "Bullish Setup Color", group = groupStyle)
 bearColor     = input.color(#f23645, "Bearish Setup Color", group = groupStyle)
 
 // --- Inputs: Daily High / Low ---
-showDailyLevels = input.bool(false, "Show daily levels", group = groupDailyLevels)
+showDailyLevels = input.bool(true, "Show daily levels", group = groupDailyLevels)
 dailyLevelsMode = input.string(DAILY_LEVELS_MODE_CURRENT, "Display mode", options = [DAILY_LEVELS_MODE_ALL, DAILY_LEVELS_MODE_CURRENT], group = groupDailyLevels, active = showDailyLevels)
 showDailyHOD    = input.bool(true, "Show H", group = groupDailyLevels, active = showDailyLevels)
 showDailyLOD    = input.bool(true, "Show L", group = groupDailyLevels, active = showDailyLevels)
 dailyHodColor   = input.color(#089981, "H Color", group = groupDailyLevels, active = showDailyLevels and showDailyHOD)
 dailyLodColor   = input.color(#f23645, "L Color", group = groupDailyLevels, active = showDailyLevels and showDailyLOD)
-dailyLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupDailyLevels, active = showDailyLevels)
+dailyLevelsWidth = input.int(2, "Line Width", minval = 1, group = groupDailyLevels, active = showDailyLevels)
 
 // --- Inputs: Session High / Low ---
-showSessionLevels = input.bool(false, "Show session levels", group = groupSessionLevels)
-sessionLevelsMode = input.string(SESSION_LEVELS_MODE_CURRENT, "Display mode", options = [SESSION_LEVELS_MODE_ALL, SESSION_LEVELS_MODE_CURRENT], group = groupSessionLevels, active = showSessionLevels)
+showSessionLevels = input.bool(true, "Show session levels", group = groupSessionLevels)
+sessionLevelsMode = input.string(SESSION_LEVELS_MODE_ALL, "Display mode", options = [SESSION_LEVELS_MODE_ALL, SESSION_LEVELS_MODE_CURRENT], group = groupSessionLevels, active = showSessionLevels)
 showSessionHOD    = input.bool(true, "Show Session High", group = groupSessionLevels, active = showSessionLevels)
 showSessionLOD    = input.bool(true, "Show Session Low", group = groupSessionLevels, active = showSessionLevels)
-sessionHodColor   = input.color(#2962FF, "Session High Color", group = groupSessionLevels, active = showSessionLevels and showSessionHOD)
-sessionLodColor   = input.color(#FF9800, "Session Low Color", group = groupSessionLevels, active = showSessionLevels and showSessionLOD)
-sessionLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupSessionLevels, active = showSessionLevels)
+sessionHodColor   = input.color(#ffffff, "Session High Color", group = groupSessionLevels, active = showSessionLevels and showSessionHOD)
+sessionLodColor   = input.color(#ffffff, "Session Low Color", group = groupSessionLevels, active = showSessionLevels and showSessionLOD)
+sessionLevelsWidth = input.int(2, "Line Width", minval = 1, group = groupSessionLevels, active = showSessionLevels)
 
 // --- Inputs: Higher Timeframe FVG Blocks ---
 showHtfFvgBlocks       = input.bool(false, "Show HTF FVG Blocks", group = groupHTFFVG)
@@ -136,8 +159,8 @@ htfFvgTextPrefix       = input.string("GAP", "Text Prefix", group = groupHTFFVG,
 htfFvgCustomText       = input.string("", "Custom Box Text", group = groupHTFFVG, active = showHtfFvgBlocks and htfFvgTextMode == HTF_FVG_TEXT_CUSTOM, tooltip = "Use {tf}, {dir}, and {prefix} as optional placeholders.")
 showHtfFvgDistance     = input.bool(false, "Show Distance To Price", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgMinDistanceTicks = input.int(0, "Minimum Distance From Price In Ticks", minval = 0, group = groupHTFFVG, active = showHtfFvgBlocks)
-htfFvgThresholdPercent = input.float(0.0, "Threshold %", minval = 0.0, maxval = 100.0, step = 0.1, inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
-htfFvgThresholdAuto    = input.bool(true, "Auto", inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgThresholdPercent = input.float(0.05, "Threshold %", minval = 0.0, maxval = 100.0, step = 0.1, inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgThresholdAuto    = input.bool(false, "Auto", inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgBullBgColor      = input.color(color.new(#2962FF, 85), "Bullish FVG Background Color", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgBearBgColor      = input.color(color.new(#f23645, 85), "Bearish FVG Background Color", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgBorderColor      = input.color(color.new(#787B86, 70), "Border Color", group = groupHTFFVG, active = showHtfFvgBlocks)
@@ -168,6 +191,20 @@ maTypeInput       = input.string("EMA", "Moving Average Type", options = ["SMA",
 maBullBarColorInput = input.color(#089981, "Bullish Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
 maBearBarColorInput = input.color(#f23645, "Bearish Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
 maNeutralBarColorInput = input.color(#5b9cf6, "Neutral Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
+
+// Match the observed native Visibility preset. Pine cannot initialize that UI
+// tab, so this editable display filter reproduces its selected chart intervals.
+useChartVisibilityPreset = input.bool(true, "Use configured interval visibility", group = groupChartVisibility,
+     tooltip = "Show on tick charts, 1-59 second charts, and 1-14 minute charts. Hide on range charts, 15+ minute charts, hours, days, weeks, and months. Disable this filter to use other intervals; TradingView's native Visibility tab can further restrict display.")
+bool chartVisibilityAllowed = not useChartVisibilityPreset or (not chart.is_range and (timeframe.isticks or (timeframe.isseconds and timeframe.multiplier >= 1 and timeframe.multiplier <= 59) or (timeframe.isminutes and timeframe.multiplier >= 1 and timeframe.multiplier <= 14)))
+bool firstSessionVisible = showFirstSession and chartVisibilityAllowed
+bool secondSessionVisible = showSecondSession and chartVisibilityAllowed
+bool thirdSessionVisible = showThirdSession and chartVisibilityAllowed
+bool orbVisible = enableOrb and chartVisibilityAllowed
+bool dailyLevelsVisible = showDailyLevels and chartVisibilityAllowed
+bool sessionLevelsVisible = showSessionLevels and chartVisibilityAllowed
+bool htfFvgVisible = showHtfFvgBlocks and chartVisibilityAllowed
+bool movingAverageVisible = showMovingAverageCross and chartVisibilityAllowed
 
 // --- Core logic ---
 res = useCurrentTFInput ? timeframe.period : tfInput
@@ -250,6 +287,35 @@ type OrbState
     label highLabel = na
     label lowLabel = na
 
+type FiveSessionReference
+    float high
+    int highTime
+    int startTime
+    string sessionName
+
+type FiveSessionState
+    bool active = false
+    int sessionIndex = 0
+    string sessionName = ""
+    int startTime = na
+    int endTime = na
+    int openingEnd = na
+    int lastClose = na
+    float high = na
+    int highTime = na
+    bool complete = false
+    bool openingComplete = false
+    bool evaluated = false
+    FiveSessionReference reference = na
+    string status = "Waiting for a session"
+
+var array<FiveSessionReference> fiveSessionHistory = array.new<FiveSessionReference>()
+var array<int> fiveSessionSeenStarts = array.new<int>(3, na)
+var array<line> fiveSessionLines = array.new<line>()
+var array<label> fiveSessionLabels = array.new<label>()
+var FiveSessionState fiveSessionState = FiveSessionState.new()
+var table fiveSessionWarningTable = table.new(position.bottom_left, 1, 1)
+
 var array<HtfFvgRecord> htfFvgActiveRecords = array.new<HtfFvgRecord>(0)
 var array<string> htfFvgSeenSourceKeys = array.new<string>(0)
 var array<OrbState> orbHistory = array.new<OrbState>(0)
@@ -257,9 +323,11 @@ var table htfFvgDebugTable = table.new(position.top_right, 6, 30, bgcolor = char
 var table orbWarningTable = table.new(position.bottom_right, 1, 1)
 
 f_drawSeparatorLine(color separatorColor) =>
-    line separator = line.new(bar_index, 0, bar_index, 1, xloc = xloc.bar_index, extend = extend.both, color = separatorColor, style = line.style_dotted, width = lineWidth)
+    line separator = line.new(bar_index, low, bar_index, math.max(high, low + syminfo.mintick), xloc = xloc.bar_index, extend = extend.both, color = separatorColor, style = line.style_dotted, width = lineWidth)
     array.push(sessionSeparatorLines, separator)
-    if array.size(sessionSeparatorLines) > MAX_SESSION_SEPARATOR_LINES
+    // Reserve space for ORBs, direction lines, active levels, and transient new objects.
+    int separatorLimit = MAX_SESSION_SEPARATOR_LINES - 8 - (orbVisible ? ORB_MAX_SESSIONS * 2 : 0) - (showFiveSessionLine ? FIVE_SESSION_MAX_DRAWINGS : 0)
+    if array.size(sessionSeparatorLines) > separatorLimit
         line.delete(array.shift(sessionSeparatorLines))
 
 f_pushLimitedLine(array<line> levelLines, line levelLine, int maxCount) =>
@@ -568,6 +636,97 @@ f_orbSessionDurationSeconds(string sessionValue) =>
     int durationMinutes = endHour * 60 + endMinute - (startHour * 60 + startMinute)
     (durationMinutes <= 0 ? durationMinutes + 1440 : durationMinutes) * 60
 
+// --- Five Sessions Direction helpers ---
+f_fiveNextStart(string sessionValue, string timezoneValue) =>
+    int h = int(str.tonumber(str.substring(sessionValue, 0, 2)))
+    int m = int(str.tonumber(str.substring(sessionValue, 2, 4)))
+    int nextStart = timestamp(timezoneValue, year(time, timezoneValue), month(time, timezoneValue), dayofmonth(time, timezoneValue), h, m)
+    if nextStart <= time
+        nextStart := timestamp(timezoneValue, year(time, timezoneValue), month(time, timezoneValue), dayofmonth(time, timezoneValue) + 1, h, m)
+    nextStart
+
+f_fiveStoreHigh(FiveSessionState s) =>
+    if s.active
+        // Keep an unavailable slot for an incomplete occurrence. Skipping it would
+        // silently select the sixth (or older) session instead of exactly the fifth.
+        bool validHigh = s.complete and not na(s.high)
+        array.push(fiveSessionHistory, FiveSessionReference.new(validHigh ? s.high : na, validHigh ? s.highTime : na, s.startTime, s.sessionName))
+        while array.size(fiveSessionHistory) > FIVE_SESSION_LOOKBACK
+            array.shift(fiveSessionHistory)
+        s.active := false
+    true
+
+f_fiveLabelText(string sessionName, string trend, string angleText) =>
+    string labelText = str.replace_all(fiveSessionTextFormat, "{session}", sessionName)
+    labelText := str.replace_all(labelText, "{trend}", trend)
+    str.replace_all(labelText, "{angle}", angleText)
+
+f_fiveEvaluate(FiveSessionState s) =>
+    s.evaluated := true
+    bool openingValid = s.openingComplete and time_close == s.openingEnd and s.lastClose == s.openingEnd
+    bool referenceValid = not na(s.reference) and not na(s.reference.high) and not na(s.reference.highTime)
+    string trend = "UNAVAILABLE"
+    string angleText = "—"
+    color directionColor = fiveSessionFlatColor
+    string detail = not openingValid ? "The complete, aligned first 15 minutes are missing." : "Exactly five complete preceding sessions are required. An incomplete fifth session remains unavailable."
+    if openingValid and referenceValid
+        float difference = close - s.reference.high
+        float elapsedUnits = (time - s.reference.highTime) / float(FIVE_SESSION_OPENING_MS)
+        float angle = math.atan(difference / fiveSessionAngleUnit / elapsedUnits) * 180.0 / math.pi
+        trend := difference > 0 ? fiveSessionLongText : difference < 0 ? fiveSessionShortText : "NEUTRAL"
+        directionColor := difference > 0 ? fiveSessionLongColor : difference < 0 ? fiveSessionShortColor : fiveSessionFlatColor
+        angleText := (angle > 0 ? "+" : "") + str.tostring(angle, "0.0")
+        detail := "Fifth prior session: " + s.reference.sessionName + "\nStart: " + str.format_time(s.reference.startTime, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time)\nHigh: " + str.tostring(s.reference.high, format.mintick) + "\nOpening close: " + str.tostring(close, format.mintick) + "\nConfirmed at: " + str.format_time(s.openingEnd, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time)\nAngle: normalized price/time slope; independent of zoom."
+        if showFiveSessionLine
+            // Candle bodies / wicks are centered on their opening timestamps.
+            // The endpoint is the final opening-range candle's CLOSE, never its wick.
+            line directionLine = line.new(s.reference.highTime, s.reference.high, time, close, xloc = xloc.bar_time, extend = extend.none, color = directionColor, width = fiveSessionLineWidth)
+            f_pushLimitedLine(fiveSessionLines, directionLine, fiveSessionKeep)
+    s.status := trend + (angleText == "—" ? "" : " " + angleText + "°")
+    if showFiveSessionText
+        label directionLabel = label.new(time + fiveSessionTextX * 60000, close + fiveSessionTextY * syminfo.mintick, f_fiveLabelText(s.sessionName, trend, angleText), xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = fiveSessionTextBg, textcolor = directionColor, size = f_getTextSize(fiveSessionTextSize), tooltip = detail)
+        f_pushLimitedLabel(fiveSessionLabels, directionLabel, fiveSessionKeep)
+    true
+
+f_fiveProcess(FiveSessionState s, int owner, int occurrenceStart, int occurrenceEnd, string sessionName) =>
+    FiveSessionState next = s
+    // Flush BEFORE taking the next reference snapshot, including across feed gaps.
+    if next.active and (time >= next.endTime or owner != next.sessionIndex or occurrenceStart != next.startTime)
+        f_fiveStoreHigh(next)
+    if owner > 0 and not na(occurrenceStart) and (na(array.get(fiveSessionSeenStarts, owner - 1)) or array.get(fiveSessionSeenStarts, owner - 1) != occurrenceStart)
+        array.set(fiveSessionSeenStarts, owner - 1, occurrenceStart)
+        next := FiveSessionState.new()
+        next.active := true
+        next.sessionIndex := owner
+        next.sessionName := sessionName
+        next.startTime := occurrenceStart
+        next.endTime := occurrenceEnd
+        next.openingEnd := occurrenceStart + FIVE_SESSION_OPENING_MS
+        // A normal market closure can hide the first scheduled bar. Use the
+        // available session OHLC, like the strategy; exclude a truncated dataset.
+        next.complete := not barstate.isfirst or time <= occurrenceStart
+        next.openingComplete := time == occurrenceStart
+        next.reference := array.size(fiveSessionHistory) == FIVE_SESSION_LOOKBACK ? array.get(fiveSessionHistory, 0) : na
+        next.status := "Waiting for the confirmed 15-minute opening close"
+    if next.active
+        // Session highs use available confirmed candles clipped to the window.
+        // Only the opening price requires a continuous, exactly aligned 15 minutes.
+        bool belongs = time >= next.startTime and time_close <= next.endTime
+        if not belongs
+            next.complete := false
+        if time < next.openingEnd and (not belongs or (not na(next.lastClose) and time != next.lastClose))
+            next.openingComplete := false
+        if belongs
+            if na(next.high) or high > next.high
+                next.high := high
+                next.highTime := time
+            next.lastClose := time_close
+        if not next.evaluated and time_close >= next.openingEnd
+            f_fiveEvaluate(next)
+        if time_close >= next.endTime
+            f_fiveStoreHigh(next)
+    next
+
 f_deleteOrbDrawing(OrbState state) =>
     OrbState drawingState = state
     if not na(drawingState.rangeBox)
@@ -693,15 +852,15 @@ f_drawSessionSeparators(bool sessionStarted, bool sessionEnded, color separatorC
         f_drawSeparatorLine(separatorColor)
 
 // --- Logic: Session Boundary Detection ---
-[firstInSession, firstSessionStarted, firstSessionEnded] = f_getSessionState(showFirstSession, firstSessionTime, firstSessionTimezone)
-[secondInSession, secondSessionStarted, secondSessionEnded] = f_getSessionState(showSecondSession, secondSessionTime, secondSessionTimezone)
-[thirdInSession, thirdSessionStarted, thirdSessionEnded] = f_getSessionState(showThirdSession, thirdSessionTime, thirdSessionTimezone)
+[firstInSession, firstSessionStarted, firstSessionEnded] = f_getSessionState(firstSessionVisible, firstSessionTime, firstSessionTimezone)
+[secondInSession, secondSessionStarted, secondSessionEnded] = f_getSessionState(secondSessionVisible, secondSessionTime, secondSessionTimezone)
+[thirdInSession, thirdSessionStarted, thirdSessionEnded] = f_getSessionState(thirdSessionVisible, thirdSessionTime, thirdSessionTimezone)
 
 // ORB uses the same session values and IANA-aware timezones, but compares occurrence timestamps as well.
 // That extra comparison resets correctly when two occurrences are adjacent in loaded data across a market gap.
-bool firstOrbRequested = enableOrb and showFirstSession and enableFirstSessionOrb
-bool secondOrbRequested = enableOrb and showSecondSession and enableSecondSessionOrb
-bool thirdOrbRequested = enableOrb and showThirdSession and enableThirdSessionOrb
+bool firstOrbRequested = orbVisible and firstSessionVisible and enableFirstSessionOrb
+bool secondOrbRequested = orbVisible and secondSessionVisible and enableSecondSessionOrb
+bool thirdOrbRequested = orbVisible and thirdSessionVisible and enableThirdSessionOrb
 bool anyOrbSessionEnabled = firstOrbRequested or secondOrbRequested or thirdOrbRequested
 int firstOrbOccurrenceStart = firstOrbRequested and firstInSession ? f_orbSessionOccurrenceStart(firstSessionTime, firstSessionTimezone) : na
 int secondOrbOccurrenceStart = secondOrbRequested and secondInSession ? f_orbSessionOccurrenceStart(secondSessionTime, secondSessionTimezone) : na
@@ -742,20 +901,44 @@ bool secondSessionOwnsBar = secondInSession and not thirdInSession
 bool thirdSessionOwnsBar = thirdInSession
 
 int currentActiveSessionIndex = thirdInSession ? 3 : secondInSession ? 2 : firstInSession ? 1 : 0
+
+// Always count independently of the horizontal-level and ORB display switches.
+// Each configured occurrence counts once; an earlier overlapping session never
+// restarts when a later session ends. The reference is immutable for this session.
+bool fiveSessionRequested = chartVisibilityAllowed and (showFiveSessionLine or showFiveSessionText)
+float fiveSessionChartSeconds = timeframe.in_seconds()
+bool fiveSessionChartCompatible = chart.is_standard and timeframe.isintraday and not na(fiveSessionChartSeconds) and fiveSessionChartSeconds > 0 and fiveSessionChartSeconds <= 900 and 900 % fiveSessionChartSeconds == 0
+int fiveOccurrenceStart = currentActiveSessionIndex == 3 ? f_orbSessionOccurrenceStart(thirdSessionTime, thirdSessionTimezone) : currentActiveSessionIndex == 2 ? f_orbSessionOccurrenceStart(secondSessionTime, secondSessionTimezone) : currentActiveSessionIndex == 1 ? f_orbSessionOccurrenceStart(firstSessionTime, firstSessionTimezone) : na
+int fiveOccurrenceEnd = currentActiveSessionIndex == 3 ? f_orbSessionOccurrenceEnd(thirdSessionTime, thirdSessionTimezone, fiveOccurrenceStart) : currentActiveSessionIndex == 2 ? f_orbSessionOccurrenceEnd(secondSessionTime, secondSessionTimezone, fiveOccurrenceStart) : currentActiveSessionIndex == 1 ? f_orbSessionOccurrenceEnd(firstSessionTime, firstSessionTimezone, fiveOccurrenceStart) : na
+string fiveOccurrenceName = currentActiveSessionIndex == 3 ? thirdSessionName : currentActiveSessionIndex == 2 ? secondSessionName : firstSessionName
+// Clip a reference high to the same ownership window as Session High / Low.
+if currentActiveSessionIndex == 1 and secondSessionVisible
+    fiveOccurrenceEnd := math.min(fiveOccurrenceEnd, f_fiveNextStart(secondSessionTime, secondSessionTimezone))
+if currentActiveSessionIndex > 0 and currentActiveSessionIndex < 3 and thirdSessionVisible
+    fiveOccurrenceEnd := math.min(fiveOccurrenceEnd, f_fiveNextStart(thirdSessionTime, thirdSessionTimezone))
+if fiveSessionRequested and fiveSessionChartCompatible and barstate.isconfirmed
+    fiveSessionState := f_fiveProcess(fiveSessionState, currentActiveSessionIndex, fiveOccurrenceStart, fiveOccurrenceEnd, fiveOccurrenceName)
+if barstate.islast
+    table.clear(fiveSessionWarningTable, 0, 0, 0, 0)
+    if fiveSessionRequested and not fiveSessionChartCompatible
+        table.cell(fiveSessionWarningTable, 0, 0, "Five Sessions: use standard intraday candles that divide 15 minutes (e.g. 1m, 3m, 5m, 15m).", text_color = color.white, bgcolor = color.new(color.red, 15), text_size = size.small)
+    else if fiveSessionRequested and fiveSessionState.active and (not fiveSessionState.evaluated or fiveSessionState.status == "UNAVAILABLE")
+        table.cell(fiveSessionWarningTable, 0, 0, fiveSessionState.sessionName + " · " + fiveSessionState.status, text_color = fiveSessionFlatColor, bgcolor = fiveSessionTextBg, text_size = size.tiny)
+
 bool showAllDailyLevels = dailyLevelsMode == DAILY_LEVELS_MODE_ALL
 bool showAllSessionLevels = sessionLevelsMode == SESSION_LEVELS_MODE_ALL
 
-if not showDailyLevels or not showAllDailyLevels or not showDailyHOD
+if not dailyLevelsVisible or not showAllDailyLevels or not showDailyHOD
     f_clearLineArray(dailyHodHistoryLines)
 
-if not showDailyLevels or not showAllDailyLevels or not showDailyLOD
+if not dailyLevelsVisible or not showAllDailyLevels or not showDailyLOD
     f_clearLineArray(dailyLodHistoryLines)
 
-if not showSessionLevels or not showAllSessionLevels or not showSessionHOD
+if not sessionLevelsVisible or not showAllSessionLevels or not showSessionHOD
     f_clearLineArray(sessionHodHistoryLines)
     f_clearLabelArray(sessionHodHistoryLabels)
 
-if not showSessionLevels or not showAllSessionLevels or not showSessionLOD
+if not sessionLevelsVisible or not showAllSessionLevels or not showSessionLOD
     f_clearLineArray(sessionLodHistoryLines)
     f_clearLabelArray(sessionLodHistoryLabels)
 
@@ -791,12 +974,12 @@ else
     dailyHigh := na(dailyHigh) ? high : math.max(dailyHigh, high)
     dailyLow := na(dailyLow) ? low : math.min(dailyLow, low)
 
-if showDailyLevels and showDailyHOD
+if dailyLevelsVisible and showDailyHOD
     activeDailyHodLine := f_upsertHorizontalLine(activeDailyHodLine, dailyStartBar, bar_index, dailyHigh, dailyHodColor, dailyLevelsWidth)
 else
     activeDailyHodLine := f_deleteLine(activeDailyHodLine)
 
-if showDailyLevels and showDailyLOD
+if dailyLevelsVisible and showDailyLOD
     activeDailyLodLine := f_upsertHorizontalLine(activeDailyLodLine, dailyStartBar, bar_index, dailyLow, dailyLodColor, dailyLevelsWidth)
 else
     activeDailyLodLine := f_deleteLine(activeDailyLodLine)
@@ -832,9 +1015,9 @@ var line thirdSessionLodLine = na
 var label thirdSessionHodLabel = na
 var label thirdSessionLodLabel = na
 
-bool firstSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 1
-bool secondSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 2
-bool thirdSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 3
+bool firstSessionShouldDisplay = sessionLevelsVisible and not showAllSessionLevels and currentActiveSessionIndex == 1
+bool secondSessionShouldDisplay = sessionLevelsVisible and not showAllSessionLevels and currentActiveSessionIndex == 2
+bool thirdSessionShouldDisplay = sessionLevelsVisible and not showAllSessionLevels and currentActiveSessionIndex == 3
 
 bool firstSessionSuperseded = firstSessionTrackingActive and firstInSession and (secondSessionStarted or thirdSessionStarted)
 bool secondSessionSuperseded = secondSessionTrackingActive and secondInSession and thirdSessionStarted
@@ -872,7 +1055,7 @@ else
     firstSessionLodLabel := f_deleteLabel(firstSessionLodLabel)
 
 if firstSessionShouldFinalize
-    if showSessionLevels and showAllSessionLevels
+    if sessionLevelsVisible and showAllSessionLevels
         if showSessionHOD and not na(firstSessionStartBar) and not na(firstSessionLastBar) and not na(firstSessionHigh)
             line firstFinalHodLine = f_createHorizontalLine(firstSessionStartBar, firstSessionLastBar, firstSessionHigh, sessionHodColor, sessionLevelsWidth)
             label firstFinalHodLabel = f_createMidLabel(firstSessionStartBar, firstSessionLastBar, firstSessionHigh, "H", sessionHodColor)
@@ -919,7 +1102,7 @@ else
     secondSessionLodLabel := f_deleteLabel(secondSessionLodLabel)
 
 if secondSessionShouldFinalize
-    if showSessionLevels and showAllSessionLevels
+    if sessionLevelsVisible and showAllSessionLevels
         if showSessionHOD and not na(secondSessionStartBar) and not na(secondSessionLastBar) and not na(secondSessionHigh)
             line secondFinalHodLine = f_createHorizontalLine(secondSessionStartBar, secondSessionLastBar, secondSessionHigh, sessionHodColor, sessionLevelsWidth)
             label secondFinalHodLabel = f_createMidLabel(secondSessionStartBar, secondSessionLastBar, secondSessionHigh, "H", sessionHodColor)
@@ -966,7 +1149,7 @@ else
     thirdSessionLodLabel := f_deleteLabel(thirdSessionLodLabel)
 
 if thirdSessionShouldFinalize
-    if showSessionLevels and showAllSessionLevels
+    if sessionLevelsVisible and showAllSessionLevels
         if showSessionHOD and not na(thirdSessionStartBar) and not na(thirdSessionLastBar) and not na(thirdSessionHigh)
             line thirdFinalHodLine = f_createHorizontalLine(thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, sessionHodColor, sessionLevelsWidth)
             label thirdFinalHodLabel = f_createMidLabel(thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, "H", sessionHodColor)
@@ -1012,31 +1195,31 @@ bool isBullEngulf = close > open and close >= bTop_prev and open <= bBot_prev
 bullS = sLow_prev and isBigLW_prev and isBullEngulf
 
 // --- Visual elements ---
-ma1Plot = plot(showMovingAverageCross ? short : na, "Short Period Moving Average", color = shortColor, linewidth = 2, style = plot.style_linebr)
-ma2Plot = plot(showMovingAverageCross ? long : na, "Long Period Moving Average", color = longColor, linewidth = 4, style = plot.style_linebr)
+ma1Plot = plot(movingAverageVisible ? short : na, "Short Period Moving Average", color = shortColor, linewidth = 2, style = plot.style_linebr)
+ma2Plot = plot(movingAverageVisible ? long : na, "Long Period Moving Average", color = longColor, linewidth = 4, style = plot.style_linebr)
 
-fill(ma1Plot, ma2Plot, color = showMovingAverageCross ? color.new(color.silver, 50) : na, title = "MA Cloud")
+fill(ma1Plot, ma2Plot, color = movingAverageVisible ? color.new(color.silver, 50) : na, title = "MA Cloud")
 
-barcolor(showMovingAverageCross ? (trendingUp ? maBullBarColorInput : trendingDown ? maBearBarColorInput : maNeutralBarColorInput) : na)
+barcolor(movingAverageVisible ? (trendingUp ? maBullBarColorInput : trendingDown ? maBearBarColorInput : maNeutralBarColorInput) : na)
 
-plot(showMovingAverageCross ? maCrossing : na, "MA Cross", color = chart.fg_color, style = plot.style_circles, linewidth = 4)
+plot(movingAverageVisible ? maCrossing : na, "MA Cross", color = chart.fg_color, style = plot.style_circles, linewidth = 4)
 
-bgcolor(showMovingAverageCross ? (uptrend ? color.new(COLOR_BULL, 50) : downtrend ? color.new(COLOR_BEAR, 50) : na) : na, title = "Trend Change Highlight")
+bgcolor(movingAverageVisible ? (uptrend ? color.new(COLOR_BULL, 50) : downtrend ? color.new(COLOR_BEAR, 50) : na) : na, title = "Trend Change Highlight")
 
-plotshape(showMovingAverageCross and buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color)
-plotshape(showMovingAverageCross and sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color)
+plotshape(movingAverageVisible and buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color, display = display.none)
+plotshape(movingAverageVisible and sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color, display = display.none)
 
 // --- Visuals: Setup Markers ---
-plotshape(bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small)
-plotshape(bearS, "Bearish Sweep Reversal", shape.triangledown, location.abovebar, bearColor, size = size.small)
+plotshape(chartVisibilityAllowed and bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small, display = display.none)
+plotshape(chartVisibilityAllowed and bearS, "Bearish Sweep Reversal", shape.triangledown, location.abovebar, bearColor, size = size.small, display = display.none)
 
 // Background highlight for the confirmation bar
-bgcolor(bullS ? color.new(bullColor, 90) : bearS ? color.new(bearColor, 90) : na)
+bgcolor(chartVisibilityAllowed ? (bullS ? color.new(bullColor, 90) : bearS ? color.new(bearColor, 90) : na) : na, display = display.none)
 
 // --- Visuals: Higher Timeframe FVG Blocks ---
 // Dynamic requests allow a flexible CSV timeframe list. TradingView's plan/request limits still apply in practice.
 array<string> htfFvgTimeframes = array.new<string>()
-if showHtfFvgBlocks
+if htfFvgVisible
     htfFvgTimeframes := f_parseTimeframes(htfFvgTimeframesInput)
 array<float> htfFvgDrawnTops = array.new<float>()
 array<float> htfFvgDrawnBottoms = array.new<float>()
@@ -1054,7 +1237,7 @@ color htfFvgTextColor = htfFvgAutoTextColor ? chart.fg_color : htfFvgManualTextC
 string htfFvgTextSize = f_getTextSize(htfFvgTextSizeInput)
 int htfFvgBoxDrawingLimit = orbEngineEnabled ? 500 - ORB_MAX_SESSIONS : 500
 
-if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
+if htfFvgVisible and array.size(htfFvgTimeframes) > 0
     for i = 0 to array.size(htfFvgTimeframes) - 1
         string htfTf = array.get(htfFvgTimeframes, i)
         [htfBullRaw, htfBearRaw, htfMaxRaw, htfMinRaw, htfSourceTimeRaw, htfAnchorTimeRaw, htfSourceBarIndexRaw, htfCloseRaw] = request.security(syminfo.tickerid, htfTf, f_htfFvgDetectPayload(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
@@ -1078,7 +1261,7 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
 if barstate.islast
     f_clearHtfFvgObjects()
 
-if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
+if htfFvgVisible and array.size(htfFvgTimeframes) > 0
     for i = 0 to array.size(htfFvgTimeframes) - 1
         string htfTf = array.get(htfFvgTimeframes, i)
         if barstate.islast
@@ -1160,7 +1343,7 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
 
 if barstate.islast
     table.clear(htfFvgDebugTable, 0, 0, 5, 29)
-    if showHtfFvgBlocks and htfFvgDebugMode
+    if htfFvgVisible and htfFvgDebugMode
         table.cell(htfFvgDebugTable, 0, 0, "TF", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
         table.cell(htfFvgDebugTable, 1, 0, "Active", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
         table.cell(htfFvgDebugTable, 2, 0, "Drawn", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
