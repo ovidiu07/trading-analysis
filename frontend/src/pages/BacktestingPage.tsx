@@ -45,6 +45,7 @@ import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded'
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
@@ -103,6 +104,7 @@ import ResearchPerformance, { AnalysisBasis, basisExpectancy, formatBasis, forma
 import ReplayTradeDetails from '../features/backtesting/ReplayTradeDetails'
 import BulkTradeEditDialog from '../features/backtesting/BulkTradeEditDialog'
 import BacktestingCalendar from '../features/backtesting/BacktestingCalendar'
+import ExportBacktestingDialog from '../features/backtesting/ExportBacktestingDialog'
 import { useI18n } from '../i18n'
 
 type WorkspaceTab = 'overview' | 'trades' | 'calendar' | 'edge' | 'evidence' | 'notes'
@@ -364,6 +366,7 @@ function WorkspaceDetail({ workspace, strategies, onBack, onEdit, onArchive, onI
   const [tab, setTab] = useState<WorkspaceTab>('overview')
   const [filters, setFilters] = useState<ResearchFilters>(emptyResearchFilters)
   const [filterDialog, setFilterDialog] = useState(false)
+  const [exportDialog, setExportDialog] = useState(false)
   const tradesQuery = useQuery({ queryKey: ['backtestingTrades', workspace.id], queryFn: () => listBacktestingTrades(workspace.id) })
   const analyticsQuery = useQuery({ queryKey: ['backtestingAnalytics', workspace.id], queryFn: () => getBacktestingAnalytics(workspace.id) })
   const screenshotsQuery = useQuery({ queryKey: ['backtestingScreenshots', workspace.id], queryFn: () => listBacktestingScreenshots(workspace.id) })
@@ -376,7 +379,7 @@ function WorkspaceDetail({ workspace, strategies, onBack, onEdit, onArchive, onI
   return (
     <Stack spacing={1.5}>
       <Button startIcon={<ArrowBackRoundedIcon />} onClick={onBack} sx={{ alignSelf: 'flex-start' }}>{t('backtesting.actions.backToLibrary')}</Button>
-      <WorkspaceHeader workspace={workspace} metrics={metrics} locale={locale} onEdit={onEdit} onArchive={onArchive} onImport={onImport} onAddManual={onAddManual} />
+      <WorkspaceHeader workspace={workspace} metrics={metrics} locale={locale} onEdit={onEdit} onArchive={onArchive} onImport={onImport} onAddManual={onAddManual} onExport={() => setExportDialog(true)} exportDisabled={tradesQuery.isError} />
       <ResearchFilterBar filters={filters} setFilters={setFilters} resultCount={filtered.length} mobile={isMobile} onOpenMobile={() => setFilterDialog(true)} />
       {tradesQuery.isError && <Alert severity="error" action={<Button color="inherit" onClick={() => void tradesQuery.refetch()}>{t('common.retry')}</Button>}>{t('backtesting.errors.loadTrades')}</Alert>}
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
@@ -392,18 +395,21 @@ function WorkspaceDetail({ workspace, strategies, onBack, onEdit, onArchive, onI
         </Box>
       </Paper>
       {isMobile && <Paper elevation={8} sx={{ position: 'fixed', zIndex: 10, left: 0, right: 0, bottom: 0, p: 1, pb: 'calc(8px + env(safe-area-inset-bottom))' }}><Stack direction="row" spacing={1}><Button fullWidth variant="contained" startIcon={<AddRoundedIcon />} onClick={onAddManual}>{t('backtesting.actions.addManualTrade')}</Button><Button fullWidth variant="outlined" startIcon={<FilterAltRoundedIcon />} onClick={() => setFilterDialog(true)}>{t('backtesting.actions.filters')}</Button></Stack></Paper>}
+      {exportDialog && <ExportBacktestingDialog key={workspace.id} workspace={workspace} trades={trades} filters={filters} lenses={lensesQuery.data || []} screenshots={screenshotsQuery.data || []}
+        reportLoading={lensesQuery.isFetching || screenshotsQuery.isFetching} reportError={lensesQuery.isError || screenshotsQuery.isError}
+        onRetry={() => { void lensesQuery.refetch(); void screenshotsQuery.refetch() }} onClose={() => setExportDialog(false)} onExported={onFeedback} />}
       <Dialog fullScreen open={filterDialog} onClose={() => setFilterDialog(false)}><DialogTitle>{t('backtesting.filters.title')}</DialogTitle><DialogContent dividers><ResearchFilterFields filters={filters} setFilters={setFilters} /></DialogContent><Box sx={{ p: 2 }}><Stack spacing={1}><Button variant="contained" onClick={() => setFilterDialog(false)}>{t('backtesting.actions.showResults', { count: filtered.length })}</Button><Button onClick={() => setFilters(emptyResearchFilters)}>{t('backtesting.actions.clearFilters')}</Button></Stack></Box></Dialog>
     </Stack>
   )
 }
 
-function WorkspaceHeader({ workspace, metrics, locale, onEdit, onArchive, onImport, onAddManual }: { workspace: BacktestingWorkspace; metrics: BacktestingMetric; locale: string; onEdit: () => void; onArchive: () => void; onImport: () => void; onAddManual: () => void }) {
+function WorkspaceHeader({ workspace, metrics, locale, onEdit, onArchive, onImport, onAddManual, onExport, exportDisabled }: { workspace: BacktestingWorkspace; metrics: BacktestingMetric; locale: string; onEdit: () => void; onArchive: () => void; onImport: () => void; onAddManual: () => void; onExport: () => void; exportDisabled: boolean }) {
   const { t } = useI18n()
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
       <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" spacing={1.5}>
         <Box sx={{ minWidth: 0 }}><Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap"><Typography component="h1" variant="h5" sx={{ fontWeight: 900, overflowWrap: 'anywhere' }}>{workspace.title || workspace.symbol}</Typography><EvidenceStatusBadge status={workspace.evidenceStatus || 'INSUFFICIENT_DATA'} /><ConfidenceBadge confidence={workspace.evidenceConfidence || 'VERY_LOW'} /></Stack><Typography color="text.secondary">{workspace.strategyName || workspace.strategyNameSnapshot || t('backtesting.workspace.unlinkedStrategy')} · {workspace.symbol} · {workspace.session || t('backtesting.workspace.anySession')}</Typography><Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}><Chip size="small" label={t(`backtesting.autoImport.${workspace.autoImportMode || 'EXACT_MATCH'}.label`)} /><Chip size="small" variant="outlined" label={t('backtesting.workspace.filteredTrades', { count: metrics.trades })} /><Chip size="small" variant="outlined" label={t('backtesting.workspace.updated', { date: formatDate(workspace.updatedAt, locale) })} /></Stack></Box>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={onAddManual}>{t('backtesting.actions.addManualTrade')}</Button><Button variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={onImport}>{t('backtesting.actions.import')}</Button><Button startIcon={<EditRoundedIcon />} onClick={onEdit}>{t('backtesting.actions.editWorkspace')}</Button><Button color="warning" startIcon={<ArchiveOutlinedIcon />} onClick={onArchive}>{t('backtesting.actions.archive')}</Button></Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} useFlexGap flexWrap="wrap"><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={onAddManual}>{t('backtesting.actions.addManualTrade')}</Button><Button variant="outlined" startIcon={<UploadFileRoundedIcon />} onClick={onImport}>{t('backtesting.actions.import')}</Button><Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={onExport} disabled={exportDisabled}>{t('backtesting.export.action')}</Button><Button startIcon={<EditRoundedIcon />} onClick={onEdit}>{t('backtesting.actions.editWorkspace')}</Button><Button color="warning" startIcon={<ArchiveOutlinedIcon />} onClick={onArchive}>{t('backtesting.actions.archive')}</Button></Stack>
       </Stack>
     </Paper>
   )

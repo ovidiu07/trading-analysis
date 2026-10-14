@@ -3939,6 +3939,33 @@
     }
   },
   "backtesting": {
+    "export": {
+      "action": "Exportă datele",
+      "title": "Exportă datele de backtesting",
+      "description": "Alege o perioadă personalizată pentru acest spațiu. Datele sunt incluse integral și folosesc ora locală înregistrată pentru fiecare tranzacție.",
+      "from": "Export de la",
+      "to": "Export până la",
+      "dateBasis": "Filtrează perioada după",
+      "entryDate": "Data intrării",
+      "exitDate": "Data ieșirii",
+      "exitNotice": "Filtrarea după data ieșirii include doar tranzacțiile cu o dată de ieșire înregistrată.",
+      "format": "Formatul exportului",
+      "bundle": "Raport complet (ZIP cu fișiere CSV)",
+      "tradesOnly": "Doar detaliile tranzacțiilor (CSV)",
+      "applyFilters": "Aplică celelalte filtre active ale spațiului ({{count}})",
+      "scope": "Include toate tranzacțiile de backtest/replay din perioada aleasă pentru acest spațiu. Tranzacțiile excluse rămân în detalii; tranzacțiile live sunt omise.",
+      "preview": "{{total}} tranzacții de exportat · {{analyzed}} incluse în analiză · {{excluded}} excluse din analiză",
+      "empty": "Nicio tranzacție de backtest/replay nu corespunde perioadei și selecției.",
+      "invalidPeriod": "Introdu date valide, cu data de început înaintea sau egală cu data de sfârșit.",
+      "contents": "Raportul complet include detaliile tranzacțiilor, sinteza perioadei, analiza avantajului, rezultate zilnice/săptămânale/lunare, filtrele de analiză salvate, metadatele capturilor asociate, notițele spațiului și un ghid. Numele coloanelor CSV sunt în engleză pentru o analiză consecventă.",
+      "stopTargetNotice": "Data și ora atingerii SL/TP folosesc semnalul explicit de ieșire și momentul înregistrat al ieșirii. Detaliile SL/TP lipsă rămân goale; prețurile SL/TP planificate nu sunt stocate în prezent.",
+      "loading": "Se încarcă filtrele salvate și detaliile capturilor…",
+      "reportError": "Unele detalii ale raportului nu au putut fi încărcate. Reîncearcă sau alege CSV doar cu tranzacțiile.",
+      "download": "Descarcă exportul",
+      "exporting": "Se pregătește exportul…",
+      "success": "Export descărcat pentru {{count}} tranzacții.",
+      "failed": "Exportul nu a putut fi pregătit. Te rugăm să reîncerci."
+    },
     "calendar": {
       "title": "Calendar de backtesting",
       "description": "Tranzacții de backtest și replay din acest spațiu de lucru, cu filtrele active. Rezultatele folosesc data ieșirii, când există, sau data înregistrată a tranzacției. Datele locale din export sunt păstrate.",

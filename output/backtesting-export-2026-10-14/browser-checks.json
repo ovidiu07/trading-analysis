@@ -1,0 +1,105 @@
+{
+  "proof": "Local UI with mocked API records derived from the user CSV; no authenticated provider, backend persistence or deployment proof.",
+  "checks": [
+    {
+      "name": "desktop-en-dark",
+      "width": 1440,
+      "height": 1100,
+      "language": "en",
+      "theme": "DARK",
+      "sourceTrades": 25,
+      "selectedTrades": 3,
+      "zipFiles": [
+        "trades.csv",
+        "overview.csv",
+        "edge-analysis.csv",
+        "periods.csv",
+        "saved-edge-lenses.csv",
+        "screenshots.csv",
+        "workspace.json",
+        "README.txt"
+      ],
+      "csvTrades": 25,
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "errors": []
+    },
+    {
+      "name": "tablet-en-light",
+      "width": 768,
+      "height": 1024,
+      "language": "en",
+      "theme": "LIGHT",
+      "sourceTrades": 25,
+      "selectedTrades": 3,
+      "zipFiles": [
+        "trades.csv",
+        "overview.csv",
+        "edge-analysis.csv",
+        "periods.csv",
+        "saved-edge-lenses.csv",
+        "screenshots.csv",
+        "workspace.json",
+        "README.txt"
+      ],
+      "csvTrades": 25,
+      "overflow": {
+        "viewport": 768,
+        "document": 768
+      },
+      "errors": []
+    },
+    {
+      "name": "mobile-ro-light",
+      "width": 390,
+      "height": 844,
+      "language": "ro",
+      "theme": "LIGHT",
+      "sourceTrades": 25,
+      "selectedTrades": 3,
+      "zipFiles": [
+        "trades.csv",
+        "overview.csv",
+        "edge-analysis.csv",
+        "periods.csv",
+        "saved-edge-lenses.csv",
+        "screenshots.csv",
+        "workspace.json",
+        "README.txt"
+      ],
+      "csvTrades": 25,
+      "overflow": {
+        "viewport": 390,
+        "document": 390
+      },
+      "errors": []
+    },
+    {
+      "name": "mobile-en-dark",
+      "width": 375,
+      "height": 812,
+      "language": "en",
+      "theme": "DARK",
+      "sourceTrades": 25,
+      "selectedTrades": 3,
+      "zipFiles": [
+        "trades.csv",
+        "overview.csv",
+        "edge-analysis.csv",
+        "periods.csv",
+        "saved-edge-lenses.csv",
+        "screenshots.csv",
+        "workspace.json",
+        "README.txt"
+      ],
+      "csvTrades": 25,
+      "overflow": {
+        "viewport": 375,
+        "document": 375
+      },
+      "errors": []
+    }
+  ]
+}
