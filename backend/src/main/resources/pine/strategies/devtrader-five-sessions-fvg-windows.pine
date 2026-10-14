@@ -817,7 +817,8 @@ string G_BE = "Strategy Breakeven"
 string G_FVG = "Fair Value Gaps"
 string G_VIS = "Strategy Visuals / Audit"
 string executionTimeframe = input.timeframe("5", "Execution Timeframe", group=G_EXEC, tooltip="Set the standard candle chart to this interval. It must divide 15 minutes; window boundaries must also align with it.")
-float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, maxval=100, step=0.1, group=G_EXEC, tooltip="Depth from the retest edge: bullish top toward bottom, bearish bottom toward top. Matches the FVG indicator's percentage line.")
+bool useFvgEntryPercentage = input.bool(true, "Use FVG Entry Percentage", group=G_EXEC, tooltip="Disable to enter on any eligible mitigation/touch of the near edge (0% depth). This still submits a resting limit order after confirmation; it never fills retrospectively on the creation candle. Existing session, stop, size, and loss limits apply.")
+float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, maxval=100, step=0.1, group=G_EXEC, active=useFvgEntryPercentage, tooltip="Depth from the retest edge: bullish top toward bottom, bearish bottom toward top. Matches the FVG indicator's percentage line.")
 float maxStopPoints = input.float(36.0, "Maximum SL (points / pips)", minval=0.00000001, group=G_EXEC, tooltip="Maximum planned entry-to-SL distance. Keep the structural wick stop within this cap; if it exceeds the cap by no more than the SL tolerance, place SL at the cap instead.")
 float stopTolerancePoints = input.float(9.0, "SL Excess Tolerance (points / pips)", minval=0.0, group=G_EXEC, tooltip="Allow a structural SL up to Maximum SL plus this tolerance. Example: maximum 36 and tolerance 9 accepts structural distances through 45, with the actual SL capped at 36. Zero restores strict rejection above the maximum.")
 float stopPointSize = input.float(1.0, "Price Size Of One Point / Pip", minval=0.00000001, group=G_EXEC, tooltip="1.0 for GER40/NQ price points. For forex, enter your pip size, e.g. 0.0001 for GBPUSD or 0.01 for a JPY quote. This is a price-distance conversion, not position risk sizing.")
@@ -832,8 +833,9 @@ int maximumFvgAgeMinutes = input.int(120, "Maximum FVG Age (minutes)", minval=1,
 int maximumSessionConsecutiveLosses = input.int(2, "Maximum Consecutive Losses Per Session (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades belonging to the same direction session (First / Second / Third Session), across all its entry windows. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until the next session. A trade carried into a later session belongs to its original entry session. Existing positions keep their SL/TP.")
 int maximumDailyConsecutiveLosses = input.int(3, "Maximum Consecutive Losses Per Day (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades on the same calendar day, across all sessions. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until midnight in Daily Reset Timezone. Trades count on their actual exit date. Existing positions keep their SL/TP.")
 string dailyLossResetTimezone = input.string("Europe/Bucharest", "Daily Reset Timezone", group=G_LOSS, tooltip="IANA timezone used for calendar-day loss streaks and the midnight reset. Independent of the chart display timezone and ticker/session timezones; daylight saving changes are handled automatically.")
-bool enableBreakeven = input.bool(true, "Enable Breakeven", group=G_BE, tooltip="Move the existing stop to the actual filled entry price once the trigger is reached. TP stays fixed. Checked on confirmed candle closes; the amended stop is available from the next tick, never retroactively within the trigger candle. Entry candle: use its close to exclude wicks formed before the fill. Later candles: use high for longs / low for shorts. Entry-price breakeven does not compensate for fees or gap fills.")
-float breakevenTriggerPercent = input.float(70.0, "Breakeven Trigger (% Of Entry-To-TP Distance)", minval=0.1, maxval=100.0, step=0.1, group=G_BE, active=enableBreakeven, tooltip="70 means 70% of the distance from actual filled entry to the fixed TP, not 70% of initial risk. Example: long entry 100, TP 110 → trigger 107. Trigger is rounded toward TP to the next valid tick. Once active, the stop stays at entry and never moves back.")
+bool enableBreakeven = input.bool(true, "Enable Breakeven", group=G_BE, tooltip="Move the existing stop to the configured protected-profit level once the trigger is reached. TP stays fixed. Checked on confirmed candle closes; the amended stop is available from the next tick, never retroactively within the trigger candle. Entry candle: use its close to exclude wicks formed before the fill. Later candles: use high for longs / low for shorts. Stops do not guarantee a net result after fees or gaps.")
+float breakevenTriggerPercent = input.float(70.0, "Breakeven Trigger (% Of Entry-To-TP Distance)", minval=0.1, maxval=100.0, step=0.1, group=G_BE, active=enableBreakeven, tooltip="70 means 70% of the distance from actual filled entry to the fixed TP. Set 90 with a protected profit of 30 to move SL to 30% once 90% is observed. Trigger rounds toward TP; amendments take effect from the next tick.")
+float breakevenLockPercent = input.float(0.0, "BE Protected Profit (% Of Entry-To-TP Distance)", minval=0.0, maxval=99.9, step=0.1, group=G_BE, active=enableBreakeven, tooltip="0 moves SL to actual entry. 30 protects 30% of the entry-to-TP distance: at 1:3 this is +0.9R. Must be less than the trigger percentage. Rounds toward entry so tick rounding cannot overstate protected profit. An existing better stop is never loosened.")
 COLOR_BULL = #98cac2
 COLOR_BEAR = #d3a3a7
 fvgThresholdPercent = input.float(0.04, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
@@ -849,6 +851,15 @@ bool showTP = input.bool(true, "Show TP", group=G_VIS)
 bool showTradeLabels = input.bool(true, "Show Trade Labels", group=G_VIS)
 bool showStrategyDashboard = input.bool(true, "Show Strategy Dashboard", group=G_VIS)
 int retainedTradeDrawings = input.int(30, "Retained Setup Drawings", minval=1, maxval=40, group=G_VIS)
+bool showFvgTradeReport = input.bool(true, "Show FVG Trade Report", group=G_VIS)
+int fvgReportPage = input.int(1, "FVG Report Page (1 = latest)", minval=1, group=G_VIS, active=showFvgTradeReport)
+int fvgReportRows = input.int(5, "FVG Report Rows", minval=1, maxval=15, group=G_VIS, active=showFvgTradeReport)
+string fvgReportTextSize = input.string("Small", "FVG Report Text Size", options=["Tiny", "Small", "Normal"], group=G_VIS, active=showFvgTradeReport)
+bool includeFvgOrderComments = input.bool(true, "Include FVG Details In Strategy Trade Signals", group=G_VIS, tooltip="Adds gap bounds, size, confirmation time, entry mode/depth and BE configuration to the native Trades report's entry signal. Fill-time details also appear in the FVG Trade Report and chart-export series, including same-candle round trips.")
+bool logFvgTradeCsv = input.bool(false, "Log Closed FVG Trades As CSV (Pine Logs)", group=G_VIS, tooltip="Logs one FVG_TRADE_V1 CSV record per closed chart-run trade. Pine Logs retain a limited number of messages and do not expose Deep Backtesting trades. The chart report retains the most recent 1000 closed trades. Native trade signals carry gap/configuration details for Deep Backtesting too.")
+
+if barstate.isfirst and enableBreakeven and breakevenLockPercent >= breakevenTriggerPercent
+    runtime.error("BE Protected Profit must be less than Breakeven Trigger. Example: trigger 90, protected profit 30.")
 f_fvgThreshold() =>
     fvgThresholdAuto ? (bar_index > 0 ? ta.cum((high - low) / low) / bar_index : 0.0) : fvgThresholdPercent / 100.0
 
@@ -866,9 +877,27 @@ f_strategyFvgPayload() =>
     [bull, bear, upper, lower, sourceTime, anchorTime, sourceBar] = f_fvgDetectPayload()
     [bull, bear, upper, lower, sourceTime, anchorTime, sourceBar, time_close, ta.lowest(low, 3), ta.highest(high, 3)]
 
+f_fvgEntry(float upper, float lower, int bias, bool usePercentage, float percent, float tick) =>
+    float fraction = usePercentage ? percent / 100.0 : 0.0
+    math.round((bias == 1 ? upper - (upper - lower) * fraction : lower + (upper - lower) * fraction) / tick) * tick
+
 f_entryPrice(float upper, float lower, int bias) =>
-    float fraction = entryDepthPercent / 100.0
-    math.round_to_mintick(bias == 1 ? upper - (upper - lower) * fraction : lower + (upper - lower) * fraction)
+    f_fvgEntry(upper, lower, bias, useFvgEntryPercentage, entryDepthPercent, syminfo.mintick)
+
+// Fill depth intentionally remains unclamped: a gap through the zone can fill
+// beyond 100%, and rounding can put a fill just outside a very narrow gap.
+f_fvgDepth(float upper, float lower, int bias, float price) =>
+    upper > lower and not na(price) ? (bias == 1 ? upper - price : price - lower) / (upper - lower) * 100.0 : na
+
+f_fvgSizePercent(float upper, float lower, int bias) =>
+    float denominator = bias == 1 ? lower : upper
+    denominator > 0 ? (upper - lower) / denominator * 100.0 : na
+
+f_fvgTouched(float upper, float lower, float barHigh, float barLow) =>
+    barLow <= upper and barHigh >= lower
+
+f_fvgFillBars(int createdBar, int entryBar) =>
+    entryBar >= createdBar ? entryBar - createdBar : na
 
 f_stopPrice(float entry, float structuralStop, int bias) =>
     float structuralDistance = bias * (entry - structuralStop)
@@ -976,6 +1005,8 @@ type SessionFvg
     float lower
     float structureLow
     float structureHigh
+    int createdChartBar
+    int firstTouchBar = na
     bool attempted = false
 
 type SessionTradeState
@@ -992,6 +1023,8 @@ f_pruneSessionFvgs(int sessionStart, bool sessionActive) =>
     int i = array.size(sessionFvgs) - 1
     while i >= 0
         SessionFvg gap = array.get(sessionFvgs, i)
+        if bar_index > gap.createdChartBar and na(gap.firstTouchBar) and f_fvgTouched(gap.upper, gap.lower, high, low)
+            gap.firstTouchBar := bar_index
         if not sessionActive or gap.sessionStart != sessionStart or time_close >= gap.expires or gap.attempted or f_gapMitigated(gap)
             array.remove(sessionFvgs, i)
         i -= 1
@@ -1014,6 +1047,7 @@ type BreakevenState
     float stop
     bool active = false
     int activatedAt = na
+    float protectedStop = na
 
 f_breakevenTrigger(float entry, float target, float percent, int bias, float tick) =>
     bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent > 0 and percent <= 100 and tick > 0
@@ -1023,11 +1057,17 @@ f_breakevenTrigger(float entry, float target, float percent, int bias, float tic
 f_breakevenObservation(int bias, int currentBar, int entryBar, float closingPrice, float barHigh, float barLow) =>
     currentBar > entryBar ? (bias == 1 ? barHigh : barLow) : closingPrice
 
+f_breakevenLock(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent >= 0 and percent < 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.floor(raw / tick + 0.000000001) : math.ceil(raw / tick - 0.000000001)) * tick : na
+
 f_armBreakeven(BreakevenState s, bool enabled, int bias, float favorablePrice, int decisionTime) =>
     bool activated = enabled and not s.active and not na(s.trigger) and not na(favorablePrice) and bias * (favorablePrice - s.trigger) >= 0
     if activated
         // A better existing stop is never loosened, including after a gap fill.
-        s.stop := bias == 1 ? math.max(s.stop, s.entry) : math.min(s.stop, s.entry)
+        float destination = na(s.protectedStop) ? s.entry : s.protectedStop
+        s.stop := bias == 1 ? math.max(s.stop, destination) : math.min(s.stop, destination)
         s.active := true
         s.activatedAt := decisionTime
     activated
@@ -1047,6 +1087,11 @@ type TradePlan
     float lower
     int anchorTime
     int sourceClose
+    int createdChartBar
+    int firstTouchBar = na
+    float actualEntry = na
+    int entryBar = na
+    int entryTime = na
     bool filled = false
     line entryLine = na
     line stopLine = na
@@ -1055,6 +1100,46 @@ type TradePlan
     label setupLabel = na
     BreakevenState breakeven = na
     line breakevenStopLine = na
+
+// A separate closed-trade ledger survives plan cleanup and same-bar round trips.
+// One entry/open position at a time means at most one closure per chart bar.
+type FvgTradeAudit
+    int tradeNumber
+    TradePlan plan
+    int exitTime
+    float exitPrice
+    float profit
+    float priceR
+    string result
+
+var array<FvgTradeAudit> fvgTradeHistory = array.new<FvgTradeAudit>()
+FvgTradeAudit closedFvgAudit = na
+
+f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime) =>
+    if na(p.actualEntry)
+        p.actualEntry := price
+        p.entryBar := entryBar
+        p.entryTime := entryTime
+        // An emulator gap fill can skip the candle's overlap with the zone.
+        // The fill bar is still the first entry touch if none was seen earlier.
+        p.firstTouchBar := na(p.firstTouchBar) ? entryBar : math.min(p.firstTouchBar, entryBar)
+        if not na(p.setupLabel)
+            label.set_text(p.setupLabel, label.get_text(p.setupLabel) + "\nFill " + str.tostring(price, format.mintick) + " · depth " + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, price), "#.##") + "%\nBars to fill " + str.tostring(f_fvgFillBars(p.createdChartBar, entryBar)) + " · first touch " + str.tostring(p.firstTouchBar - p.createdChartBar))
+    true
+
+f_fvgEntryComment(TradePlan p, string windowTag) =>
+    string base = (p.bias == 1 ? "LONG " : "SHORT ") + windowTag
+    includeFvgOrderComments ? base + " | FVGv1 tf=" + fvgDetectionTf + " lo=" + str.tostring(p.lower, format.mintick) + " hi=" + str.tostring(p.upper, format.mintick) + " size=" + str.tostring(p.upper - p.lower, format.mintick) + " sizePct=" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + " created=" + str.tostring(p.sourceClose) + " mode=" + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + " depth=" + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + " rr=" + str.tostring(rewardRiskRatio) + " BE=" + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "OFF") : base
+
+f_fvgFillComment(TradePlan p) =>
+    includeFvgOrderComments and not na(p.actualEntry) ? " | fillPct=" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + " fillBars=" + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " touchBars=" + str.tostring(p.firstTouchBar - p.createdChartBar) + " ageMin=" + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##") : ""
+
+f_logFvgTrade(FvgTradeAudit a) =>
+    TradePlan p = a.plan
+    if logFvgTradeCsv
+        // Schema is documented alongside this strategy. Epoch times are UTC ms.
+        log.info("FVG_TRADE_V1," + str.tostring(a.tradeNumber) + "," + p.orderId + "," + str.tostring(p.bias) + "," + fvgDetectionTf + "," + str.tostring(p.sourceClose) + "," + str.tostring(p.lower) + "," + str.tostring(p.upper) + "," + str.tostring(p.upper - p.lower) + "," + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias)) + "," + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + "," + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + "," + str.tostring(p.entry) + "," + str.tostring(p.actualEntry) + "," + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry)) + "," + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + "," + str.tostring(p.firstTouchBar - p.createdChartBar) + "," + str.tostring((p.entryTime - p.sourceClose) / 60000.0) + "," + str.tostring(p.entryTime) + "," + str.tostring(a.exitTime) + "," + str.tostring(p.stop) + "," + str.tostring(p.target) + "," + str.tostring(rewardRiskRatio) + "," + str.tostring(enableBreakeven ? breakevenTriggerPercent : na) + "," + str.tostring(enableBreakeven ? breakevenLockPercent : na) + "," + str.tostring(not na(p.breakeven) and p.breakeven.active ? 1 : 0) + "," + str.tostring(a.exitPrice) + "," + a.result + "," + str.tostring(a.profit) + "," + str.tostring(a.priceR))
+    true
 
 // --- Consecutive closed-loss limits ---
 // Session ownership follows the entry plan; daily ownership follows actual exit
@@ -1144,7 +1229,7 @@ f_drawPlan(TradePlan p) =>
     if showTP
         p.targetLine := line.new(p.sourceClose, p.target, p.expires, p.target, xloc=xloc.bar_time, color=color.lime)
     if showTradeLabels
-        string details = (p.bias == 1 ? "LONG" : "SHORT") + " · " + str.tostring(entryDepthPercent, "#.##") + "% FVG\nE " + str.tostring(p.entry, format.mintick) + " · SL " + str.tostring(p.stop, format.mintick) + "\nTP " + str.tostring(p.target, format.mintick) + " · " + str.tostring(math.abs(p.entry - p.stop) / stopPointSize, "#.##") + " pts/pips"
+        string details = (p.bias == 1 ? "LONG" : "SHORT") + " · " + (useFvgEntryPercentage ? str.tostring(entryDepthPercent, "#.##") + "% FVG" : "Any FVG touch") + "\nGap " + str.tostring(p.lower, format.mintick) + "–" + str.tostring(p.upper, format.mintick) + " · " + str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + " pts/pips\nE " + str.tostring(p.entry, format.mintick) + " · SL " + str.tostring(p.stop, format.mintick) + "\nTP " + str.tostring(p.target, format.mintick) + " · " + str.tostring(math.abs(p.entry - p.stop) / stopPointSize, "#.##") + " pts/pips"
         p.setupLabel := label.new(p.sourceClose, p.entry, details, xloc=xloc.bar_time, style=p.bias == 1 ? label.style_label_up : label.style_label_down, textcolor=color.white, color=color.new(directionColor, 30), size=size.tiny)
     array.push(drawingHistory, p)
     while array.size(drawingHistory) > retainedTradeDrawings
@@ -1171,7 +1256,9 @@ if barstate.isconfirmed
         f_pruneSessionFvgs(fiveSessionState.startTime, fiveSessionState.active)
         if nativeMode and fiveSessionState.active and not sessionTradeState.hasFill and confirmedNewFvg and fvgSourceTimeRaw >= fiveSessionState.startTime and fvgSourceCloseRaw <= fiveSessionState.endTime
             int gapExpiry = math.min(fvgSourceCloseRaw + maximumFvgAgeMinutes * 60000, fiveSessionState.endTime)
-            array.push(sessionFvgs, SessionFvg.new(fiveSessionState.startTime, fvgBullRaw ? 1 : -1, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, gapExpiry, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw))
+            array.push(sessionFvgs, SessionFvg.new(fiveSessionState.startTime, fvgBullRaw ? 1 : -1, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, gapExpiry, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index))
+    if not na(activePlan) and not activePlan.filled and bar_index > activePlan.createdChartBar and na(activePlan.firstTouchBar) and f_fvgTouched(activePlan.upper, activePlan.lower, high, low)
+        activePlan.firstTouchBar := bar_index
     // A limit entry and bracket can both fill within one chart candle. Read the
     // closed ledger before the open position so that these round trips count once.
     if strategy.closedtrades > processedClosed
@@ -1182,6 +1269,16 @@ if barstate.isconfirmed
             // every newly closed trade once, including same-candle round trips.
             f_recordLossResult(lossLimitState, tradeSessionStart, strategy.closedtrades.exit_time(i), strategy.closedtrades.profit(i), maximumSessionConsecutiveLosses, maximumDailyConsecutiveLosses, dailyLossResetTimezone)
             if ownsPlan
+                f_captureFvgFill(activePlan, strategy.closedtrades.entry_price(i), strategy.closedtrades.entry_bar_index(i), strategy.closedtrades.entry_time(i))
+                float initialActualRisk = activePlan.bias * (activePlan.actualEntry - activePlan.stop)
+                float priceR = initialActualRisk > 0 ? activePlan.bias * (strategy.closedtrades.exit_price(i) - activePlan.actualEntry) / initialActualRisk : na
+                string exitComment = strategy.closedtrades.exit_comment(i)
+                string exitResult = str.startswith(exitComment, "TP") ? "TP" : str.startswith(exitComment, "BE") ? "BE" : str.startswith(exitComment, "SL") ? "SL" : exitComment
+                closedFvgAudit := FvgTradeAudit.new(i + 1, activePlan, strategy.closedtrades.exit_time(i), strategy.closedtrades.exit_price(i), strategy.closedtrades.profit(i), priceR, exitResult)
+                array.push(fvgTradeHistory, closedFvgAudit)
+                if array.size(fvgTradeHistory) > 1000
+                    array.shift(fvgTradeHistory)
+                f_logFvgTrade(closedFvgAudit)
                 f_countFill(activePlan)
                 f_finishPlanDrawing(activePlan, time_close)
                 lastEvent := strategy.closedtrades.exit_comment(i) + " · " + activePlan.orderId
@@ -1195,11 +1292,12 @@ if barstate.isconfirmed
     f_syncLossDay(lossLimitState, time_close, dailyLossResetTimezone)
     bool lossEntriesAllowed = f_lossEntriesAllowed(lossLimitState)
     if not na(activePlan) and strategy.position_size != 0
+        f_captureFvgFill(activePlan, strategy.position_avg_price, strategy.opentrades.entry_bar_index(0), strategy.opentrades.entry_time(0))
         f_countFill(activePlan)
         lastEvent := "Open " + activePlan.orderId
         if na(activePlan.breakeven)
             float filledEntry = strategy.position_avg_price
-            activePlan.breakeven := BreakevenState.new(filledEntry, f_breakevenTrigger(filledEntry, activePlan.target, breakevenTriggerPercent, activePlan.bias, syminfo.mintick), activePlan.stop)
+            activePlan.breakeven := BreakevenState.new(filledEntry, f_breakevenTrigger(filledEntry, activePlan.target, breakevenTriggerPercent, activePlan.bias, syminfo.mintick), activePlan.stop, protectedStop=f_breakevenLock(filledEntry, activePlan.target, breakevenLockPercent, activePlan.bias, syminfo.mintick))
         float observedPrice = f_breakevenObservation(activePlan.bias, bar_index, strategy.opentrades.entry_bar_index(0), close, high, low)
         bool justArmedBreakeven = f_armBreakeven(activePlan.breakeven, enableBreakeven, activePlan.bias, observedPrice, time_close)
         if justArmedBreakeven
@@ -1210,7 +1308,8 @@ if barstate.isconfirmed
             lastEvent := "Breakeven armed · " + activePlan.orderId
         // Amend the SAME bracket ID and keep its original TP and full size.
         // Submission happens now; no earlier part of this candle is re-simulated.
-        strategy.exit(activePlan.orderId + "-EXIT", from_entry=activePlan.orderId, stop=activePlan.breakeven.stop, limit=activePlan.target, comment_profit="TP", comment_loss=activePlan.breakeven.active ? "BE" : "SL")
+        string fillComment = f_fvgFillComment(activePlan)
+        strategy.exit(activePlan.orderId + "-EXIT", from_entry=activePlan.orderId, stop=activePlan.breakeven.stop, limit=activePlan.target, comment_profit="TP" + fillComment, comment_loss=(activePlan.breakeven.active ? "BE" : "SL") + fillComment)
         f_finishPlanDrawing(activePlan, time_close)
 
     if not na(activePlan) and not activePlan.filled
@@ -1241,7 +1340,7 @@ if barstate.isconfirmed
         bool useSessionGap = firstTradeFromSessionFvg and not sessionTradeState.hasFill
         SessionFvg candidate = useSessionGap ? f_firstSessionFvg(fiveSessionState.bias) : na
         if not useSessionGap and confirmedNewFvg and afterWindowOpened and afterDirectionKnown and alignedFvg
-            candidate := SessionFvg.new(fiveSessionState.startTime, fiveSessionState.bias, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, fiveSessionState.endTime, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw)
+            candidate := SessionFvg.new(fiveSessionState.startTime, fiveSessionState.bias, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, fiveSessionState.endTime, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index)
         if beforeDeadline and allowance and not na(candidate)
             // Consume an attempted gap once; a rejection/cancellation cannot loop
             // back to it or prevent the next valid gap from being considered.
@@ -1271,13 +1370,13 @@ if barstate.isconfirmed
             else
                 int expires = math.min(ew.occurrenceEnd, candidate.expires)
                 string orderId = (bias == 1 ? "LONG-" : "SHORT-") + str.tostring(candidate.sourceTime) + "-" + str.tostring(selectedWindow)
-                activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose)
+                activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose, candidate.createdChartBar, firstTouchBar=candidate.firstTouchBar)
                 plannedQtyValue := qty
                 plannedRiskValue := qty * math.abs(activePlan.entry - activePlan.stop) / stopPointSize * pointValue
                 targetRiskValue := riskPerTrade
                 qualifiedSetups += 1
                 f_drawPlan(activePlan)
-                strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, qty=qty, comment=(bias == 1 ? "LONG " : "SHORT ") + ew.tag)
+                strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, qty=qty, comment=f_fvgEntryComment(activePlan, ew.tag))
                 strategy.exit(orderId + "-EXIT", from_entry=orderId, stop=stop, limit=target, comment_profit="TP", comment_loss="SL")
                 lastEvent := "Pending " + orderId
 
@@ -1294,7 +1393,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         string windowName = na(selectedWindow) ? "Outside entry windows" : array.get(executionWindows, selectedWindow).tag
         string directionText = currentActiveSessionIndex == 0 ? "Outside reference sessions" : fiveSessionState.status
         float currentStop = na(activePlan) ? na : na(activePlan.breakeven) ? activePlan.stop : activePlan.breakeven.stop
-        string breakevenText = not enableBreakeven ? "OFF" : na(activePlan) or na(activePlan.breakeven) ? "Waiting · " + str.tostring(breakevenTriggerPercent) + "% to TP" : (activePlan.breakeven.active ? "ACTIVE · SL " + f_price(activePlan.breakeven.stop) : "Trigger " + f_price(activePlan.breakeven.trigger)) + " · " + str.tostring(breakevenTriggerPercent) + "% to TP"
+        string breakevenText = not enableBreakeven ? "OFF" : (na(activePlan) or na(activePlan.breakeven) ? "Waiting" : activePlan.breakeven.active ? "ACTIVE · SL " + f_price(activePlan.breakeven.stop) : "Trigger " + f_price(activePlan.breakeven.trigger)) + " · at " + str.tostring(breakevenTriggerPercent) + "% lock " + str.tostring(breakevenLockPercent) + "%"
         array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Session loss streak / limit", "Daily loss streak / limit", "Breakeven", "Last event")
         array<string> vals = array.from(strategyStatus, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(na(activePlan.breakeven) ? activePlan.entry : activePlan.breakeven.entry), na(activePlan) ? "—" : f_price(currentStop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " + " + str.tostring(stopTolerancePoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), str.tostring(lossLimitState.sessionStreak) + " / " + (maximumSessionConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumSessionConsecutiveLosses)), str.tostring(lossLimitState.dailyStreak) + " / " + (maximumDailyConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumDailyConsecutiveLosses)) + " · " + dailyLossResetTimezone, breakevenText, lastEvent)
         for i = 0 to 15
@@ -1330,3 +1429,60 @@ plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.
 plot(enableBreakeven and not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.trigger : na, "Audit: Breakeven Trigger", display=display.data_window)
 plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.stop : na, "Audit: Current Stop", display=display.data_window)
 plot(not na(activePlan) and not na(activePlan.breakeven) and activePlan.breakeven.active ? 1 : 0, "Audit: Breakeven Active", display=display.data_window)
+
+// Closed-trade values emit on the exit-observation bar, even if a new plan is
+// submitted on that same close. They never read the replacement activePlan.
+TradePlan closedFvgPlan = na(closedFvgAudit) ? na : closedFvgAudit.plan
+plot(na(closedFvgAudit) ? na : closedFvgAudit.tradeNumber, "FVG Trade: Number", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.bias, "FVG Trade: Direction", display=display.data_window)
+plot(na(closedFvgPlan) ? na : detectionSeconds, "FVG Trade: Detection Seconds", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.sourceClose, "FVG Trade: Created ms", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.lower, "FVG Trade: Lower", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.upper, "FVG Trade: Upper", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.upper - closedFvgPlan.lower, "FVG Trade: Size Price", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgSizePercent(closedFvgPlan.upper, closedFvgPlan.lower, closedFvgPlan.bias), "FVG Trade: Size Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : useFvgEntryPercentage ? 1 : 0, "FVG Trade: Percentage Mode", display=display.data_window)
+plot(na(closedFvgPlan) ? na : useFvgEntryPercentage ? entryDepthPercent : 0, "FVG Trade: Planned Depth Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.entry, "FVG Trade: Planned Entry", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.actualEntry, "FVG Trade: Actual Entry", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgDepth(closedFvgPlan.upper, closedFvgPlan.lower, closedFvgPlan.bias, closedFvgPlan.actualEntry), "FVG Trade: Actual Depth Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgFillBars(closedFvgPlan.createdChartBar, closedFvgPlan.entryBar), "FVG Trade: Bars To Fill", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.firstTouchBar - closedFvgPlan.createdChartBar, "FVG Trade: Bars To First Touch", display=display.data_window)
+plot(na(closedFvgPlan) ? na : (closedFvgPlan.entryTime - closedFvgPlan.sourceClose) / 60000.0, "FVG Trade: Minutes To Fill", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.entryTime, "FVG Trade: Entry ms", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.exitTime, "FVG Trade: Exit ms", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.stop, "FVG Trade: Initial SL", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.target, "FVG Trade: TP", display=display.data_window)
+plot(na(closedFvgPlan) ? na : rewardRiskRatio, "FVG Trade: Configured RR", display=display.data_window)
+plot(na(closedFvgPlan) ? na : enableBreakeven ? 1 : 0, "FVG Trade: BE Enabled", display=display.data_window)
+plot(na(closedFvgPlan) or not enableBreakeven ? na : breakevenTriggerPercent, "FVG Trade: BE Trigger Percent", display=display.data_window)
+plot(na(closedFvgPlan) or not enableBreakeven ? na : breakevenLockPercent, "FVG Trade: BE Lock Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : not na(closedFvgPlan.breakeven) and closedFvgPlan.breakeven.active ? 1 : 0, "FVG Trade: BE Activated", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.exitPrice, "FVG Trade: Exit Price", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.profit, "FVG Trade: Profit", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.priceR, "FVG Trade: Price R", display=display.data_window)
+plot(na(closedFvgPlan) ? na : stopPointSize, "FVG Trade: Point Size", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.result == "SL" ? 1 : closedFvgAudit.result == "TP" ? 2 : closedFvgAudit.result == "BE" ? 3 : 0, "FVG Trade: Exit Reason", display=display.data_window)
+
+var table fvgReport = table.new(position.bottom_left, 9, fvgReportRows + 2, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+if barstate.islast or barstate.islastconfirmedhistory
+    table.clear(fvgReport, 0, 0, 8, fvgReportRows + 1)
+    if showFvgTradeReport
+        int count = array.size(fvgTradeHistory)
+        int pages = math.max(1, int(math.ceil(count / float(fvgReportRows))))
+        int page = math.min(fvgReportPage, pages)
+        string config = (useFvgEntryPercentage ? "Depth " + str.tostring(entryDepthPercent) + "%" : "Any touch") + " · RR 1:" + str.tostring(rewardRiskRatio) + " · BE " + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "% → " + str.tostring(breakevenLockPercent) + "%" : "OFF")
+        array<string> contextCells = array.from("FVG Report", useFvgEntryPercentage ? str.tostring(entryDepthPercent) + "% depth" : "Any touch", "RR 1:" + str.tostring(rewardRiskRatio), enableBreakeven ? "BE " + str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "BE OFF", "Page " + str.tostring(page) + "/" + str.tostring(pages), "TF " + fvgDetectionTf, str.tostring(count) + " closed", "Chart run", "Hover details")
+        array<string> headings = array.from("Trade", "Created / TF", "Gap low / high", "Size pts / %", "Fill / depth %", "First touch\nchart bars", "Entry age\nbars / min", "Exit / price R\nP/L", "BE activated")
+        for c = 0 to 8
+            table.cell(fvgReport, c, 0, array.get(contextCells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=config + "\nMost recent 1000 closed chart-run trades retained. Export chart data for FVG Trade columns.")
+            table.cell(fvgReport, c, 1, array.get(headings, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.silver, text_size=f_labelSize(fvgReportTextSize))
+        for row = 0 to fvgReportRows - 1
+            int index = count - 1 - (page - 1) * fvgReportRows - row
+            if index >= 0
+                FvgTradeAudit a = array.get(fvgTradeHistory, index)
+                TradePlan p = a.plan
+                string details = p.orderId + "\nConfirmed " + str.format_time(p.sourceClose, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + " (" + dailyLossResetTimezone + ")\nPlanned E / SL / TP: " + f_price(p.entry) + " / " + f_price(p.stop) + " / " + f_price(p.target) + "\nActual entry: " + f_price(p.actualEntry) + " · " + str.format_time(p.entryTime, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + "\nChart bars are measured from the detection candle's confirmation (creation bar = 0).\nFirst touch is range overlap, not close-through invalidation. Price R excludes fees."
+                array<string> cells = array.from(str.tostring(a.tradeNumber) + (p.bias == 1 ? " LONG" : " SHORT"), str.format_time(p.sourceClose, "MM-dd HH:mm", dailyLossResetTimezone) + "\n" + fvgDetectionTf, f_price(p.lower) + "\n" + f_price(p.upper), str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + "\n" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + "%", f_price(p.actualEntry) + "\n" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + "%", str.tostring(p.firstTouchBar - p.createdChartBar), str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " / " + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##"), a.result + " / " + str.tostring(a.priceR, "#.##") + "R\n" + str.tostring(a.profit, "#.##"), not na(p.breakeven) and p.breakeven.active ? "YES" : "NO")
+                for c = 0 to 8
+                    table.cell(fvgReport, c, row + 2, array.get(cells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=details)

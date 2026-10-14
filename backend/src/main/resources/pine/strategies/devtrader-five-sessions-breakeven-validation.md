@@ -1,5 +1,9 @@
 # Breakeven — 14 October 2026
 
+Historical validation of the initial entry-price BE implementation. The current
+strategy also supports a protected-profit destination and per-trade FVG audit;
+see [the current guide and validation](devtrader-five-sessions-fvg-report.md).
+
 Source: `devtrader-five-sessions-fvg-windows.pine`.
 
 ## Configuration and behavior

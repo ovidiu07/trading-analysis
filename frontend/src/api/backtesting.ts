@@ -420,6 +420,7 @@ export type BacktestingImportResponse = {
   format?: string
   rowCount?: number
   duplicates?: number
+  metadataUpdated?: number
   preview?: boolean
   warnings?: string[]
   imported: number

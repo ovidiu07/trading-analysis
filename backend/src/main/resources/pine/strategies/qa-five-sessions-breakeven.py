@@ -84,6 +84,21 @@ def build_harness(source: str) -> tuple[str, int, int]:
     check("beResult.sessionStreak == 0 and beResult.dailyStreak == 0 and f_lossEntriesAllowed(beResult)", "zero-P/L breakeven breaks loss streaks")
     step('f_recordLossResult(beResult, 1000, 1000, -1, 2, 3, "UTC")')
     check("beResult.sessionStreak == 1 and beResult.dailyStreak == 1", "negative P/L after BE fees or gap is still a loss")
+    check("math.abs(f_breakevenLock(100, 130, 30, 1, 0.1) - 109) < 0.000001", "1 to 3 long locks 0.9R at 30 percent of target")
+    check("math.abs(f_breakevenLock(100, 70, 30, -1, 0.1) - 91) < 0.000001", "1 to 3 short locks 0.9R at 30 percent of target")
+    check("f_breakevenLock(100, 130, 0, 1, 0.1) == 100", "zero lock preserves entry-price breakeven")
+    check("f_breakevenLock(100, 101, 30, 1, 0.25) == 100.25", "long lock rounds toward entry")
+    check("f_breakevenLock(100, 99, 30, -1, 0.25) == 99.75", "short lock rounds toward entry")
+    check("na(f_breakevenLock(100, 100, 30, 1, 0.1)) and na(f_breakevenLock(100, 130, 100, 1, 0.1))", "invalid lock cannot produce a protected level")
+    step("BreakevenState protectedLong = BreakevenState.new(100, 127, 90, protectedStop=109)")
+    check("not f_armBreakeven(protectedLong, true, 1, 126.9, 1000) and protectedLong.stop == 90", "90 percent trigger does not arm early")
+    check("f_armBreakeven(protectedLong, true, 1, 127, 2000) and protectedLong.stop == 109", "90 percent trigger locks 30 percent for a long")
+    check("not f_armBreakeven(protectedLong, true, 1, 101, 3000) and protectedLong.stop == 109", "profit lock cannot loosen on retracement")
+    step("BreakevenState protectedShort = BreakevenState.new(100, 73, 110, protectedStop=91)")
+    check("f_armBreakeven(protectedShort, true, -1, 73, 2000) and protectedShort.stop == 91", "90 percent trigger locks 30 percent for a short")
+    step("BreakevenState tighter = BreakevenState.new(100, 127, 112, protectedStop=109)")
+    step("f_armBreakeven(tighter, true, 1, 127, 2000)")
+    check("tighter.stop == 112", "configured protection cannot loosen a better stop")
     total = loss_count + checks
     lines.extend([
         "var table result = table.new(position.bottom_left, 1, 1)",
@@ -101,7 +116,10 @@ def check_wiring(source: str) -> int:
         'strategy.opentrades.entry_bar_index(0), close, high, low',
         'f_armBreakeven(activePlan.breakeven, enableBreakeven, activePlan.bias, observedPrice, time_close)',
         'strategy.exit(activePlan.orderId + "-EXIT", from_entry=activePlan.orderId, stop=activePlan.breakeven.stop, limit=activePlan.target',
-        'comment_loss=activePlan.breakeven.active ? "BE" : "SL"',
+        'comment_loss=(activePlan.breakeven.active ? "BE" : "SL") + fillComment',
+        'breakevenLockPercent = input.float(0.0,',
+        'enableBreakeven and breakevenLockPercent >= breakevenTriggerPercent',
+        'protectedStop=f_breakevenLock(filledEntry, activePlan.target, breakevenLockPercent',
         'strategy.exit(orderId + "-EXIT", from_entry=orderId, stop=stop, limit=target',
         'line.delete(p.breakevenStopLine)',
         'p.breakeven.activatedAt : endTime',
@@ -112,7 +130,7 @@ def check_wiring(source: str) -> int:
     ledger = source.index("f_recordLossResult(lossLimitState,")
     open_position = source.index("if not na(activePlan) and strategy.position_size != 0")
     amend = source.index('strategy.exit(activePlan.orderId + "-EXIT",')
-    pending = source.index("if not na(activePlan) and not activePlan.filled")
+    pending = source.index("if not na(activePlan) and not activePlan.filled\n")
     assert ledger < open_position < amend < pending, "Amend only a surviving filled position after processing closures"
     return len(requirements) + 1
 

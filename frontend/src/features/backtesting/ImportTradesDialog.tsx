@@ -43,6 +43,7 @@ export default function ImportTradesDialog({ workspace, onClose, onImported }: {
       {mutation.isError && <Alert severity="error">{mutation.error instanceof Error ? mutation.error.message : t('backtesting.errors.import')}</Alert>}
       {result && <Stack spacing={1} aria-live="polite">
         <Alert severity={result.invalid ? 'warning' : 'success'}>{t(completed ? 'backtesting.replay.imported' : 'backtesting.replay.previewResult', { count: result.imported, rows: result.rowCount || 0, duplicates: result.duplicates || 0, invalid: result.invalid })}</Alert>
+        {Boolean(result.metadataUpdated) && <Alert severity="info">{t(completed ? 'backtesting.replay.fvgUpdated' : 'backtesting.replay.fvgUpdatePreview', { count: result.metadataUpdated! })}</Alert>}
         {result.format === 'TRADINGVIEW_REPLAY' && <Alert severity="info">{t('backtesting.replay.importCaveats')}</Alert>}
         {result.errors.length > 0 && <Alert severity="warning"><Typography variant="subtitle2">{t('backtesting.replay.rowErrors')}</Typography>{result.errors.map((error, i) => <Typography variant="body2" key={i}>{error}</Typography>)}</Alert>}
         {result.trades.length > 0 && (mobile
@@ -66,7 +67,7 @@ export default function ImportTradesDialog({ workspace, onClose, onImported }: {
     </Stack></DialogContent>
     <DialogActions><Button disabled={mutation.isLoading} onClick={onClose}>{t(completed ? 'backtesting.replay.done' : 'backtesting.actions.cancel')}</Button>
       {!completed && (!result ? <Button variant="contained" disabled={!file || mutation.isLoading} onClick={() => mutation.mutate(true)}>{t(mutation.isLoading ? 'backtesting.replay.previewing' : 'backtesting.replay.preview')}</Button>
-        : <Button variant="contained" disabled={!result.imported || mutation.isLoading} onClick={() => mutation.mutate(false)}>{t(mutation.isLoading ? 'backtesting.actions.importing' : 'backtesting.replay.importValid', { count: result.imported })}</Button>)}
+        : <Button variant="contained" disabled={(!result.imported && !result.metadataUpdated) || mutation.isLoading} onClick={() => mutation.mutate(false)}>{t(mutation.isLoading ? 'backtesting.actions.importing' : result.metadataUpdated ? 'backtesting.replay.applyImport' : 'backtesting.replay.importValid', { count: result.imported })}</Button>)}
     </DialogActions>
   </Dialog>
 }

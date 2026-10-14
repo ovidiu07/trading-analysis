@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import type { BacktestingEdgeLens, BacktestingMetric, BacktestingScreenshot, BacktestingTrade, BacktestingWorkspace } from '../../api/backtesting'
 import { calendarResearchTrades, groupCalendarPeriods } from './calendar'
+import { fvgSignalExport } from './fvgSignals'
 import { computeResearchMetrics, emptyResearchFilters, filterResearchTrades, type ResearchFilters } from './research'
 
 export type ExportPeriod = { from: string; to: string; dateBasis: 'entry' | 'exit'; filters?: ResearchFilters }
@@ -76,7 +77,7 @@ export function tradeExportRows(trades: BacktestingTrade[]): Row[] {
       const value = trade[field as keyof BacktestingTrade]
       row[header] = Array.isArray(value) ? JSON.stringify(value) : value
     }
-    return row
+    return { ...row, ...fvgSignalExport(trade) }
   })
 }
 
@@ -180,6 +181,9 @@ export function buildBacktestingReport(workspace: BacktestingWorkspace, trades: 
       'SL/TP hit date and time use only an explicit SL/TP exit signal and recorded exit timestamp. Result alone does not establish an SL/TP hit.',
       'Planned SL/TP prices and order placement/amendment timestamps are not stored by this trade model and cannot be exported.',
       'Missing fields are blank. Source timezone is blank when unspecified; no timezone conversion is applied. Gap timestamps contain time only as stored.',
+      'FVG diagnostic columns read versioned FVGv1 entry signals and fill details from exit signals. Gap annotation columns are stored research fields; native imports populate supported gap fields.',
+      'FVG created (UTC) is the full source confirmation timestamp. Gap created time is populated only with an explicit import timezone. FVG size is in price units; configured point/pip size and exact first-touch clock are absent from native signals.',
+      'FVG actual fill depth is computed from gap geometry and actual entry price, without clamping. Bars to entry/first touch and age are blank for same-candle round trips without augmented exit signals. Configured R:R and BE percentages are source settings, not realized R.',
       'Planned R:R and realized R are separate stored fields. R is never inferred from cash, outcome, prices or planned R:R.',
       'R totals, expectancy and drawdown are blank when R coverage is incomplete. Empty analytics samples have blank performance values.',
       'Cash results use known net PnL separately for each currency without FX conversion. Cash coverage is known PnL / trades with that currency.',

@@ -1,0 +1,13 @@
+{
+  "rows": 523,
+  "gapPresent": 523,
+  "metadataAvailable": 523,
+  "actualDepthAvailable": 523,
+  "timingAvailable": 501,
+  "timingUnavailable": 22,
+  "sourceFillDepthReconciled": true,
+  "configuredRR": 3,
+  "beTriggerPercent": 90,
+  "beProtectedProfitPercent": 30,
+  "verification": "LOCAL_PRODUCTION_EXPORT_FUNCTIONS_WITH_MOCKED_BACKEND_PERSISTENCE"
+}

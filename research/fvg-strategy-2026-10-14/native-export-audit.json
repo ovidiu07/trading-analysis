@@ -1,0 +1,10 @@
+{
+  "nativeClosedTrades" : 523,
+  "gapPresent" : 523,
+  "withExitFillMetrics" : 501,
+  "enrichedExistingExecutions" : 523,
+  "newExecutions" : 0,
+  "preservedIdsCashRNotesTags" : true,
+  "previewReadOnly" : true,
+  "persistence" : "MOCKED_LOCAL_ONLY"
+}

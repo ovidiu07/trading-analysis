@@ -11,6 +11,7 @@ public class BacktestingImportResponse {
     String format;
     Integer rowCount;
     Integer duplicates;
+    Integer metadataUpdated;
     boolean preview;
     List<String> warnings;
     Integer imported;

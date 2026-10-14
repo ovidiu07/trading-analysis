@@ -44,6 +44,20 @@ describe('backtesting replay import review', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'CSV instrument' }), { target: { value: 'PEPPERSTONE:GER40F' } })
     expect(screen.getByRole('button', { name: 'Preview import' })).toBeInTheDocument()
   })
+  it('applies a metadata-only reimport and refreshes existing trades without adding duplicates', async () => {
+    const update = { ...result, imported: 0, invalid: 0, duplicates: 523, metadataUpdated: 523, errors: [], trades: [] }
+    api.importBacktestingTrades.mockResolvedValueOnce({ ...update, preview: true }).mockResolvedValueOnce({ ...update, preview: false })
+    const saved = setup()
+    fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [new File(['csv'], 'Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_bb5c2.csv')] } })
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    expect(await screen.findByText(/FVG details will be added to 523 existing trades/)).toBeInTheDocument()
+    expect(saved).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Apply import' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Apply import' }))
+    expect(await screen.findByText(/FVG details updated on 523 existing trades/)).toBeInTheDocument()
+    expect(saved).toHaveBeenCalledOnce()
+    expect(api.importBacktestingTrades).toHaveBeenLastCalledWith(workspace.id, expect.any(File), { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: false })
+  })
   it.each([
     'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09_0eb11.csv',
     'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09.csv',

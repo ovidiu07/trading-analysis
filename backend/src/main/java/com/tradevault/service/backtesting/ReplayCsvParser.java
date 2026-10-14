@@ -128,7 +128,7 @@ public final class ReplayCsvParser {
         String fingerprint = fingerprint(String.join("|", FORMAT, instrument, currency,
                 entry.at().toString(), exit.at().toString(), entry.direction().name(),
                 canonical(entry.price()), canonical(exit.price()), canonical(entry.quantity())));
-        return BacktestingTrade.builder()
+        BacktestingTrade trade = BacktestingTrade.builder()
                 .date(entry.at().toLocalDate()).entryTime(entry.at().toLocalTime())
                 .weekday(entry.at().getDayOfWeek().name().substring(0, 1) + entry.at().getDayOfWeek().name().substring(1).toLowerCase(Locale.ROOT))
                 .exitDate(exit.at().toLocalDate()).exitTime(exit.at().toLocalTime())
@@ -149,6 +149,8 @@ public final class ReplayCsvParser {
                 .importFormat(FORMAT).importFileName(filename).importTradeNumber(entry.number())
                 .importFingerprint(fingerprint).sourceTimezone(timezone == null || timezone.isBlank() ? null : timezone)
                 .tagsJson("[]").build();
+        FvgSignalMetadata.apply(trade);
+        return trade;
     }
 
     private static String currencyHeader(List<String> headers, Pattern pattern, String label) {

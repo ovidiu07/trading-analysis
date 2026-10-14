@@ -80,6 +80,38 @@ describe('backtesting CSV export', () => {
     expect(parseCsv(rowsToCsv([{ Notes: notes, Loss: -99.02 }]))).toEqual([{ Notes: notes, Loss: '-99.02' }])
   })
 
+  it('exports FVG source geometry, timing and independent profit-lock settings as dedicated columns', () => {
+    const entrySignal = 'SHORT GER / 2 | FVGv1 tf=5 lo=19198.5 hi=19210.0 size=11.5 sizePct=0.0599 created=1728397200000 mode=TOUCH depth=0 rr=3 BE=90/30'
+    const source = trade('fvg', { direction: 'SHORT', entryPrice: 19198.5, entrySignal,
+      exitSignal: 'SL | fillPct=0 fillBars=1 touchBars=1 ageMin=0', pnlR: null, plannedRR: null,
+      gapPresent: true, gapHigh: 19210, gapLow: 19198.5, gapSizePoints: null })
+    const [row] = parseCsv(rowsToCsv(tradeExportRows([source])))
+    expect(row).toMatchObject({ 'FVG metadata status': 'AVAILABLE', 'Gap present': 'true', 'Gap high': '19210', 'Gap low': '19198.5',
+      'FVG created (UTC)': '2024-10-08T14:20:00.000Z', 'FVG size (price units)': '11.5', 'Gap size (points)': '',
+      'FVG entry mode': 'TOUCH', 'FVG planned entry depth (%)': '0', 'FVG actual fill depth (%)': '0',
+      'FVG bars from creation to entry': '1', 'FVG bars from creation to first touch': '1', 'FVG minutes from creation to entry': '0',
+      'FVG configured R:R': '3', 'FVG BE enabled': 'true', 'FVG BE trigger (% of entry-to-TP)': '90',
+      'FVG BE protected profit (% of entry-to-TP)': '30', 'Planned R:R': '', 'Realized R': '', 'Exit type': 'SL', 'Entry signal': entrySignal })
+    expect(source.gapSizePoints).toBeNull()
+  })
+
+  it('leaves missing same-candle ages blank and computes actual depth without clamping', () => {
+    const source = trade('fvg', { entryPrice: 19187, entrySignal: 'LONG GER / 1 | FVGv1 tf=5 lo=19198.5 hi=19210 size=11.5 sizePct=0.0599 created=1728397200000 mode=DEPTH depth=25 rr=3 BE=OFF', exitSignal: 'TP' })
+    const [row] = parseCsv(rowsToCsv(tradeExportRows([source])))
+    expect(row).toMatchObject({ 'FVG metadata status': 'AVAILABLE', 'FVG actual fill depth (%)': '200',
+      'FVG planned entry depth (%)': '25', 'FVG bars from creation to entry': '', 'FVG bars from creation to first touch': '',
+      'FVG minutes from creation to entry': '', 'FVG BE enabled': 'false', 'FVG BE trigger (% of entry-to-TP)': '' })
+  })
+
+  it('does not fabricate FVG diagnostics from old, live, unknown-version or invalid signals', () => {
+    const signal = 'LONG GER / 1 | FVGv1 tf=5 lo=100 hi=110 size=10 sizePct=10 created=1728397200000 mode=TOUCH depth=0 rr=3 BE=90/30'
+    const rows = tradeExportRows([trade('legacy', { entrySignal: 'LONG GER / 1' }), trade('v2', { entrySignal: signal.replace('FVGv1', 'FVGv2') }),
+      trade('live', { entrySignal: signal, source: 'LIVE' }), trade('bad', { entrySignal: signal.replace('size=10', 'size=11') }),
+      trade('duplicate-token', { entrySignal: signal + ' lo=1' })])
+    expect(rows.map(row => row['FVG metadata status'])).toEqual(['MISSING', 'MISSING', 'MISSING', 'INVALID', 'INVALID'])
+    expect(rows.every(row => row['FVG created (UTC)'] == null && row['FVG size (price units)'] == null)).toBe(true)
+  })
+
   it('recalculates period R and cash metrics without borrowing lifetime totals or mixing currencies', () => {
     const files = buildBacktestingReport(workspace, [trade('win'), trade('loss', { pnlR: -1, result: 'LOSS', netPnl: -100 }), trade('eur', { netPnl: 20, currency: 'EUR', pnlR: 0, result: 'BREAKEVEN' })], period, [], [])
     const overview = parseCsv(files['overview.csv'])

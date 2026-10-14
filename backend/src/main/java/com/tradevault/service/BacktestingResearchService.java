@@ -30,6 +30,7 @@ import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
 import com.tradevault.service.backtesting.ReplayCsvParser;
+import com.tradevault.service.backtesting.FvgSignalMetadata;
 import com.tradevault.service.backtesting.BacktestingSessionClassifier;
 import com.tradevault.dto.backtesting.BacktestingCurrencyMetricResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -295,6 +296,7 @@ public class BacktestingResearchService {
                 .filter(t -> t.getImportFingerprint() != null)
                 .collect(Collectors.toMap(BacktestingTrade::getImportFingerprint, Function.identity(), (a, b) -> a));
         List<BacktestingTrade> imported = new ArrayList<>();
+        Map<BacktestingTrade, BacktestingTrade> metadataUpdates = new LinkedHashMap<>();
         for (BacktestingTrade trade : candidates) {
             trade.setWorkspace(workspace);
             trade.setUser(user);
@@ -304,17 +306,27 @@ public class BacktestingResearchService {
                     errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different net PnL; review it before reimporting");
                 else if (existing.get(key).getPriceCurrency() != null && !Objects.equals(existing.get(key).getPriceCurrency(), trade.getPriceCurrency()))
                     errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different price currency; review it before reimporting");
-                else duplicates++;
+                else {
+                    duplicates++;
+                    BacktestingTrade original = existing.get(key);
+                    if (FvgSignalMetadata.canEnrich(original, trade)) metadataUpdates.putIfAbsent(original, trade);
+                }
                 continue;
             }
             if (key != null) existing.put(key, trade);
             imported.add(trade);
         }
-        if (!preview && !imported.isEmpty()) {
-            tradeRepository.saveAll(imported);
+        if (!metadataUpdates.isEmpty()) warnings.add((preview ? "FVG source details can be added to " : "FVG source details added to ")
+                + metadataUpdates.size() + " existing executions. No duplicate trades are created; research annotations and execution values are preserved.");
+        if (!preview && (!imported.isEmpty() || !metadataUpdates.isEmpty())) {
+            metadataUpdates.forEach(FvgSignalMetadata::enrich);
+            List<BacktestingTrade> changed = new ArrayList<>(imported);
+            changed.addAll(metadataUpdates.keySet());
+            tradeRepository.saveAll(changed);
             workspace.setUpdatedAt(OffsetDateTime.now());
         }
-        return BacktestingImportResponse.builder().format(format).rowCount(rowCount).duplicates(duplicates).preview(preview)
+        return BacktestingImportResponse.builder().format(format).rowCount(rowCount).duplicates(duplicates)
+                .metadataUpdated(metadataUpdates.size()).preview(preview)
                 .warnings(warnings).imported(imported.size()).invalid(errors.size()).errors(errors.stream().limit(100).toList())
                 .trades(imported.stream().map(t -> toTradeResponse(t, 0)).toList()).build();
     }

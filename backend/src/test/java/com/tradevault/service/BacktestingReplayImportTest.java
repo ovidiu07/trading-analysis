@@ -40,6 +40,103 @@ class BacktestingReplayImportTest {
             return ReplayCsvParser.parse(parser.getRecords(), parser.getHeaderNames(), "PEPPERSTONE:GER40F", null, NAME);
         }
     }
+
+    static final String FVG_ENTRY = "SHORT GER / 2 | FVGv1 tf=5 lo=19198.5 hi=19210.0 size=11.5 sizePct=0.0599 created=1728397200000 mode=TOUCH depth=0 rr=3 BE=90/30";
+    static String fvgCsv(String entrySignal, String exitSignal, String price) {
+        return "Trade number,Type,Date and time,Signal,Price EUR,Size (qty),Net PnL USD\n"
+                + "1,Entry short,2024-10-08 17:20," + entrySignal + "," + price + ",2.7,-94.82\n"
+                + "1,Exit short,2024-10-08 18:50," + exitSignal + ",19230.5,2.7,-94.82\n";
+    }
+
+    @Test void importsVersionedGapFactsAndKeepsUnavailableNativeFieldsBlank() throws Exception {
+        var result = parse(fvgCsv(FVG_ENTRY, "SL | fillPct=0 fillBars=1 touchBars=1 ageMin=0", "19198.5"));
+        assertThat(result.errors()).isEmpty();
+        var gap = result.trades().getFirst();
+        assertThat(gap.isGapPresent()).isTrue();
+        assertThat(gap.getGapType()).isEqualTo(BacktestingGapType.BEARISH);
+        assertThat(gap.getGapTimeframe()).isEqualTo("5");
+        assertThat(gap.getGapLow()).isEqualByComparingTo("19198.5");
+        assertThat(gap.getGapHigh()).isEqualByComparingTo("19210");
+        assertThat(gap.getGapMidpoint()).isEqualByComparingTo("19204.25");
+        assertThat(gap.getGapSizePercent()).isEqualByComparingTo("0.0599");
+        assertThat(gap.getGapEntryPositionPercent()).isZero();
+        assertThat(gap.getGapCreatedAt()).isNull(); // No verified exported-clock timezone.
+        assertThat(gap.getGapSizePoints()).isNull();
+        assertThat(gap.getGapMitigatedAt()).isNull();
+        assertThat(gap.getGapFillStatus()).isNull();
+        assertThat(gap.getPnlR()).isNull();
+        assertThat(gap.getPlannedRR()).isNull();
+        var file = file(fvgCsv(FVG_ENTRY, "SL", "19198.5").getBytes(StandardCharsets.UTF_8));
+        var preview = service.importCsv(workspace.getId(), file, "GER40F", "Europe/Bucharest", true);
+        assertThat(preview.getTrades().getFirst().getGapCreatedAt()).isEqualTo(LocalTime.of(17, 20));
+    }
+
+    @Test void sameCandleAndOutOfZoneFillsKeepTheirGeometryWithoutInventingDepthAnnotations() throws Exception {
+        String text = fvgCsv(FVG_ENTRY, "SL", "19221.5").replace("18:50", "17:20");
+        var result = parse(text);
+        assertThat(result.errors()).isEmpty();
+        var gap = result.trades().getFirst();
+        assertThat(gap.isGapPresent()).isTrue();
+        assertThat(gap.getGapEntryPositionPercent()).isNull(); // Actual 200% stays in raw execution/geometry.
+        assertThat(gap.getEntrySignal()).isEqualTo(FVG_ENTRY);
+        assertThat(gap.getExitSignal()).isEqualTo("SL");
+    }
+
+    @Test void rejectsMalformedVersionedGeometryInsteadOfImportingFalseGapFacts() throws Exception {
+        for (String signal : List.of(FVG_ENTRY.replace("size=11.5", "size=12"), FVG_ENTRY + " lo=1",
+                FVG_ENTRY.replace("BE=90/30", "BE=30/90"), FVG_ENTRY.replace("created=1728397200000", "created=0"))) {
+            var result = parse(fvgCsv(signal, "SL", "19198.5"));
+            assertThat(result.trades()).isEmpty();
+            assertThat(result.errors()).anyMatch(error -> error.contains("Invalid FVGv1 signal"));
+        }
+    }
+
+    @Test void reimportAddsOnlyMissingFvgFactsAndPreviewNeverMutatesExistingTrades() throws Exception {
+        var original = parse(fvgCsv("SHORT GER / 2", "SL", "19198.5")).trades().getFirst();
+        original.setPnlR(new BigDecimal("-1"));
+        original.setPlannedRR(new BigDecimal("3"));
+        original.setNotes("Keep my review");
+        original.setTagsJson("[\"reviewed\"]");
+        when(trades.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspace.getId(), user.getId())).thenReturn(List.of(original));
+        var csv = file(fvgCsv(FVG_ENTRY, "SL | fillPct=0 fillBars=1 touchBars=1 ageMin=0", "19198.5").getBytes(StandardCharsets.UTF_8));
+        var preview = service.importCsv(workspace.getId(), csv, "PEPPERSTONE:GER40F", null, true);
+        assertThat(preview.getImported()).isZero();
+        assertThat(preview.getDuplicates()).isEqualTo(1);
+        assertThat(preview.getMetadataUpdated()).isEqualTo(1);
+        assertThat(preview.getWarnings()).anyMatch(warning -> warning.contains("can be added to 1 existing"));
+        assertThat(original.isGapPresent()).isFalse();
+        assertThat(original.getEntrySignal()).isEqualTo("SHORT GER / 2");
+        verify(trades, never()).saveAll(anyList());
+        var imported = service.importCsv(workspace.getId(), csv, "PEPPERSTONE:GER40F", null, false);
+        assertThat(imported.getImported()).isZero();
+        assertThat(imported.getDuplicates()).isEqualTo(1);
+        assertThat(imported.getMetadataUpdated()).isEqualTo(1);
+        assertThat(imported.getWarnings()).anyMatch(warning -> warning.contains("added to 1 existing"));
+        assertThat(original.isGapPresent()).isTrue();
+        assertThat(original.getEntrySignal()).isEqualTo(FVG_ENTRY);
+        assertThat(original.getPnlR()).isEqualByComparingTo("-1");
+        assertThat(original.getPlannedRR()).isEqualByComparingTo("3");
+        assertThat(original.getNotes()).isEqualTo("Keep my review");
+        assertThat(original.getTagsJson()).isEqualTo("[\"reviewed\"]");
+        assertThat(original.getNetPnl()).isEqualByComparingTo("-94.82");
+        verify(trades).saveAll(argThat(saved -> { var rows = new ArrayList<BacktestingTrade>(); saved.forEach(rows::add); return rows.equals(List.of(original)); }));
+    }
+
+    @Test void reimportPreservesExistingGapResearchAndDoesNotHidePnlConflicts() throws Exception {
+        var original = parse(fvgCsv("SHORT GER / 2", "SL", "19198.5")).trades().getFirst();
+        original.setGapConfluenceNotes("Manual research");
+        when(trades.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspace.getId(), user.getId())).thenReturn(List.of(original));
+        var csv = file(fvgCsv(FVG_ENTRY, "SL", "19198.5").getBytes(StandardCharsets.UTF_8));
+        var result = service.importCsv(workspace.getId(), csv, "PEPPERSTONE:GER40F", null, false);
+        assertThat(result.getDuplicates()).isEqualTo(1);
+        assertThat(original.getEntrySignal()).isEqualTo("SHORT GER / 2");
+        verify(trades, never()).saveAll(anyList());
+        original.setNetPnl(BigDecimal.TEN);
+        var conflict = service.importCsv(workspace.getId(), csv, "PEPPERSTONE:GER40F", null, false);
+        assertThat(conflict.getInvalid()).isEqualTo(1);
+        assertThat(conflict.getErrors()).anyMatch(error -> error.contains("different net PnL"));
+        assertThat(original.isGapPresent()).isFalse();
+    }
     @Test void previewsAndImportsStrategyFilenameWithIndependentPriceAndPnlCurrencies() throws Exception {
         String filename = "Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv";
         var file = new MockMultipartFile("file", filename, "text/csv", strategyFixture());
