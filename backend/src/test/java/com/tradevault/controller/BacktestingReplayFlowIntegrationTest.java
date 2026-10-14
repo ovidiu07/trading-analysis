@@ -97,6 +97,49 @@ class BacktestingReplayFlowIntegrationTest {
         assertThat(call(owner, get(route + "/trades")).size()).isZero();
     }
 
+    @Test void bulkEdits529ThenClearsOnlyTheOwnedWorkspaceAndPreservesEvidenceAssets() throws Exception {
+        String token = actor(), otherActor = actor(), id = workspace(token), otherId = workspace(token);
+        String route = "/api/backtesting/workspaces/" + id;
+        UUID workspaceId = UUID.fromString(id);
+        call(token, multipart(route + "/trades/import").file(fixture()));
+        call(token, multipart("/api/backtesting/workspaces/" + otherId + "/trades/import").file(fixture()));
+        UUID firstTrade = UUID.fromString(call(token, get(route + "/trades")).get(0).path("id").asText());
+        UUID userId = jdbc.queryForObject("select user_id from tradevault.backtesting_workspaces where id=?", UUID.class, workspaceId);
+        jdbc.update("""
+                insert into tradevault.backtesting_trades
+                (id,workspace_id,user_id,trade_date,entry_time,instrument,direction,result,pnl_r,source,trade_scope,net_pnl,currency)
+                select uuid_generate_v4(),workspace_id,user_id,trade_date,entry_time,instrument,direction,result,pnl_r,source,trade_scope,net_pnl,currency
+                from tradevault.backtesting_trades cross join generate_series(1,504) where id=?
+                """, firstTrade);
+        var stored = call(token, get(route + "/trades"));
+        assertThat(stored.size()).isEqualTo(529);
+        List<String> ids = new java.util.ArrayList<>();
+        stored.forEach(trade -> ids.add(trade.path("id").asText()));
+        var updated = call(token, patch(route + "/trades/bulk").contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("tradeIds", ids, "fields", List.of("notes"), "changes", Map.of("notes", "All 529")))));
+        assertThat(updated.size()).isEqualTo(529);
+        assertThat(jdbc.queryForObject("select count(*) from tradevault.backtesting_trades where workspace_id=? and notes='All 529'", Integer.class, workspaceId)).isEqualTo(529);
+
+        UUID assetId = UUID.randomUUID(), screenshotId = UUID.randomUUID(), liveId = UUID.randomUUID(), evidenceId = UUID.randomUUID();
+        jdbc.update("insert into tradevault.asset(id,owner_user_id,scope,original_file_name,content_type,size_bytes,s3_key) values(?,?,'BACKTESTING','keep.png','image/png',1,?)", assetId, userId, "clear-test-" + assetId);
+        jdbc.update("insert into tradevault.backtesting_screenshots(id,workspace_id,user_id,asset_id,backtesting_trade_id,caption) values(?,?,?,?,?,'Keep screenshot')", screenshotId, workspaceId, userId, assetId, firstTrade);
+        jdbc.update("insert into tradevault.backtest_evidence_links(id,workspace_id,user_id,live_trade_id,included_in_analytics,sync_status) values(?,?,?,?,true,'SYNCED')", evidenceId, workspaceId, userId, liveId);
+        jdbc.update("update tradevault.backtesting_workspaces set notes='Keep workspace notes', number_of_trades=529, winning_trades=529 where id=?", workspaceId);
+        assertThat(mvc.perform(delete(route + "/trades")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        assertThat(mvc.perform(delete(route + "/trades").header("Authorization", "Bearer " + otherActor)).andReturn().getResponse().getStatus()).isIn(403, 404);
+        assertThat(jdbc.queryForObject("select count(*) from tradevault.backtesting_trades where workspace_id=?", Integer.class, workspaceId)).isEqualTo(529);
+        assertThat(mvc.perform(delete(route + "/trades").header("Authorization", "Bearer " + token)).andReturn().getResponse().getStatus()).isEqualTo(204);
+        assertThat(call(token, get(route + "/trades")).size()).isZero();
+        assertThat(call(token, get(route)).path("numberOfTrades").asInt()).isZero();
+        assertThat(call(token, get(route)).path("notes").asText()).isEqualTo("Keep workspace notes");
+        assertThat(call(token, get("/api/backtesting/workspaces/" + otherId + "/trades")).size()).isEqualTo(25);
+        assertThat(jdbc.queryForObject("select backtesting_trade_id from tradevault.backtesting_screenshots where id=?", UUID.class, screenshotId)).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from tradevault.asset where id=?", Integer.class, assetId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select sync_status from tradevault.backtest_evidence_links where id=?", String.class, evidenceId)).isEqualTo("EXCLUDED");
+        assertThat(jdbc.queryForObject("select included_in_analytics from tradevault.backtest_evidence_links where id=?", Boolean.class, evidenceId)).isFalse();
+        assertThat(call(token, multipart(route + "/trades/import").file(fixture())).path("imported").asInt()).isEqualTo(25);
+    }
+
     @Test void strategyExportPersistsIndependentCurrenciesAndSkipsAllRepeatedExecutions() throws Exception {
         String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
         byte[] bytes = Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-strategy-ger40f-usd.csv")).readAllBytes();

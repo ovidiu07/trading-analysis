@@ -500,6 +500,10 @@ export async function deleteBacktestingTrade(id: string) {
   return apiDelete(`/backtesting/trades/${encodeURIComponent(id)}`)
 }
 
+export async function deleteBacktestingWorkspaceTrades(workspaceId: string) {
+  return apiDelete(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades`)
+}
+
 export async function importBacktestingTrades(workspaceId: string, file: File, options: BacktestingImportOptions = {}) {
   const formData = new FormData()
   formData.append('file', file)

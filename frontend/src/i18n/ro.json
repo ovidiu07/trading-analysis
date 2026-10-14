@@ -3987,6 +3987,18 @@
       "dayAria": "Vezi tranzacțiile de backtest din {{date}}. {{count}} tranzacții. Rezultat {{value}}",
       "periodTrades": "Tranzacții de backtest · {{period}}"
     },
+    "clearTrades": {
+      "action": "Șterge toate tranzacțiile din spațiu",
+      "title": "Ștergi toate tranzacțiile din acest spațiu?",
+      "scope": "Elimină toate cele {{count}} tranzacții din „{{name}}”, de pe toate paginile, indiferent de filtrele sau selecția curentă.",
+      "consequences": "Tranzacțiile de backtesting/replay salvate vor fi șterse definitiv. Dovezile live asociate vor fi excluse din cercetare. Spațiul, notițele, capturile de ecran și tranzacțiile live originale din jurnal vor fi păstrate.",
+      "autoImport": "Importul automat este activ pentru acest spațiu. Dovezile live excluse rămân excluse, dar importurile viitoare sau tranzacțiile live noi pot adăuga din nou tranzacții.",
+      "confirmationWord": "ȘTERGE",
+      "confirmationLabel": "Scrie {{word}} pentru confirmare",
+      "deleting": "Se șterg tranzacțiile…",
+      "saved": "Toate tranzacțiile din spațiu au fost eliminate. Spațiul este pregătit pentru un import nou.",
+      "error": "Golirea spațiului nu a putut fi confirmată. Reîncarcă și verifică tranzacțiile înainte să încerci din nou."
+    },
     "bulk": {
       "setupName": "Nume setup",
       "strategyName": "Etichetă strategie",

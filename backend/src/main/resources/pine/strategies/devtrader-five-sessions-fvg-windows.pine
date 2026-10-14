@@ -10,6 +10,8 @@ strategy("Devtrader · Five Sessions FVG Windows", shorttitle="Five Sessions FVG
 // Standalone strategy: no external indicator plot selection is required.
 // Confirmed bars create limit orders for the next tick, with SL/TP attached at
 // submission. Pending entries expire at window/session end; open brackets remain.
+// Breakeven amendments are submitted on confirmed candle closes, never applied
+// retroactively to an earlier intrabar move. The entry candle uses its close.
 // Keep the close-only calculation settings above unchanged. TradingView controls
 // historical fills; no script executes during a missing-feed interval.
 // --- General Settings ---
@@ -810,6 +812,8 @@ if directionChartCompatible and barstate.isconfirmed
 
 // --- Execution settings ---
 string G_EXEC = "Strategy Execution"
+string G_LOSS = "Strategy Loss Limits"
+string G_BE = "Strategy Breakeven"
 string G_FVG = "Fair Value Gaps"
 string G_VIS = "Strategy Visuals / Audit"
 string executionTimeframe = input.timeframe("5", "Execution Timeframe", group=G_EXEC, tooltip="Set the standard candle chart to this interval. It must divide 15 minutes; window boundaries must also align with it.")
@@ -825,6 +829,11 @@ float rewardRiskRatio = input.float(1.5, "Reward / Risk", minval=0.01, step=0.1,
 int maximumTradesPerWindow = input.int(0, "Maximum Filled Trades Per Window (0 = unlimited)", minval=0, group=G_EXEC, tooltip="By default, a new FVG can qualify after the previous trade closes, regardless of win/loss. No pyramiding; only one pending entry or open trade at a time.")
 bool firstTradeFromSessionFvg = input.bool(false, "First Trade From Earliest Unmitigated Session FVG", group=G_EXEC, tooltip="For the first filled trade of each direction session, use its earliest still-valid same-direction FVG, including gaps confirmed during the opening 15 minutes or before the entry window. Wait for confirmed direction and an enabled entry window. Later trades require a new FVG as usual. Mitigation follows the detector: a close beyond the far edge.")
 int maximumFvgAgeMinutes = input.int(120, "Maximum FVG Age (minutes)", minval=1, maxval=10080, group=G_EXEC, active=firstTradeFromSessionFvg, tooltip="Applies to first-trade session FVGs when the checkbox is enabled. Measured from the third candle's confirmation, never from order submission. Cancel the pending order at this age or the entry-window/session end, whichever comes first. Must align with the execution interval.")
+int maximumSessionConsecutiveLosses = input.int(2, "Maximum Consecutive Losses Per Session (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades belonging to the same direction session (First / Second / Third Session), across all its entry windows. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until the next session. A trade carried into a later session belongs to its original entry session. Existing positions keep their SL/TP.")
+int maximumDailyConsecutiveLosses = input.int(3, "Maximum Consecutive Losses Per Day (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades on the same calendar day, across all sessions. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until midnight in Daily Reset Timezone. Trades count on their actual exit date. Existing positions keep their SL/TP.")
+string dailyLossResetTimezone = input.string("Europe/Bucharest", "Daily Reset Timezone", group=G_LOSS, tooltip="IANA timezone used for calendar-day loss streaks and the midnight reset. Independent of the chart display timezone and ticker/session timezones; daylight saving changes are handled automatically.")
+bool enableBreakeven = input.bool(true, "Enable Breakeven", group=G_BE, tooltip="Move the existing stop to the actual filled entry price once the trigger is reached. TP stays fixed. Checked on confirmed candle closes; the amended stop is available from the next tick, never retroactively within the trigger candle. Entry candle: use its close to exclude wicks formed before the fill. Later candles: use high for longs / low for shorts. Entry-price breakeven does not compensate for fees or gap fills.")
+float breakevenTriggerPercent = input.float(70.0, "Breakeven Trigger (% Of Entry-To-TP Distance)", minval=0.1, maxval=100.0, step=0.1, group=G_BE, active=enableBreakeven, tooltip="70 means 70% of the distance from actual filled entry to the fixed TP, not 70% of initial risk. Example: long entry 100, TP 110 → trigger 107. Trigger is rounded toward TP to the next valid tick. Once active, the stop stays at entry and never moves back.")
 COLOR_BULL = #98cac2
 COLOR_BEAR = #d3a3a7
 fvgThresholdPercent = input.float(0.04, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
@@ -998,6 +1007,31 @@ f_firstSessionFvg(int bias) =>
         i += 1
     candidate
 
+// --- Breakeven state and price observation ---
+type BreakevenState
+    float entry
+    float trigger
+    float stop
+    bool active = false
+    int activatedAt = na
+
+f_breakevenTrigger(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent > 0 and percent <= 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.ceil(raw / tick - 0.000000001) : math.floor(raw / tick + 0.000000001)) * tick : na
+
+f_breakevenObservation(int bias, int currentBar, int entryBar, float closingPrice, float barHigh, float barLow) =>
+    currentBar > entryBar ? (bias == 1 ? barHigh : barLow) : closingPrice
+
+f_armBreakeven(BreakevenState s, bool enabled, int bias, float favorablePrice, int decisionTime) =>
+    bool activated = enabled and not s.active and not na(s.trigger) and not na(favorablePrice) and bias * (favorablePrice - s.trigger) >= 0
+    if activated
+        // A better existing stop is never loosened, including after a gap fill.
+        s.stop := bias == 1 ? math.max(s.stop, s.entry) : math.min(s.stop, s.entry)
+        s.active := true
+        s.activatedAt := decisionTime
+    activated
+
 // --- A single pending/open plan; attached brackets protect same-bar fills ---
 type TradePlan
     int windowIndex
@@ -1019,7 +1053,54 @@ type TradePlan
     line targetLine = na
     box zoneBox = na
     label setupLabel = na
+    BreakevenState breakeven = na
+    line breakevenStopLine = na
 
+// --- Consecutive closed-loss limits ---
+// Session ownership follows the entry plan; daily ownership follows actual exit
+// time. A reached limit is latched until its own boundary, even if a later
+// non-losing carried trade closes. No risk rule closes an existing position.
+type LossLimitState
+    int sessionStart = na
+    int dayKey = na
+    int sessionStreak = 0
+    int dailyStreak = 0
+    bool sessionPaused = false
+    bool dailyPaused = false
+
+f_lossDayKey(int eventTime, string timezoneValue) =>
+    year(eventTime, timezoneValue) * 10000 + month(eventTime, timezoneValue) * 100 + dayofmonth(eventTime, timezoneValue)
+
+f_syncLossSession(LossLimitState s, int sessionStart) =>
+    if not na(sessionStart) and (na(s.sessionStart) or s.sessionStart != sessionStart)
+        s.sessionStart := sessionStart
+        s.sessionStreak := 0
+        s.sessionPaused := false
+    true
+
+f_syncLossDay(LossLimitState s, int eventTime, string timezoneValue) =>
+    int dayKey = f_lossDayKey(eventTime, timezoneValue)
+    if na(s.dayKey) or s.dayKey != dayKey
+        s.dayKey := dayKey
+        s.dailyStreak := 0
+        s.dailyPaused := false
+    true
+
+f_recordLossResult(LossLimitState s, int tradeSessionStart, int exitTime, float profit, int sessionLimit, int dailyLimit, string timezoneValue) =>
+    f_syncLossDay(s, exitTime, timezoneValue)
+    if not na(profit)
+        bool lost = profit < 0
+        s.dailyStreak := lost ? s.dailyStreak + 1 : 0
+        s.dailyPaused := s.dailyPaused or (dailyLimit > 0 and s.dailyStreak >= dailyLimit)
+        if not na(tradeSessionStart) and not na(s.sessionStart) and tradeSessionStart == s.sessionStart
+            s.sessionStreak := lost ? s.sessionStreak + 1 : 0
+            s.sessionPaused := s.sessionPaused or (sessionLimit > 0 and s.sessionStreak >= sessionLimit)
+    true
+
+f_lossEntriesAllowed(LossLimitState s) =>
+    not s.sessionPaused and not s.dailyPaused
+
+var LossLimitState lossLimitState = LossLimitState.new()
 var TradePlan activePlan = na
 var float plannedQtyValue = na
 var float plannedRiskValue = na
@@ -1036,6 +1117,7 @@ f_erasePlan(TradePlan p) =>
     line.delete(p.entryLine)
     line.delete(p.stopLine)
     line.delete(p.targetLine)
+    line.delete(p.breakevenStopLine)
     box.delete(p.zoneBox)
     label.delete(p.setupLabel)
     true
@@ -1044,7 +1126,9 @@ f_finishPlanDrawing(TradePlan p, int endTime) =>
     if not na(p.entryLine)
         line.set_x2(p.entryLine, endTime)
     if not na(p.stopLine)
-        line.set_x2(p.stopLine, endTime)
+        line.set_x2(p.stopLine, not na(p.breakeven) and p.breakeven.active ? p.breakeven.activatedAt : endTime)
+    if not na(p.breakevenStopLine)
+        line.set_x2(p.breakevenStopLine, endTime)
     if not na(p.targetLine)
         line.set_x2(p.targetLine, endTime)
     true
@@ -1078,6 +1162,7 @@ f_countFill(TradePlan p) =>
     true
 
 if barstate.isconfirmed
+    f_syncLossSession(lossLimitState, fiveOccurrenceStart)
     if na(sessionTradeState.startTime) or sessionTradeState.startTime != fiveSessionState.startTime or not fiveSessionState.active
         array.clear(sessionFvgs)
         sessionTradeState.startTime := fiveSessionState.startTime
@@ -1091,7 +1176,12 @@ if barstate.isconfirmed
     // closed ledger before the open position so that these round trips count once.
     if strategy.closedtrades > processedClosed
         for i = processedClosed to strategy.closedtrades - 1
-            if not na(activePlan) and strategy.closedtrades.entry_id(i) == activePlan.orderId
+            bool ownsPlan = not na(activePlan) and strategy.closedtrades.entry_id(i) == activePlan.orderId
+            int tradeSessionStart = ownsPlan ? activePlan.sessionStart : na
+            // Use ledger P/L, not exit comments or floating/open P/L. Process
+            // every newly closed trade once, including same-candle round trips.
+            f_recordLossResult(lossLimitState, tradeSessionStart, strategy.closedtrades.exit_time(i), strategy.closedtrades.profit(i), maximumSessionConsecutiveLosses, maximumDailyConsecutiveLosses, dailyLossResetTimezone)
+            if ownsPlan
                 f_countFill(activePlan)
                 f_finishPlanDrawing(activePlan, time_close)
                 lastEvent := strategy.closedtrades.exit_comment(i) + " · " + activePlan.orderId
@@ -1100,17 +1190,35 @@ if barstate.isconfirmed
                 targetRiskValue := na
                 activePlan := na
         processedClosed := strategy.closedtrades
+    // Classify exits first, then roll forward to the next order's day. At a
+    // midnight candle close, yesterday's loss must not pause the new day.
+    f_syncLossDay(lossLimitState, time_close, dailyLossResetTimezone)
+    bool lossEntriesAllowed = f_lossEntriesAllowed(lossLimitState)
     if not na(activePlan) and strategy.position_size != 0
         f_countFill(activePlan)
-        f_finishPlanDrawing(activePlan, time_close)
         lastEvent := "Open " + activePlan.orderId
+        if na(activePlan.breakeven)
+            float filledEntry = strategy.position_avg_price
+            activePlan.breakeven := BreakevenState.new(filledEntry, f_breakevenTrigger(filledEntry, activePlan.target, breakevenTriggerPercent, activePlan.bias, syminfo.mintick), activePlan.stop)
+        float observedPrice = f_breakevenObservation(activePlan.bias, bar_index, strategy.opentrades.entry_bar_index(0), close, high, low)
+        bool justArmedBreakeven = f_armBreakeven(activePlan.breakeven, enableBreakeven, activePlan.bias, observedPrice, time_close)
+        if justArmedBreakeven
+            if showSL
+                activePlan.breakevenStopLine := line.new(time_close, activePlan.breakeven.stop, time_close, activePlan.breakeven.stop, xloc=xloc.bar_time, color=color.orange, style=line.style_dashed)
+            if not na(activePlan.setupLabel)
+                label.set_text(activePlan.setupLabel, label.get_text(activePlan.setupLabel) + "\nBE active · SL " + str.tostring(activePlan.breakeven.stop, format.mintick))
+            lastEvent := "Breakeven armed · " + activePlan.orderId
+        // Amend the SAME bracket ID and keep its original TP and full size.
+        // Submission happens now; no earlier part of this candle is re-simulated.
+        strategy.exit(activePlan.orderId + "-EXIT", from_entry=activePlan.orderId, stop=activePlan.breakeven.stop, limit=activePlan.target, comment_profit="TP", comment_loss=activePlan.breakeven.active ? "BE" : "SL")
+        f_finishPlanDrawing(activePlan, time_close)
 
     if not na(activePlan) and not activePlan.filled
         ExecutionWindow owner = array.get(executionWindows, activePlan.windowIndex)
         bool expired = time_close >= activePlan.expires or owner.occurrenceStart != activePlan.windowStart
         bool directionChanged = currentActiveSessionIndex == 0 or fiveSessionState.startTime != activePlan.sessionStart or fiveSessionState.bias != activePlan.bias
         bool invalidated = activePlan.bias == 1 ? close < activePlan.lower : close > activePlan.upper
-        if not nativeMode or expired or directionChanged or invalidated
+        if not lossEntriesAllowed or not nativeMode or expired or directionChanged or invalidated
             strategy.cancel(activePlan.orderId)
             strategy.cancel(activePlan.orderId + "-EXIT")
             f_finishPlanDrawing(activePlan, time_close)
@@ -1118,12 +1226,12 @@ if barstate.isconfirmed
             plannedQtyValue := na
             plannedRiskValue := na
             targetRiskValue := na
-            lastEvent := "Pending entry cancelled: " + (not nativeMode ? "chart/settings" : expired ? "FVG age/window/session ended" : directionChanged ? "session direction changed" : "FVG mitigated")
+            lastEvent := "Pending entry cancelled: " + (not lossEntriesAllowed ? "consecutive loss limit" : not nativeMode ? "chart/settings" : expired ? "FVG age/window/session ended" : directionChanged ? "session direction changed" : "FVG mitigated")
             activePlan := na
 
     bool directionReady = fiveSessionState.active and fiveSessionState.evaluated and fiveSessionState.bias != 0 and time_close >= fiveSessionState.openingEnd
     bool free = na(activePlan) and strategy.position_size == 0
-    if nativeMode and directionReady and free and not na(selectedWindow)
+    if nativeMode and lossEntriesAllowed and directionReady and free and not na(selectedWindow)
         ExecutionWindow ew = array.get(executionWindows, selectedWindow)
         bool afterWindowOpened = fvgSourceCloseRaw > ew.occurrenceStart
         bool afterDirectionKnown = fvgSourceCloseRaw > fiveSessionState.openingEnd
@@ -1177,17 +1285,21 @@ if barstate.isconfirmed
 f_price(float value) =>
     na(value) ? "—" : str.tostring(value, format.mintick)
 string warning = not executionChart ? "Use standard " + executionTimeframe + "-minute candles dividing 15 minutes. Orders disabled." : not detectionCompatible ? "FVG timeframe must be >= chart and a whole multiple. Orders disabled." : not anyExecutableProfile ? "No enabled ticker/window profile matches this symbol." : not windowBoundariesAligned ? "Trading-window boundaries must align with chart bars. Orders disabled." : not fvgAgeAligned ? "Maximum FVG age must align with chart bars. Orders disabled." : ""
-var table dashboard = table.new(position.top_right, 2, 13, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+string lossPause = lossLimitState.sessionPaused and lossLimitState.dailyPaused ? "PAUSED · session and daily consecutive loss limits" : lossLimitState.dailyPaused ? "PAUSED · daily consecutive loss limit" : lossLimitState.sessionPaused ? "PAUSED · session consecutive loss limit" : ""
+string strategyStatus = warning != "" ? warning : lossPause != "" ? lossPause : "READY · confirmed candles"
+var table dashboard = table.new(position.top_right, 2, 16, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
 if barstate.islast or barstate.islastconfirmedhistory
-    table.clear(dashboard, 0, 0, 1, 12)
-    if showStrategyDashboard or warning != ""
+    table.clear(dashboard, 0, 0, 1, 15)
+    if showStrategyDashboard or warning != "" or lossPause != ""
         string windowName = na(selectedWindow) ? "Outside entry windows" : array.get(executionWindows, selectedWindow).tag
         string directionText = currentActiveSessionIndex == 0 ? "Outside reference sessions" : fiveSessionState.status
-        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Last event")
-        array<string> vals = array.from(warning == "" ? "READY · confirmed candles" : warning, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(activePlan.entry), na(activePlan) ? "—" : f_price(activePlan.stop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " + " + str.tostring(stopTolerancePoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), lastEvent)
-        for i = 0 to 12
+        float currentStop = na(activePlan) ? na : na(activePlan.breakeven) ? activePlan.stop : activePlan.breakeven.stop
+        string breakevenText = not enableBreakeven ? "OFF" : na(activePlan) or na(activePlan.breakeven) ? "Waiting · " + str.tostring(breakevenTriggerPercent) + "% to TP" : (activePlan.breakeven.active ? "ACTIVE · SL " + f_price(activePlan.breakeven.stop) : "Trigger " + f_price(activePlan.breakeven.trigger)) + " · " + str.tostring(breakevenTriggerPercent) + "% to TP"
+        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Session loss streak / limit", "Daily loss streak / limit", "Breakeven", "Last event")
+        array<string> vals = array.from(strategyStatus, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(na(activePlan.breakeven) ? activePlan.entry : activePlan.breakeven.entry), na(activePlan) ? "—" : f_price(currentStop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " + " + str.tostring(stopTolerancePoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), str.tostring(lossLimitState.sessionStreak) + " / " + (maximumSessionConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumSessionConsecutiveLosses)), str.tostring(lossLimitState.dailyStreak) + " / " + (maximumDailyConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumDailyConsecutiveLosses)) + " · " + dailyLossResetTimezone, breakevenText, lastEvent)
+        for i = 0 to 15
             table.cell(dashboard, 0, i, array.get(keys, i), text_color=color.silver, text_size=size.tiny)
-            table.cell(dashboard, 1, i, array.get(vals, i), text_color=i == 0 and warning != "" ? color.orange : color.white, text_size=size.tiny)
+            table.cell(dashboard, 1, i, array.get(vals, i), text_color=i == 0 and (warning != "" or lossPause != "") ? color.orange : color.white, text_size=size.tiny)
 plot(fiveSessionState.bias, "Audit: Session Bias", display=display.data_window)
 plot(na(fiveSessionState.reference) ? na : fiveSessionState.reference.high, "Audit: Fifth Session High", display=display.data_window)
 plot(fiveSessionState.openingPrice, "Audit: Opening Close", display=display.data_window)
@@ -1210,3 +1322,11 @@ plot(na(activePlan) ? na : activePlan.expires, "Audit: Pending Deadline ms", dis
 plot(firstTradeFromSessionFvg ? array.size(sessionFvgs) : na, "Audit: Session FVG Queue", display=display.data_window)
 plot(sessionTradeState.hasFill ? 1 : 0, "Audit: Session First Trade Filled", display=display.data_window)
 plot(na(activePlan) ? na : activePlan.sourceClose, "Audit: Planned FVG Confirmation ms", display=display.data_window)
+plot(lossLimitState.sessionStreak, "Audit: Session Consecutive Losses", display=display.data_window)
+plot(lossLimitState.dailyStreak, "Audit: Daily Consecutive Losses", display=display.data_window)
+plot(lossLimitState.sessionPaused ? 1 : 0, "Audit: Session Loss Limit Paused", display=display.data_window)
+plot(lossLimitState.dailyPaused ? 1 : 0, "Audit: Daily Loss Limit Paused", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.entry : na, "Audit: Actual Filled Entry", display=display.data_window)
+plot(enableBreakeven and not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.trigger : na, "Audit: Breakeven Trigger", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.stop : na, "Audit: Current Stop", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) and activePlan.breakeven.active ? 1 : 0, "Audit: Breakeven Active", display=display.data_window)

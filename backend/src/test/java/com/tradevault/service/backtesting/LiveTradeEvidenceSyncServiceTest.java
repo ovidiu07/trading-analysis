@@ -225,6 +225,25 @@ class LiveTradeEvidenceSyncServiceTest {
     }
 
     @Test
+    void clearingAWorkspaceExcludesIncludedAndPendingLinksWithoutDeletingLiveTrades() {
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "NQ", null, null);
+        BacktestEvidenceLink included = BacktestEvidenceLink.builder().workspace(workspace).user(user)
+                .syncStatus(BacktestingSyncStatus.SYNCED).includedInAnalytics(true).build();
+        BacktestEvidenceLink pending = BacktestEvidenceLink.builder().workspace(workspace).user(user)
+                .syncStatus(BacktestingSyncStatus.PENDING).includedInAnalytics(false).build();
+        when(evidenceRepository.findByWorkspace_IdAndUser_IdOrderByUpdatedAtDesc(workspace.getId(), user.getId()))
+                .thenReturn(List.of(included, pending));
+        service.excludeWorkspaceTrades(workspace.getId(), user.getId());
+        for (BacktestEvidenceLink link : List.of(included, pending)) {
+            assertThat(link.getSyncStatus()).isEqualTo(BacktestingSyncStatus.EXCLUDED);
+            assertThat(link.isIncludedInAnalytics()).isFalse();
+            assertThat(link.getExcludedReason()).isEqualTo("USER_EXCLUDED");
+        }
+        verify(evidenceRepository).saveAll(List.of(included, pending));
+        org.mockito.Mockito.verifyNoInteractions(tradeRepository);
+    }
+
+    @Test
     void reIncludingExcludedEvidenceClearsExclusionAndReusesTheSameLink() {
         Trade trade = closedTrade();
         BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "NQ", "New York AM", "5 minutes");

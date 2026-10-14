@@ -18,6 +18,7 @@ const backtestingApiMock = vi.hoisted(() => ({
   updateBacktestingTrade: vi.fn(),
   updateBacktestingTrades: vi.fn(),
   deleteBacktestingTrade: vi.fn(),
+  deleteBacktestingWorkspaceTrades: vi.fn(),
   importBacktestingTrades: vi.fn(),
   getBacktestingAnalytics: vi.fn(),
   getBacktestingResearchInbox: vi.fn(),
@@ -279,6 +280,57 @@ describe('BacktestingPage Evidence Engine', () => {
     expect(backtestingApiMock.updateBacktestingTrades).toHaveBeenCalledWith('workspace-1', expect.objectContaining({
       tradeIds: expanded.map(trade => trade.id), fields: ['plannedRR'], changes: { plannedRR: 1.5 }, deriveRFromPlannedRR: true
     }))
+  })
+
+  it('selects and atomically submits all 529 filtered trades across pages', async () => {
+    const expanded = Array.from({ length: 529 }, (_, index) => ({ ...trades[0], id: `large-${index}`, source: 'IMPORT' as const }))
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue([...expanded, trades[8]])
+    backtestingApiMock.updateBacktestingTrades.mockResolvedValue(expanded)
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Trades', exact: true }))
+    await userEvent.click(screen.getByRole('button', { name: 'Select all 529 filtered trades' }))
+    expect(screen.getByText('529 trades selected')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Next', exact: true }))
+    expect(screen.getByRole('checkbox', { name: 'Select editable trades on this page' })).toBeChecked()
+    await userEvent.click(screen.getByRole('button', { name: 'Edit selected' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit 529 selected trades' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Apply to 529 trades' }))
+    expect(backtestingApiMock.updateBacktestingTrades).toHaveBeenCalledTimes(1)
+    expect(backtestingApiMock.updateBacktestingTrades).toHaveBeenCalledWith('workspace-1', expect.objectContaining({ tradeIds: expanded.map(trade => trade.id) }))
+  })
+
+  it('clears the entire workspace despite filters and selection only after typed confirmation', async () => {
+    backtestingApiMock.deleteBacktestingWorkspaceTrades.mockResolvedValue(undefined)
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Trades', exact: true }))
+    fireEvent.change(screen.getByLabelText('Search trades, setups, tags, or notes'), { target: { value: 'no matching trades' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Delete all workspace trades' }))
+    let dialog = screen.getByRole('dialog', { name: 'Delete all trades from this workspace?' })
+    expect(within(dialog).getByText(/Remove all 12 trades from/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Delete all workspace trades' })).toBeDisabled()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(backtestingApiMock.deleteBacktestingWorkspaceTrades).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Delete all workspace trades' }))
+    dialog = screen.getByRole('dialog', { name: 'Delete all trades from this workspace?' })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE')
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue([])
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete all workspace trades' }))
+    expect(backtestingApiMock.deleteBacktestingWorkspaceTrades).toHaveBeenCalledTimes(1)
+    expect(backtestingApiMock.deleteBacktestingWorkspaceTrades).toHaveBeenCalledWith('workspace-1')
+    expect(await screen.findByText('All workspace trades removed. The workspace is ready for a new import.')).toBeInTheDocument()
+    expect(backtestingApiMock.listBacktestingTrades.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('keeps the delete-all confirmation open when the operation fails', async () => {
+    backtestingApiMock.deleteBacktestingWorkspaceTrades.mockRejectedValue(new Error('Workspace was not found'))
+    renderPage('/backtesting/workspace-1')
+    await userEvent.click(await screen.findByRole('tab', { name: 'Trades', exact: true }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete all workspace trades' }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete all trades from this workspace?' })
+    await userEvent.type(within(dialog).getByRole('textbox', { name: 'Type DELETE to confirm' }), 'DELETE')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete all workspace trades' }))
+    expect(await within(dialog).findByText('Workspace was not found')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Delete all trades from this workspace?' })).toBeInTheDocument()
   })
 
   it('re-includes excluded evidence through an explicit confirmation without losing its snapshot', async () => {

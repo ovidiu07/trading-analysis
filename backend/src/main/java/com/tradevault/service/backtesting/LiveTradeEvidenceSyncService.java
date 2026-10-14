@@ -198,6 +198,20 @@ public class LiveTradeEvidenceSyncService {
                 .findByWorkspace_IdAndUser_IdAndIncludedInAnalyticsTrueOrderByTradeDateAscOpenedAtAscCreatedAtAsc(workspaceId, userId);
     }
 
+    /** Exclusions survive later syncs; the original live journal trades are untouched. */
+    @Transactional
+    public void excludeWorkspaceTrades(UUID workspaceId, UUID userId) {
+        List<BacktestEvidenceLink> links = evidenceRepository.findByWorkspace_IdAndUser_IdOrderByUpdatedAtDesc(workspaceId, userId);
+        OffsetDateTime now = OffsetDateTime.now();
+        for (BacktestEvidenceLink link : links) {
+            link.setSyncStatus(BacktestingSyncStatus.EXCLUDED);
+            link.setIncludedInAnalytics(false);
+            link.setExcludedReason("USER_EXCLUDED");
+            link.setLastSyncedAt(now);
+        }
+        evidenceRepository.saveAll(links);
+    }
+
     @Transactional(readOnly = true)
     public List<BacktestEvidenceLink> linksForWorkspaces(List<UUID> workspaceIds) {
         return workspaceIds.isEmpty() ? List.of() : evidenceRepository.findByWorkspace_IdIn(workspaceIds);

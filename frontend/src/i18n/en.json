@@ -3988,6 +3988,18 @@
       "dayAria": "View backtested trades for {{date}}. {{count}} trades. Result {{value}}",
       "periodTrades": "Backtested trades · {{period}}"
     },
+    "clearTrades": {
+      "action": "Delete all workspace trades",
+      "title": "Delete all trades from this workspace?",
+      "scope": "Remove all {{count}} trades from “{{name}}”, across every page and regardless of the current filters or selection.",
+      "consequences": "Saved backtest/replay trades will be permanently deleted. Linked live evidence will be excluded from research. The workspace, notes, screenshots, and original live journal trades will be kept.",
+      "autoImport": "Automatic import is enabled for this workspace. Existing excluded live evidence stays excluded, but future imports or new live trades can add trades again.",
+      "confirmationWord": "DELETE",
+      "confirmationLabel": "Type {{word}} to confirm",
+      "deleting": "Deleting trades…",
+      "saved": "All workspace trades removed. The workspace is ready for a new import.",
+      "error": "Could not confirm that this workspace was cleared. Refresh and check its trades before retrying."
+    },
     "bulk": {
       "setupName": "Setup name",
       "strategyName": "Strategy label",

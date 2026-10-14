@@ -99,4 +99,38 @@ class BacktestingBulkEditTest {
         assertThat(winner.getPnlR()).isZero(); assertThat(winner.getSession()).isEqualTo("London");
         assertThat(loser.getSession()).isEqualTo("New York");
     }
+
+    @Test void supports529TradesWithBoundedLookupsAndOneAtomicSave() {
+        List<BacktestingTrade> many = new ArrayList<>();
+        for (int i = 0; i < 529; i++) many.add(trade(BacktestingTradeResult.WIN, "11:00", "150"));
+        when(repository.findAllById(any())).thenAnswer(call -> {
+            Collection<UUID> batch = call.getArgument(0);
+            assertThat(batch).hasSizeLessThanOrEqualTo(500);
+            return many.stream().filter(trade -> batch.contains(trade.getId())).toList();
+        });
+        var request = new BacktestingTradeBulkUpdateRequest();
+        request.setTradeIds(many.stream().map(BacktestingTrade::getId).toList());
+        request.setFields(Set.of("notes"));
+        request.getChanges().setNotes("All selected trades");
+        assertThat(service.updateTrades(workspace.getId(), request)).hasSize(529);
+        assertThat(many).allSatisfy(trade -> assertThat(trade.getNotes()).isEqualTo("All selected trades"));
+        verify(repository, times(2)).findAllById(any());
+        verify(repository).saveAll(many);
+    }
+
+    @Test void invalidTradeInLaterLookupBatchPreventsEveryChange() {
+        List<BacktestingTrade> many = new ArrayList<>();
+        for (int i = 0; i < 529; i++) many.add(trade(BacktestingTradeResult.WIN, "11:00", "150"));
+        many.get(528).setWorkspace(BacktestingWorkspace.builder().id(UUID.randomUUID()).build());
+        when(repository.findAllById(any())).thenAnswer(call -> {
+            Collection<UUID> batch = call.getArgument(0);
+            return many.stream().filter(trade -> batch.contains(trade.getId())).toList();
+        });
+        var request = new BacktestingTradeBulkUpdateRequest();
+        request.setTradeIds(many.stream().map(BacktestingTrade::getId).toList());
+        request.setFields(Set.of("notes"));
+        assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).isInstanceOf(EntityNotFoundException.class);
+        assertThat(many).allSatisfy(trade -> assertThat(trade.getNotes()).isEqualTo("Keep this note"));
+        verify(repository, never()).saveAll(any());
+    }
 }

@@ -16,7 +16,7 @@ import java.util.UUID;
 
 @Data
 public class BacktestingTradeBulkUpdateRequest {
-    @NotEmpty @Size(max = 500)
+    @NotEmpty
     private List<@NotNull UUID> tradeIds;
     private Set<String> fields = Set.of();
     @Valid @NotNull

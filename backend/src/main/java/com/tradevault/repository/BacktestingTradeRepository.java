@@ -2,6 +2,9 @@ package com.tradevault.repository;
 
 import com.tradevault.domain.entity.BacktestingTrade;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.UUID;
@@ -12,4 +15,8 @@ public interface BacktestingTradeRepository extends JpaRepository<BacktestingTra
     List<BacktestingTrade> findByWorkspace_IdIn(List<UUID> workspaceIds);
 
     long countByWorkspace_Id(UUID workspaceId);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from BacktestingTrade trade where trade.workspace.id = :workspaceId and trade.user.id = :userId")
+    int deleteWorkspaceTrades(@Param("workspaceId") UUID workspaceId, @Param("userId") UUID userId);
 }

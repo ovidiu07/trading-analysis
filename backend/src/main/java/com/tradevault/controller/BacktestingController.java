@@ -153,6 +153,12 @@ public class BacktestingController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/workspaces/{workspaceId}/trades")
+    public ResponseEntity<Void> deleteWorkspaceTrades(@PathVariable UUID workspaceId) {
+        researchService.deleteWorkspaceTrades(workspaceId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping(value = "/workspaces/{workspaceId}/trades/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public BacktestingImportResponse importTrades(@PathVariable UUID workspaceId,
                                                   @RequestParam("file") MultipartFile file,

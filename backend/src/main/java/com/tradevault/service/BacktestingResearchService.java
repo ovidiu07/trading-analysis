@@ -132,8 +132,8 @@ public class BacktestingResearchService {
     public List<BacktestingTradeResponse> updateTrades(UUID workspaceId, BacktestingTradeBulkUpdateRequest request) {
         User user = currentUserService.getCurrentUser();
         BacktestingWorkspace workspace = requireOwnedWorkspace(workspaceId, user);
-        if (request.getTradeIds() == null || request.getTradeIds().isEmpty() || request.getTradeIds().size() > 500)
-            throw new IllegalArgumentException("Select between 1 and 500 trades");
+        if (request.getTradeIds() == null || request.getTradeIds().isEmpty())
+            throw new IllegalArgumentException("Select at least one trade");
         Set<String> fields = request.getFields() == null ? Set.of() : request.getFields();
         Set<String> allowed = Set.of("plannedRR", "riskPercent", "pnlR", "setupName", "strategyId", "strategySource", "strategyNameSnapshot",
                 "contextTimeframe", "executionTimeframe", "entryTimeframe", "tags", "notes", "sourceTimezone");
@@ -145,7 +145,13 @@ public class BacktestingResearchService {
         var values = Objects.requireNonNull(request.getChanges(), "changes are required");
         if (fields.contains("sourceTimezone") && StringUtils.hasText(values.getSourceTimezone())) java.time.ZoneId.of(values.getSourceTimezone().trim());
         Set<UUID> ids = new LinkedHashSet<>(request.getTradeIds());
-        List<BacktestingTrade> selected = tradeRepository.findAllById(ids);
+        // Bound SQL parameter lists without limiting the user's selection or
+        // splitting the update into partially successful client requests.
+        List<UUID> orderedIds = new ArrayList<>(ids);
+        List<BacktestingTrade> selected = new ArrayList<>(ids.size());
+        for (int start = 0; start < orderedIds.size(); start += 500) {
+            selected.addAll(tradeRepository.findAllById(orderedIds.subList(start, Math.min(start + 500, orderedIds.size()))));
+        }
         if (selected.size() != ids.size() || selected.stream().anyMatch(trade -> !user.getId().equals(trade.getUser().getId())
                 || !workspaceId.equals(trade.getWorkspace().getId()) || trade.getSource() == BacktestingTradeSource.LIVE))
             throw new EntityNotFoundException("One or more editable backtesting trades were not found in this workspace");
@@ -206,6 +212,26 @@ public class BacktestingResearchService {
                 .forEach(shot -> shot.setBacktestingTrade(null));
         trade.getWorkspace().setUpdatedAt(OffsetDateTime.now());
         tradeRepository.delete(trade);
+    }
+
+    /** Clear only this workspace's research rows; never delete journal trades or assets. */
+    @Transactional
+    public void deleteWorkspaceTrades(UUID workspaceId) {
+        User user = currentUserService.getCurrentUser();
+        BacktestingWorkspace workspace = requireOwnedWorkspace(workspaceId, user);
+        screenshotRepository.findByWorkspace_IdAndUser_IdOrderBySortOrderAscCreatedAtAsc(workspaceId, user.getId())
+                .forEach(shot -> shot.setBacktestingTrade(null));
+        evidenceSyncService.excludeWorkspaceTrades(workspaceId, user.getId());
+        // Empty workspaces fall back to these legacy summary fields.
+        workspace.setNumberOfTrades(0);
+        workspace.setWinningTrades(0);
+        workspace.setLosingTrades(0);
+        workspace.setBreakevenTrades(0);
+        workspace.setAverageR(null);
+        workspace.setUpdatedAt(OffsetDateTime.now());
+        // Flush screenshot unlinking and evidence exclusions before the bulk
+        // delete, then clear stale managed trade references in the same transaction.
+        tradeRepository.deleteWorkspaceTrades(workspaceId, user.getId());
     }
 
     @Transactional

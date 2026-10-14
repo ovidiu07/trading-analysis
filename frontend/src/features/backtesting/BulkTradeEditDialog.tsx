@@ -62,6 +62,6 @@ export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClo
       {editor('strategyNameSnapshot', t('backtesting.bulk.strategyName'))}
       {textFields.map(([field, key]) => editor(field, t(`backtesting.trades.${key}`)))}
     </Stack></DialogContent>
-    <DialogActions><Button disabled={mutation.isLoading} onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={mutation.isLoading || trades.length === 0 || trades.length > 500 || (!fields.length && !deriveR && !sessions) || invalidNumber || invalidRR || invalidR || missingRR} onClick={save}>{t(mutation.isLoading ? 'backtesting.actions.saving' : 'backtesting.bulk.apply', { count: trades.length })}</Button></DialogActions>
+    <DialogActions><Button disabled={mutation.isLoading} onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={mutation.isLoading || trades.length === 0 || (!fields.length && !deriveR && !sessions) || invalidNumber || invalidRR || invalidR || missingRR} onClick={save}>{t(mutation.isLoading ? 'backtesting.actions.saving' : 'backtesting.bulk.apply', { count: trades.length })}</Button></DialogActions>
   </Dialog>
 }
