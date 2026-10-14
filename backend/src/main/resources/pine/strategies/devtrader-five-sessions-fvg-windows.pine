@@ -816,6 +816,10 @@ string executionTimeframe = input.timeframe("5", "Execution Timeframe", group=G_
 float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, maxval=100, step=0.1, group=G_EXEC, tooltip="Depth from the retest edge: bullish top toward bottom, bearish bottom toward top. Matches the FVG indicator's percentage line.")
 float maxStopPoints = input.float(36.0, "Maximum SL (points / pips)", minval=0.00000001, group=G_EXEC, tooltip="Reject a setup when the structural entry-to-stop distance exceeds this cap. The structural wick stop is never moved inward to fit the cap.")
 float stopPointSize = input.float(1.0, "Price Size Of One Point / Pip", minval=0.00000001, group=G_EXEC, tooltip="1.0 for GER40/NQ price points. For forex, enter your pip size, e.g. 0.0001 for GBPUSD or 0.01 for a JPY quote. This is a price-distance conversion, not position risk sizing.")
+float riskPerTrade = input.float(100.0, "Account Risk Per Trade (account currency)", minval=0.0, group=G_EXEC, tooltip="Target money at risk per position in the account currency. Position size is derived from this and the structural stop distance.")
+float pointValue = input.float(1.15, "Money Value Of One Point Per Contract", minval=0.00000001, group=G_EXEC, tooltip="Account-currency P&L of a 1 price-point move on 1 contract. For this GER40 CFD quoted in EUR with a USD account it is about 1.15 (EUR/USD). Set per instrument.")
+float qtyStep = input.float(0.01, "Order Size Step", minval=0.00000001, group=G_EXEC, tooltip="Size is rounded DOWN to this step so realised risk never exceeds the target.")
+float maxQty = input.float(10.0, "Maximum Order Size (0 = unlimited)", minval=0.0, group=G_EXEC, tooltip="Safety cap — a very tight stop would otherwise produce a very large size.")
 float rewardRiskRatio = input.float(1.5, "Reward / Risk", minval=0.01, step=0.1, group=G_EXEC)
 int maximumTradesPerWindow = input.int(0, "Maximum Filled Trades Per Window (0 = unlimited)", minval=0, group=G_EXEC, tooltip="By default, a new FVG can qualify after the previous trade closes, regardless of win/loss. No pyramiding; only one pending entry or open trade at a time.")
 COLOR_BULL = #98cac2
@@ -957,6 +961,9 @@ type TradePlan
     label setupLabel = na
 
 var TradePlan activePlan = na
+var float plannedQtyValue = na
+var float plannedRiskValue = na
+var float targetRiskValue = na
 var array<TradePlan> drawingHistory = array.new<TradePlan>()
 var int processedClosed = 0
 var int qualifiedSetups = 0
@@ -1017,6 +1024,9 @@ if barstate.isconfirmed
                 f_countFill(activePlan)
                 f_finishPlanDrawing(activePlan, time_close)
                 lastEvent := strategy.closedtrades.exit_comment(i) + " · " + activePlan.orderId
+                plannedQtyValue := na
+                plannedRiskValue := na
+                targetRiskValue := na
                 activePlan := na
         processedClosed := strategy.closedtrades
     if not na(activePlan) and strategy.position_size != 0
@@ -1034,6 +1044,9 @@ if barstate.isconfirmed
             strategy.cancel(activePlan.orderId + "-EXIT")
             f_finishPlanDrawing(activePlan, time_close)
             pendingCancellations += 1
+            plannedQtyValue := na
+            plannedRiskValue := na
+            targetRiskValue := na
             lastEvent := "Pending entry cancelled: " + (not nativeMode ? "chart/settings" : expired ? "window/session ended" : directionChanged ? "session direction changed" : "FVG mitigated")
             activePlan := na
 
@@ -1052,7 +1065,11 @@ if barstate.isconfirmed
             float stop = bias == 1 ? structureLowRaw : structureHighRaw
             float riskDistance = bias * (entry - stop)
             float target = math.round_to_mintick(entry + bias * riskDistance * rewardRiskRatio)
-            float qty = strategy.default_entry_qty(entry)
+            float riskPoints = riskDistance / stopPointSize
+            float riskPerContract = riskPoints * pointValue
+            float rawQty = riskPerContract > 0 ? riskPerTrade / riskPerContract : na
+            float steppedQty = na(rawQty) ? na : math.floor(rawQty / qtyStep) * qtyStep
+            float qty = na(steppedQty) ? na : maxQty > 0 ? math.min(steppedQty, maxQty) : steppedQty
             bool stopValid = riskDistance > 0 and riskDistance <= maxStopPoints * stopPointSize + syminfo.mintick * 0.000001
             bool targetValid = bias * (target - entry) > 0
             bool quantityValid = not na(qty) and qty >= syminfo.mincontract and qty > 0
@@ -1068,9 +1085,12 @@ if barstate.isconfirmed
                 int expires = math.min(ew.occurrenceEnd, fiveSessionState.endTime)
                 string orderId = (bias == 1 ? "LONG-" : "SHORT-") + str.tostring(fvgSourceTimeRaw) + "-" + str.tostring(selectedWindow)
                 activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, fvgMaxRaw, fvgMinRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw)
+                plannedQtyValue := qty
+                plannedRiskValue := qty * math.abs(activePlan.entry - activePlan.stop) / stopPointSize * pointValue
+                targetRiskValue := riskPerTrade
                 qualifiedSetups += 1
                 f_drawPlan(activePlan)
-                strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, comment=(bias == 1 ? "LONG " : "SHORT ") + ew.tag)
+                strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, qty=qty, comment=(bias == 1 ? "LONG " : "SHORT ") + ew.tag)
                 strategy.exit(orderId + "-EXIT", from_entry=orderId, stop=stop, limit=target, comment_profit="TP", comment_loss="SL")
                 lastEvent := "Pending " + orderId
 
@@ -1078,15 +1098,15 @@ if barstate.isconfirmed
 f_price(float value) =>
     na(value) ? "—" : str.tostring(value, format.mintick)
 string warning = not executionChart ? "Use standard " + executionTimeframe + "-minute candles dividing 15 minutes. Orders disabled." : not detectionCompatible ? "FVG timeframe must be >= chart and a whole multiple. Orders disabled." : not anyExecutableProfile ? "No enabled ticker/window profile matches this symbol." : not windowBoundariesAligned ? "Trading-window boundaries must align with chart bars. Orders disabled." : ""
-var table dashboard = table.new(position.top_right, 2, 12, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+var table dashboard = table.new(position.top_right, 2, 13, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
 if barstate.islast or barstate.islastconfirmedhistory
-    table.clear(dashboard, 0, 0, 1, 11)
+    table.clear(dashboard, 0, 0, 1, 12)
     if showStrategyDashboard or warning != ""
         string windowName = na(selectedWindow) ? "Outside entry windows" : array.get(executionWindows, selectedWindow).tag
         string directionText = currentActiveSessionIndex == 0 ? "Outside reference sessions" : fiveSessionState.status
-        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "Structural SL / TP", "Max SL / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Last event")
-        array<string> vals = array.from(warning == "" ? "READY · confirmed candles" : warning, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(activePlan.entry), na(activePlan) ? "—" : f_price(activePlan.stop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), lastEvent)
-        for i = 0 to 11
+        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "Structural SL / TP", "Max SL / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Last event")
+        array<string> vals = array.from(warning == "" ? "READY · confirmed candles" : warning, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(activePlan.entry), na(activePlan) ? "—" : f_price(activePlan.stop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), lastEvent)
+        for i = 0 to 12
             table.cell(dashboard, 0, i, array.get(keys, i), text_color=color.silver, text_size=size.tiny)
             table.cell(dashboard, 1, i, array.get(vals, i), text_color=i == 0 and warning != "" ? color.orange : color.white, text_size=size.tiny)
 plot(fiveSessionState.bias, "Audit: Session Bias", display=display.data_window)
@@ -1104,4 +1124,7 @@ plot(confirmedNewFvg ? structureHighRaw : na, "Audit: Three Candle High", displa
 plot(na(activePlan) ? na : activePlan.entry, "Audit: Planned Entry", display=display.data_window)
 plot(na(activePlan) ? na : activePlan.stop, "Audit: Planned SL", display=display.data_window)
 plot(na(activePlan) ? na : activePlan.target, "Audit: Planned TP", display=display.data_window)
+plot(plannedQtyValue, "Audit: Planned Qty", display=display.data_window)
+plot(plannedRiskValue, "Audit: Planned Risk", display=display.data_window)
+plot(targetRiskValue, "Audit: Target Risk", display=display.data_window)
 plot(na(activePlan) ? na : activePlan.expires, "Audit: Pending Deadline ms", display=display.data_window)
