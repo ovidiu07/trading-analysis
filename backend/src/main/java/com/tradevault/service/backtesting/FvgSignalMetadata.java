@@ -26,12 +26,7 @@ public final class FvgSignalMetadata {
         String signal = trade.getEntrySignal();
         if (!hasPayload(signal)) return;
         try {
-            Map<String, String> values = new HashMap<>();
-            for (String token : signal.substring(signal.indexOf(MARKER) + MARKER.length()).split("\\s+")) {
-                String[] pair = token.split("=", 2);
-                if (pair.length != 2 || values.putIfAbsent(pair[0], pair[1]) != null)
-                    throw new IllegalArgumentException("invalid or duplicate token");
-            }
+            Map<String, String> values = tokens(signal);
             BigDecimal low = number(values, "lo", 8, 12), high = number(values, "hi", 8, 12);
             BigDecimal width = high.subtract(low);
             BigDecimal size = number(values, "size", 8, 12);
@@ -46,13 +41,7 @@ public final class FvgSignalMetadata {
             if (!"TOUCH".equals(values.get("mode")) && !"DEPTH".equals(values.get("mode"))
                     || plannedDepth.signum() < 0 || plannedDepth.compareTo(BigDecimal.valueOf(100)) > 0 || configuredRR.signum() <= 0)
                 throw new IllegalArgumentException("invalid entry configuration");
-            if (!"OFF".equals(values.get("BE"))) {
-                String[] be = values.getOrDefault("BE", "").split("/", -1);
-                if (be.length != 2) throw new IllegalArgumentException("invalid BE configuration");
-                BigDecimal trigger = new BigDecimal(be[0]), lock = new BigDecimal(be[1]);
-                if (trigger.signum() <= 0 || trigger.compareTo(BigDecimal.valueOf(100)) > 0 || lock.signum() < 0 || lock.compareTo(trigger) >= 0)
-                    throw new IllegalArgumentException("invalid BE configuration");
-            }
+            beLockPercent(values);
             Instant confirmedAt = Instant.ofEpochMilli(created);
             if (confirmedAt.atZone(ZoneId.of("UTC")).getYear() > 9999)
                 throw new IllegalArgumentException("creation timestamp out of range");
@@ -76,6 +65,36 @@ public final class FvgSignalMetadata {
         } catch (RuntimeException ex) {
             throw new IllegalArgumentException("Invalid FVGv1 signal: " + ex.getMessage(), ex);
         }
+    }
+
+    /** Protected share of the full entry-to-TP distance; null when no enabled source configuration exists. */
+    public static BigDecimal protectedProfitPercent(String signal) {
+        if (!hasPayload(signal)) return null;
+        try {
+            return beLockPercent(tokens(signal));
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException("Invalid FVGv1 signal: " + ex.getMessage(), ex);
+        }
+    }
+
+    private static Map<String, String> tokens(String signal) {
+        Map<String, String> values = new HashMap<>();
+        for (String token : signal.substring(signal.indexOf(MARKER) + MARKER.length()).split("\\s+")) {
+            String[] pair = token.split("=", 2);
+            if (pair.length != 2 || values.putIfAbsent(pair[0], pair[1]) != null)
+                throw new IllegalArgumentException("invalid or duplicate token");
+        }
+        return values;
+    }
+
+    private static BigDecimal beLockPercent(Map<String, String> values) {
+        if ("OFF".equals(values.get("BE"))) return null;
+        String[] be = values.getOrDefault("BE", "").split("/", -1);
+        if (be.length != 2) throw new IllegalArgumentException("invalid BE configuration");
+        BigDecimal trigger = new BigDecimal(be[0]), lock = new BigDecimal(be[1]);
+        if (trigger.signum() <= 0 || trigger.compareTo(BigDecimal.valueOf(100)) > 0 || lock.signum() < 0 || lock.compareTo(trigger) >= 0)
+            throw new IllegalArgumentException("invalid BE configuration");
+        return lock;
     }
 
     private static BigDecimal number(Map<String, String> values, String key, int scale, int integerDigits) {

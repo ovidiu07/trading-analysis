@@ -100,6 +100,87 @@ class BacktestingBulkEditTest {
         assertThat(loser.getSession()).isEqualTo("New York");
     }
 
+    static final String FVG_ENTRY = "SHORT GER / 2 | FVGv1 tf=5 lo=19198.5 hi=19210.0 size=11.5 sizePct=0.0599 created=1728397200000 mode=TOUCH depth=0 rr=3 BE=90/30";
+
+    @Test void profitableProtectedStopUsesLockPercentageForBothDirectionsAndKeepsCashOutcome() {
+        winner.setEntrySignal(FVG_ENTRY);
+        winner.setExitSignal("BE | fillPct=0 fillBars=1 touchBars=1 ageMin=0");
+        winner.setPnlR(new BigDecimal("3")); // The reported V2 error.
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("3"));
+        request.setDeriveRFromPlannedRR(true);
+        for (var direction : BacktestingTradeDirection.values()) {
+            winner.setDirection(direction);
+            service.updateTrades(workspace.getId(), request);
+            assertThat(winner.getPnlR()).isEqualByComparingTo("0.9");
+            assertThat(winner.getResult()).isEqualTo(BacktestingTradeResult.WIN);
+            assertThat(winner.getNetPnl()).isEqualByComparingTo("150");
+            assertThat(winner.getPlannedRR()).isEqualByComparingTo("3");
+            assertThat(loser.getPnlR()).isEqualByComparingTo("-1");
+            assertThat(winner.getImportFingerprint()).isEqualTo("retained-11:00");
+        }
+    }
+
+    @Test void protectedStopUsesSelectedRatioAndLockRatherThanTriggerOrHardcodedPointNine() {
+        winner.setEntrySignal(FVG_ENTRY.replace("BE=90/30", "BE=75/20"));
+        winner.setExitSignal(" be | fillPct=0");
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("2.5"));
+        request.setDeriveRFromPlannedRR(true);
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPnlR()).isEqualByComparingTo("0.5");
+        winner.setEntrySignal(FVG_ENTRY.replace("BE=90/30", "BE=90/0"));
+        winner.setResult(BacktestingTradeResult.BREAKEVEN); winner.setNetPnl(BigDecimal.ZERO);
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPnlR()).isZero();
+    }
+
+    @Test void unknownOrMalformedProtectedStopPreventsAllChanges() {
+        loser.setExitSignal("BE");
+        var request = request("plannedRR", "notes"); request.getChanges().setPlannedRR(new BigDecimal("3"));
+        request.setDeriveRFromPlannedRR(true);
+        for (String signal : List.of("SHORT GER / 2", FVG_ENTRY.replace("BE=90/30", "BE=OFF"),
+                FVG_ENTRY.replace("BE=90/30", "BE=30/90"), FVG_ENTRY + " BE=90/20")) {
+            loser.setEntrySignal(signal);
+            assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(winner.getPnlR()).isNull(); assertThat(winner.getPlannedRR()).isNull();
+            assertThat(winner.getNotes()).isEqualTo("Keep this note");
+            verify(repository, never()).saveAll(any());
+        }
+    }
+
+    @Test void configuringProtectionDoesNotReduceFullTargetWinnersOrMisreadBearishSignal() {
+        winner.setEntrySignal(FVG_ENTRY);
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("3"));
+        request.setDeriveRFromPlannedRR(true);
+        for (String signal : List.of("TP | fillPct=0", "BEARISH TARGET")) {
+            winner.setExitSignal(signal);
+            service.updateTrades(workspace.getId(), request);
+            assertThat(winner.getPnlR()).isEqualByComparingTo("3");
+        }
+    }
+
+    @Test void v2OutcomeCountsReconcileTo67RInsteadOf109R() {
+        List<BacktestingTrade> sample = new ArrayList<>();
+        for (int i = 0; i < 523; i++) {
+            var trade = trade(i < 158 ? BacktestingTradeResult.WIN : BacktestingTradeResult.LOSS, "17:20", i < 158 ? "100" : "-100");
+            trade.setEntrySignal(FVG_ENTRY);
+            trade.setExitSignal(i < 138 ? "TP" : i < 158 ? "BE | fillPct=0" : "SL");
+            sample.add(trade);
+        }
+        when(repository.findAllById(any())).thenAnswer(call -> {
+            Collection<UUID> batch = call.getArgument(0);
+            return sample.stream().filter(trade -> batch.contains(trade.getId())).toList();
+        });
+        var request = new BacktestingTradeBulkUpdateRequest();
+        request.setTradeIds(sample.stream().map(BacktestingTrade::getId).toList());
+        request.setFields(Set.of("plannedRR")); request.getChanges().setPlannedRR(new BigDecimal("3"));
+        request.setDeriveRFromPlannedRR(true);
+        service.updateTrades(workspace.getId(), request);
+        assertThat(sample.stream().map(BacktestingTrade::getPnlR).reduce(BigDecimal.ZERO, BigDecimal::add)).isEqualByComparingTo("67");
+        assertThat(sample.stream().filter(t -> t.getPnlR().compareTo(new BigDecimal("0.9")) == 0)).hasSize(20);
+        assertThat(service.calculateMetrics(sample).getTotalR()).isEqualByComparingTo("67");
+        verify(repository).saveAll(sample);
+    }
+
     @Test void supports529TradesWithBoundedLookupsAndOneAtomicSave() {
         List<BacktestingTrade> many = new ArrayList<>();
         for (int i = 0; i < 529; i++) many.add(trade(BacktestingTradeResult.WIN, "11:00", "150"));

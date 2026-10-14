@@ -156,12 +156,14 @@ public class BacktestingResearchService {
         if (selected.size() != ids.size() || selected.stream().anyMatch(trade -> !user.getId().equals(trade.getUser().getId())
                 || !workspaceId.equals(trade.getWorkspace().getId()) || trade.getSource() == BacktestingTradeSource.LIVE))
             throw new EntityNotFoundException("One or more editable backtesting trades were not found in this workspace");
-        // Validate all numeric changes before mutating managed entities.
+        // Validate and calculate every R before mutating managed entities, including malformed BE source settings.
+        Map<BacktestingTrade, BigDecimal> derivedR = new LinkedHashMap<>();
         for (BacktestingTrade trade : selected) {
             BigDecimal rr = fields.contains("plannedRR") ? values.getPlannedRR() : trade.getPlannedRR();
             if (fields.contains("plannedRR") && rr != null && rr.signum() <= 0) throw new IllegalArgumentException("Planned R:R must be positive");
             if (request.isDeriveRFromPlannedRR() && (rr == null || rr.signum() <= 0))
                 throw new IllegalArgumentException("Every selected trade needs a positive planned R:R");
+            if (request.isDeriveRFromPlannedRR()) derivedR.put(trade, fixedOutcomeR(trade, rr));
             if (fields.contains("pnlR")) validateRealizedR(trade.getResult(), values.getPnlR(), trade.getNetPnl() == null);
         }
         for (BacktestingTrade trade : selected) {
@@ -181,17 +183,30 @@ public class BacktestingResearchService {
                 case "sourceTimezone" -> trade.setSourceTimezone(normalizeText(values.getSourceTimezone()));
                 default -> throw new IllegalArgumentException("Unsupported bulk-edit field");
             }
-            if (request.isDeriveRFromPlannedRR()) trade.setPnlR(switch (trade.getResult()) {
-                case WIN -> trade.getPlannedRR();
-                case LOSS -> BigDecimal.ONE.negate();
-                case BREAKEVEN -> BigDecimal.ZERO;
-            });
+            if (request.isDeriveRFromPlannedRR()) trade.setPnlR(derivedR.get(trade));
             if (request.isRecalculateSession() || fields.contains("sourceTimezone"))
                 trade.setSession(BacktestingSessionClassifier.classify(trade.getDate(), trade.getEntryTime(), trade.getSourceTimezone()));
         }
         tradeRepository.saveAll(selected);
         workspace.setUpdatedAt(OffsetDateTime.now());
         return toTradeResponses(selected);
+    }
+
+    /** User-requested fixed outcome model, not fill-price R or cash/risk reconstruction. */
+    private static BigDecimal fixedOutcomeR(BacktestingTrade trade, BigDecimal plannedRR) {
+        String signal = trade.getExitSignal() == null ? "" : trade.getExitSignal().trim();
+        if (signal.matches("(?i)^(?:BE|BREAKEVEN|BREAK\\s+EVEN)(?=$|\\s|\\|).*$")) {
+            BigDecimal protectedPercent = FvgSignalMetadata.protectedProfitPercent(trade.getEntrySignal());
+            if (protectedPercent == null)
+                throw new IllegalArgumentException("BE exit needs an enabled FVG protected-profit setting to calculate R; enter measured R explicitly when the source setting is unavailable");
+            // BE describes the amended stop, even when positive cash PnL classifies the trade as WIN.
+            return plannedRR.multiply(protectedPercent).movePointLeft(2).setScale(8, RoundingMode.HALF_UP);
+        }
+        return switch (trade.getResult()) {
+            case WIN -> plannedRR;
+            case LOSS -> BigDecimal.ONE.negate();
+            case BREAKEVEN -> BigDecimal.ZERO;
+        };
     }
 
     private static void validateRealizedR(BacktestingTradeResult result, BigDecimal r, boolean required) {
