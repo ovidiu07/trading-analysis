@@ -97,6 +97,40 @@ class BacktestingReplayFlowIntegrationTest {
         assertThat(call(owner, get(route + "/trades")).size()).isZero();
     }
 
+    @Test void strategyExportPersistsIndependentCurrenciesAndSkipsAllRepeatedExecutions() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        byte[] bytes = Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-strategy-ger40f-usd.csv")).readAllBytes();
+        var file = new MockMultipartFile("file", "Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv", "text/csv", bytes);
+        var preview = call(token, multipart(route + "/trades/import").file(file).param("preview", "true"));
+        assertThat(preview.path("imported").asInt()).isEqualTo(416);
+        assertThat(preview.path("invalid").asInt()).isZero();
+        assertThat(call(token, get(route + "/trades")).size()).isZero();
+        var imported = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(imported.path("imported").asInt()).isEqualTo(416);
+        var stored = call(token, get(route + "/trades"));
+        assertThat(stored.size()).isEqualTo(416);
+        stored.forEach(trade -> {
+            assertThat(trade.path("priceCurrency").asText()).isEqualTo("EUR");
+            assertThat(trade.path("currency").asText()).isEqualTo("USD");
+            assertThat(trade.path("instrument").asText()).isEqualTo("PEPPERSTONE:GER40F");
+            assertThat(trade.path("pnlR").isNull()).isTrue();
+        });
+        assertThat(stored.get(0).path("entryPrice").asDouble()).isEqualTo(24490.7);
+        assertThat(stored.get(0).path("exitPrice").asDouble()).isEqualTo(24527.1);
+        assertThat(jdbc.queryForObject("select count(*) from tradevault.backtesting_trades where workspace_id=? and price_currency='EUR' and currency='USD'", Integer.class, UUID.fromString(id))).isEqualTo(416);
+        var repeat = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(repeat.path("imported").asInt()).isZero();
+        assertThat(repeat.path("duplicates").asInt()).isEqualTo(416);
+        assertThat(repeat.path("invalid").asInt()).isZero();
+        var baseline = call(token, get(route + "/analytics")).path("baseline");
+        assertThat(baseline.path("trades").asInt()).isEqualTo(416);
+        assertThat(baseline.path("wins").asInt()).isEqualTo(171);
+        assertThat(baseline.path("losses").asInt()).isEqualTo(245);
+        assertThat(baseline.path("currencyMetrics").path("USD").path("netPnl").asDouble()).isEqualTo(1601.38);
+        assertThat(baseline.path("currencyMetrics").has("EUR")).isFalse();
+        assertThat(baseline.path("totalR").isNull()).isTrue();
+    }
+
     @Test void bulkUpdatePersistsOutcomeBasedRAndSessionsAndRollsBackAnInvalidSelection() throws Exception {
         String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
         call(token, multipart(route + "/trades/import").file(fixture()));

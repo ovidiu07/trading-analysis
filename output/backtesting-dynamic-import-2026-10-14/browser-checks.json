@@ -1,0 +1,65 @@
+{
+  "proof": "Real local frontend/backend, authenticated fixture user and isolated PostgreSQL database. No production data or provider involved.",
+  "checks": [
+    {
+      "name": "desktop-en-light",
+      "width": 1440,
+      "height": 1100,
+      "language": "en",
+      "theme": "light",
+      "sourceRows": 832,
+      "previewTrades": 416,
+      "persistedTrades": 416,
+      "reimportDuplicates": 416,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 1601.38,
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "errors": []
+    },
+    {
+      "name": "mobile-ro-light",
+      "width": 390,
+      "height": 844,
+      "language": "ro",
+      "theme": "light",
+      "sourceRows": 832,
+      "previewTrades": 416,
+      "persistedTrades": 416,
+      "reimportDuplicates": 416,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 1601.38,
+      "overflow": {
+        "viewport": 390,
+        "document": 390
+      },
+      "errors": []
+    },
+    {
+      "name": "mobile-en-dark",
+      "width": 375,
+      "height": 812,
+      "language": "en",
+      "theme": "dark",
+      "sourceRows": 832,
+      "previewTrades": 416,
+      "persistedTrades": 416,
+      "reimportDuplicates": 416,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 1601.38,
+      "overflow": {
+        "viewport": 375,
+        "document": 375
+      },
+      "errors": []
+    }
+  ]
+}

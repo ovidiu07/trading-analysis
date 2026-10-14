@@ -246,6 +246,8 @@ public class BacktestingResearchService {
                     duplicates = parsed.duplicates();
                     warnings.add("Replay results are simulated. Initial stop/risk is absent; R, risk percentage and planned R:R are unavailable.");
                     warnings.add("Export cumulative PnL can reset between replay runs. Analytics recompute totals from each closed trade once.");
+                    if (parsed.trades().stream().anyMatch(trade -> !Objects.equals(trade.getPriceCurrency(), trade.getCurrency())))
+                        warnings.add("Price currency differs from PnL currency. Both source currencies are preserved without FX conversion.");
                     if (!StringUtils.hasText(timezone)) warnings.add("Timezone is unspecified; timestamps retain the exported local clock. Session classification treats this clock as Europe/Bucharest; provide the export timezone if different.");
                     if (symbol != null && !symbol.equalsIgnoreCase(workspace.getSymbol()))
                         warnings.add("Imported instrument " + symbol + " differs from workspace " + workspace.getSymbol() + ". The CSV instrument is retained.");
@@ -274,6 +276,8 @@ public class BacktestingResearchService {
             if (key != null && existing.containsKey(key)) {
                 if (existing.get(key).getNetPnl().compareTo(trade.getNetPnl()) != 0)
                     errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different net PnL; review it before reimporting");
+                else if (existing.get(key).getPriceCurrency() != null && !Objects.equals(existing.get(key).getPriceCurrency(), trade.getPriceCurrency()))
+                    errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different price currency; review it before reimporting");
                 else duplicates++;
                 continue;
             }
@@ -675,6 +679,7 @@ public class BacktestingResearchService {
                 .exitTime(trade.getExitTime())
                 .entryPrice(trade.getEntryPrice())
                 .exitPrice(trade.getExitPrice())
+                .priceCurrency(trade.getPriceCurrency())
                 .quantity(trade.getQuantity())
                 .positionValue(trade.getPositionValue())
                 .netPnl(trade.getNetPnl())

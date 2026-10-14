@@ -47,7 +47,9 @@ describe('backtesting replay import review', () => {
   it.each([
     'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09_0eb11.csv',
     'Replay_Trading_PEPPERSTONE_GER40F_2026-10-09.csv',
-    'replay_trading_pepperstone_ger40f_2026-10-09_0eb11 (1).CSV'
+    'replay_trading_pepperstone_ger40f_2026-10-09_0eb11 (1).CSV',
+    'Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv',
+    'Another_strategy_PEPPERSTONE_GER40F_2025-01-01.csv'
   ])('detects the instrument in an original dated export: %s', async filename => {
     api.importBacktestingTrades.mockResolvedValue({ ...result, imported: 2, rowCount: 4, invalid: 0, duplicates: 0, errors: [], preview: true })
     setup()
@@ -57,5 +59,19 @@ describe('backtesting replay import review', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
     expect(await screen.findByText(/2 closed trades ready/)).toBeInTheDocument()
     expect(api.importBacktestingTrades).toHaveBeenLastCalledWith('workspace-1', file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: true })
+  })
+  it('previews independent price/PnL currencies and imports the exact selected workspace', async () => {
+    api.importBacktestingTrades.mockResolvedValue({ ...result, imported: 416, rowCount: 832, invalid: 0, duplicates: 0, errors: [], preview: true,
+      trades: [{ instrument: 'PEPPERSTONE:GER40F', date: '2025-10-03', entryTime: '18:00', exitDate: '2025-10-03', exitTime: '18:55',
+        entryPrice: 24490.7, exitPrice: 24527.1, priceCurrency: 'EUR', netPnl: 153.53, currency: 'USD', exitSignal: 'TP' }] })
+    setup()
+    const file = new File(['csv'], 'Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv', { type: 'text/csv' })
+    fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [file] } })
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    expect(await screen.findByText(/416 closed trades ready/)).toBeInTheDocument()
+    expect(screen.getByText('24490.7 EUR')).toBeInTheDocument()
+    expect(screen.getByText('24527.1 EUR')).toBeInTheDocument()
+    expect(screen.getByText('153.53 USD')).toBeInTheDocument()
+    expect(api.importBacktestingTrades).toHaveBeenLastCalledWith(workspace.id, file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: true })
   })
 })

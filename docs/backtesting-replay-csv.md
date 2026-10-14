@@ -2,6 +2,20 @@
 
 Implemented locally on 9 October 2026. Deploy the backend, frontend and Flyway V75 together.
 
+## Dynamic TradingView strategy exports (14 October 2026)
+
+The importer also accepts strategy-named trade-list exports such as `Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv`. Format detection uses the CSV headers. Instrument inference uses the exchange/symbol suffix before the export date, so the strategy title, date and hash can vary. Replay and consolidated filenames remain supported; renamed files still allow explicit instrument input. Filename dates never replace execution dates from the rows.
+
+Price and net-PnL currency columns are detected independently. For example, `Price EUR` with `Net PnL USD` imports EUR execution prices and USD monetary results without conversion. Exactly one qualified price column and one qualified net-PnL column are required; ambiguous currency columns produce a clear validation error. New imports persist `priceCurrency` separately, expose it in preview/detail responses and include it in the custom-period export. Position value remains an unqualified source number rather than being mislabeled with the PnL currency.
+
+This addition requires the backend, frontend and **Flyway V76** together. V76 adds a nullable `price_currency` column. Existing rows remain unspecified because their original price header is unavailable. Execution fingerprints remain compatible with earlier imports; repeated imports skip existing executions. Conflicting known price currencies are reported for review. Preview, ownership checks, entry/exit pairing, validation, duplicate handling and unknown-R behavior remain in place.
+
+The exact supplied strategy CSV is retained as `backend/src/test/resources/backtesting/tradingview-strategy-ger40f-usd.csv`. It has 832 execution rows and 416 closed trades: 171 winners, 245 losers and USD 1,601.38 net PnL. EUR is the price currency, not the PnL currency. Tests validate preview without persistence, save/reload of all 416 trades, stored currencies, analytics, and all 416 duplicates on reimport. These are acceptance values for the supplied simulated-trade sample.
+
+Real local browser checks use an authenticated fixture user and an isolated PostgreSQL database. Desktop English and mobile Romanian/English checks upload the exact file, verify the automatically inferred instrument and displayed currencies, import all trades, reload, reconcile each stored execution against the source, and confirm duplicate preview. Evidence is under `output/backtesting-dynamic-import-2026-10-14/`. No production workspace is changed.
+
+Validation passed 57 focused backend tests (including four PostgreSQL integration tests) and 58 focused frontend tests, plus TypeScript, ESLint, the frontend production build and diff checks. Mobile previews use cards so entry/exit details, EUR prices and USD PnL remain visible together without horizontal scrolling.
+
 ## Import workflow
 
 Open a backtesting workspace, select **Import**, choose the replay CSV, check the instrument and optionally enter the export's IANA timezone. Select **Preview import** to inspect the closed trade count, duplicate count, validation issues and the first five valid trades. **Import N trades** saves the valid trades; rejected pairs remain excluded. Results stay visible until dismissed.

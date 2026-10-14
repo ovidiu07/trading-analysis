@@ -181,6 +181,9 @@ public class BacktestingTrade {
     @Column(name = "exit_price", precision = 24, scale = 8)
     private BigDecimal exitPrice;
 
+    @Column(name = "price_currency", length = 3)
+    private String priceCurrency;
+
     @Column(name = "quantity", precision = 24, scale = 8)
     private BigDecimal quantity;
 

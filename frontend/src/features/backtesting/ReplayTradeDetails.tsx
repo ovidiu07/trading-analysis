@@ -8,8 +8,9 @@ export default function ReplayTradeDetails({ trade, onClose }: { trade: Backtest
   const money = (value: number | null | undefined) => formatMoney(value, trade.currency, locale)
   const rows: Array<[string, unknown]> = [
     ['instrument', trade.instrument], ['entry', `${trade.date} ${trade.entryTime}`], ['exit', `${trade.exitDate || ''} ${trade.exitTime || ''}`],
-    ['timezone', trade.sourceTimezone || t('backtesting.replay.unspecified')], ['entryPrice', trade.entryPrice], ['exitPrice', trade.exitPrice],
-    ['quantity', trade.quantity], ['positionValue', money(trade.positionValue)], ['netPnl', money(trade.netPnl)], ['returnPercent', trade.returnPercent == null ? null : `${trade.returnPercent}%`],
+    ['timezone', trade.sourceTimezone || t('backtesting.replay.unspecified')], ['priceCurrency', trade.priceCurrency || t('backtesting.replay.unspecified')],
+    ['entryPrice', trade.entryPrice == null ? null : `${trade.entryPrice} ${trade.priceCurrency || ''}`], ['exitPrice', trade.exitPrice == null ? null : `${trade.exitPrice} ${trade.priceCurrency || ''}`],
+    ['quantity', trade.quantity], ['positionValue', trade.positionValue], ['netPnl', money(trade.netPnl)], ['returnPercent', trade.returnPercent == null ? null : `${trade.returnPercent}%`],
     ['commission', money(trade.commission)], ['favorableExcursion', money(trade.favorableExcursion)], ['adverseExcursion', money(trade.adverseExcursion)],
     ['mfePercent', trade.favorableExcursionPercent == null ? null : `${trade.favorableExcursionPercent}%`], ['maePercent', trade.adverseExcursionPercent == null ? null : `${trade.adverseExcursionPercent}%`],
     ['durationBars', trade.durationBars], ['entrySignal', trade.entrySignal], ['exitSignal', trade.exitSignal],

@@ -55,6 +55,7 @@ public class BacktestingTradeResponse {
     LocalTime exitTime;
     BigDecimal entryPrice;
     BigDecimal exitPrice;
+    String priceCurrency;
     BigDecimal quantity;
     BigDecimal positionValue;
     BigDecimal netPnl;

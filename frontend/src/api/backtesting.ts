@@ -203,6 +203,7 @@ export type BacktestingTrade = {
   exitTime?: string | null
   entryPrice?: number | null
   exitPrice?: number | null
+  priceCurrency?: string | null
   quantity?: number | null
   positionValue?: number | null
   netPnl?: number | null

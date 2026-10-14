@@ -20,8 +20,9 @@ import java.util.regex.Pattern;
 public final class ReplayCsvParser {
     public static final String FORMAT = "TRADINGVIEW_REPLAY";
     private static final Pattern PNL_HEADER = Pattern.compile("(?i)Net P(?:nL|&L) ([A-Z]{3})");
-    // TradingView uses a date/hash suffix; consolidated exports may use a date range instead.
-    private static final Pattern FILE_SYMBOL = Pattern.compile("(?i)^Replay_Trading_(.+?)_\\d{4}-\\d{2}-\\d{2}(?:_.*)?\\.csv$");
+    private static final Pattern PRICE_HEADER = Pattern.compile("(?i)Price ([A-Z]{3})");
+    // Strategy titles vary. Identify the exchange/symbol suffix before the export date.
+    private static final Pattern FILE_SYMBOL = Pattern.compile("(?i)(?:^|_)(CME_MINI|CBOT_MINI|COMEX_MINI|NYMEX_MINI|[A-Z0-9]+)_([A-Z0-9][A-Z0-9.!^/-]*)_\\d{4}-\\d{2}-\\d{2}(?:_.*)?\\.csv$");
     private ReplayCsvParser() {}
 
     public record Result(List<BacktestingTrade> trades, List<String> errors, int duplicates) {}
@@ -35,8 +36,8 @@ public final class ReplayCsvParser {
 
     public static String symbolFromFilename(String name) {
         var matcher = FILE_SYMBOL.matcher(Objects.toString(name, ""));
-        if (!matcher.matches()) return null;
-        return matcher.group(1).replaceFirst("_", ":").toUpperCase(Locale.ROOT);
+        if (!matcher.find()) return null;
+        return (matcher.group(1) + ":" + matcher.group(2)).toUpperCase(Locale.ROOT);
     }
 
     public static Result parse(List<CSVRecord> rows, List<String> headers, String instrument,
@@ -47,13 +48,17 @@ public final class ReplayCsvParser {
             throw new IllegalArgumentException("Replay instrument must be at most 64 characters");
         if (filename != null && filename.length() > 255) throw new IllegalArgumentException("CSV filename exceeds 255 characters");
         if (timezone != null && !timezone.isBlank()) ZoneId.of(timezone);
-        String pnlHeader = headers.stream().filter(h -> PNL_HEADER.matcher(h).matches()).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Replay CSV requires a Net PnL currency column"));
+        String pnlHeader = currencyHeader(headers, PNL_HEADER, "Net PnL");
         var currencyMatcher = PNL_HEADER.matcher(pnlHeader);
         currencyMatcher.matches();
         String currency = currencyMatcher.group(1).toUpperCase(Locale.ROOT);
         Currency.getInstance(currency);
-        for (String required : List.of("Price " + currency, "Size (qty)", "Signal")) {
+        String priceHeader = currencyHeader(headers, PRICE_HEADER, "Price");
+        var priceCurrencyMatcher = PRICE_HEADER.matcher(priceHeader);
+        priceCurrencyMatcher.matches();
+        String priceCurrency = priceCurrencyMatcher.group(1).toUpperCase(Locale.ROOT);
+        Currency.getInstance(priceCurrency);
+        for (String required : List.of("Size (qty)", "Signal")) {
             if (!headers.contains(required)) throw new IllegalArgumentException("Missing replay column: " + required);
         }
         List<String> errors = new ArrayList<>();
@@ -73,7 +78,7 @@ public final class ReplayCsvParser {
                 Event event = new Event(row, required(row, headers.contains("Trade number") ? "Trade number" : "Trade #"),
                         LocalDateTime.parse(required(row, "Date and time").replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                         type.startsWith("entry"), type.endsWith("long") ? BacktestingTradeDirection.LONG : BacktestingTradeDirection.SHORT,
-                        positive(row, "Price " + currency), positive(row, "Size (qty)"));
+                        positive(row, priceHeader), positive(row, "Size (qty)"));
                 groups.computeIfAbsent(event.number(), ignored -> new ArrayList<>()).add(event);
             } catch (RuntimeException ex) { errors.add(error(row, ex.getMessage())); }
         }
@@ -89,7 +94,7 @@ public final class ReplayCsvParser {
                     continue;
                 }
                 Event entry = pending.remove(0);
-                try { trades.add(pair(entry, event, currency, pnlHeader, instrument.trim().toUpperCase(Locale.ROOT), timezone, filename)); }
+                try { trades.add(pair(entry, event, currency, priceCurrency, pnlHeader, instrument.trim().toUpperCase(Locale.ROOT), timezone, filename)); }
                 catch (RuntimeException ex) { errors.add(error(event.row(), ex.getMessage())); }
             }
             for (Event entry : pending) errors.add(error(entry.row(), "entry has no matching exit; open trades are not imported"));
@@ -98,7 +103,7 @@ public final class ReplayCsvParser {
         return new Result(trades, errors, duplicates);
     }
 
-    private static BacktestingTrade pair(Event entry, Event exit, String currency, String pnlHeader,
+    private static BacktestingTrade pair(Event entry, Event exit, String currency, String priceCurrency, String pnlHeader,
                                          String instrument, String timezone, String filename) {
         if (entry.direction() != exit.direction() || entry.quantity().compareTo(exit.quantity()) != 0)
             throw new IllegalArgumentException("entry/exit direction or quantity differs; partial exits are unsupported");
@@ -127,7 +132,7 @@ public final class ReplayCsvParser {
                 .date(entry.at().toLocalDate()).entryTime(entry.at().toLocalTime())
                 .weekday(entry.at().getDayOfWeek().name().substring(0, 1) + entry.at().getDayOfWeek().name().substring(1).toLowerCase(Locale.ROOT))
                 .exitDate(exit.at().toLocalDate()).exitTime(exit.at().toLocalTime())
-                .instrument(instrument).direction(entry.direction()).entryPrice(entry.price()).exitPrice(exit.price())
+                .instrument(instrument).direction(entry.direction()).entryPrice(entry.price()).exitPrice(exit.price()).priceCurrency(priceCurrency)
                 .session(BacktestingSessionClassifier.classify(entry.at().toLocalDate(), entry.at().toLocalTime(), timezone))
                 .quantity(entry.quantity()).positionValue(decimal(entry.row(), "Size (value)"))
                 .netPnl(pnl).currency(currency).returnPercent(decimal(exit.row(), "Return %"))
@@ -144,6 +149,13 @@ public final class ReplayCsvParser {
                 .importFormat(FORMAT).importFileName(filename).importTradeNumber(entry.number())
                 .importFingerprint(fingerprint).sourceTimezone(timezone == null || timezone.isBlank() ? null : timezone)
                 .tagsJson("[]").build();
+    }
+
+    private static String currencyHeader(List<String> headers, Pattern pattern, String label) {
+        List<String> matches = headers.stream().filter(header -> pattern.matcher(header).matches()).toList();
+        if (matches.size() != 1)
+            throw new IllegalArgumentException("Replay CSV requires exactly one " + label + " currency column; found " + matches.size());
+        return matches.get(0);
     }
 
     private static String canonical(BigDecimal value) { return value.stripTrailingZeros().toPlainString(); }

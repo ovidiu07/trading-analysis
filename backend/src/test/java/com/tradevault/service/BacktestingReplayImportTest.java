@@ -28,6 +28,7 @@ class BacktestingReplayImportTest {
     User user = User.builder().id(UUID.randomUUID()).build();
     BacktestingWorkspace workspace = BacktestingWorkspace.builder().id(UUID.randomUUID()).symbol("GER40U2026").user(user).build();
     byte[] fixture() throws Exception { return Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-replay-ger40f.csv")).readAllBytes(); }
+    byte[] strategyFixture() throws Exception { return Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-strategy-ger40f-usd.csv")).readAllBytes(); }
     MockMultipartFile file(byte[] content) { return new MockMultipartFile("file", NAME, "text/csv", content); }
     @BeforeEach void setup() {
         when(currentUser.getCurrentUser()).thenReturn(user);
@@ -38,6 +39,79 @@ class BacktestingReplayImportTest {
         try (var parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).setTrim(true).build().parse(new java.io.StringReader(text))) {
             return ReplayCsvParser.parse(parser.getRecords(), parser.getHeaderNames(), "PEPPERSTONE:GER40F", null, NAME);
         }
+    }
+    @Test void previewsAndImportsStrategyFilenameWithIndependentPriceAndPnlCurrencies() throws Exception {
+        String filename = "Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv";
+        var file = new MockMultipartFile("file", filename, "text/csv", strategyFixture());
+        var preview = service.importCsv(workspace.getId(), file, null, null, true);
+        assertThat(preview.getFormat()).isEqualTo(ReplayCsvParser.FORMAT);
+        assertThat(preview.getRowCount()).isEqualTo(832);
+        assertThat(preview.getImported()).isEqualTo(416);
+        assertThat(preview.getInvalid()).isZero();
+        assertThat(preview.getErrors()).isEmpty();
+        assertThat(preview.getWarnings()).anyMatch(warning -> warning.contains("Price currency differs from PnL currency"));
+        assertThat(preview.getTrades()).allSatisfy(trade -> {
+            assertThat(trade.getInstrument()).isEqualTo("PEPPERSTONE:GER40F");
+            assertThat(trade.getPriceCurrency()).isEqualTo("EUR");
+            assertThat(trade.getCurrency()).isEqualTo("USD");
+            assertThat(trade.getPnlR()).isNull();
+            assertThat(trade.getPlannedRR()).isNull();
+            assertThat(trade.getTradeScope()).isEqualTo(BacktestingTradeScope.REPLAY);
+        });
+        var first = preview.getTrades().get(0);
+        assertThat(first.getDate()).isEqualTo(LocalDate.of(2025, 10, 3));
+        assertThat(first.getEntryTime()).isEqualTo(LocalTime.of(18, 0));
+        assertThat(first.getExitTime()).isEqualTo(LocalTime.of(18, 55));
+        assertThat(first.getEntryPrice()).isEqualByComparingTo("24490.7");
+        assertThat(first.getExitPrice()).isEqualByComparingTo("24527.1");
+        assertThat(first.getQuantity()).isEqualByComparingTo("3.6");
+        assertThat(first.getNetPnl()).isEqualByComparingTo("153.53");
+        assertThat(first.getAdverseExcursion()).isEqualByComparingTo("-34.17");
+        assertThat(first.getDurationBars()).isEqualTo(11);
+        verify(trades, never()).saveAll(anyList());
+        assertThat(service.importCsv(workspace.getId(), file, "", null, false).getImported()).isEqualTo(416);
+        verify(trades).saveAll(argThat(saved -> {
+            List<BacktestingTrade> values = new ArrayList<>(); saved.forEach(values::add);
+            var metrics = service.calculateMetrics(values);
+            assertThat(metrics.getWins()).isEqualTo(171);
+            assertThat(metrics.getLosses()).isEqualTo(245);
+            assertThat(metrics.getCurrencyMetrics()).containsOnlyKeys("USD");
+            assertThat(metrics.getCurrencyMetrics().get("USD").getNetPnl()).isEqualByComparingTo("1601.38");
+            assertThat(values).allSatisfy(trade -> assertThat(trade.getPriceCurrency()).isEqualTo("EUR"));
+            return values.size() == 416;
+        }));
+    }
+
+    @Test void detectsStrategyAndReplayNamesWithoutDependingOnTheirTitleDateOrHash() {
+        assertThat(ReplayCsvParser.symbolFromFilename("Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv")).isEqualTo("PEPPERSTONE:GER40F");
+        assertThat(ReplayCsvParser.symbolFromFilename("Another_strategy_OANDA_EURUSD_2025-01-01.csv")).isEqualTo("OANDA:EURUSD");
+        assertThat(ReplayCsvParser.symbolFromFilename("Replay_Trading_CME_MINI_MNQ1!_2026-10-14_hash.csv")).isEqualTo("CME_MINI:MNQ1!");
+        assertThat(ReplayCsvParser.symbolFromFilename("Strategy_CME_MINI_MNQ1!_2026-10-14_hash.csv")).isEqualTo("CME_MINI:MNQ1!");
+        assertThat(ReplayCsvParser.symbolFromFilename("trades.csv")).isNull();
+    }
+
+    @Test void differentCurrencyExportReimportsAsDuplicatesWithoutChangingExistingExecutions() throws Exception {
+        String filename = "Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_b1a3e.csv";
+        var file = new MockMultipartFile("file", filename, "text/csv", strategyFixture());
+        var parsed = parse(new String(strategyFixture(), StandardCharsets.UTF_8).replace("\ufeff", ""));
+        when(trades.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspace.getId(), user.getId())).thenReturn(parsed.trades());
+        var result = service.importCsv(workspace.getId(), file, null, null, false);
+        assertThat(result.getImported()).isZero();
+        assertThat(result.getDuplicates()).isEqualTo(416);
+        assertThat(result.getInvalid()).isZero();
+        verify(trades, never()).saveAll(anyList());
+        parsed.trades().get(0).setPriceCurrency("GBP");
+        var conflict = service.importCsv(workspace.getId(), file, null, null, true);
+        assertThat(conflict.getImported()).isZero();
+        assertThat(conflict.getDuplicates()).isEqualTo(415);
+        assertThat(conflict.getErrors()).anyMatch(error -> error.contains("different price currency"));
+    }
+
+    @Test void rejectsMissingOrAmbiguousPriceAndPnlHeadersInsteadOfChoosingAnArbitraryCurrency() throws Exception {
+        String text = new String(fixture(), StandardCharsets.UTF_8);
+        assertThatThrownBy(() -> parse(text.replace("Price EUR", "Price"))).hasMessageContaining("exactly one Price currency column");
+        assertThatThrownBy(() -> parse(text.replace("Price EUR", "Price EUR,Price GBP"))).hasMessageContaining("exactly one Price currency column");
+        assertThatThrownBy(() -> parse(text.replace("Net PnL EUR", "Net PnL EUR,Net PnL USD"))).hasMessageContaining("exactly one Net PnL currency column");
     }
     @Test void importsTheExactCombinedFileOnceAndPreservesSourceFields() throws Exception {
         var result = service.importCsv(workspace.getId(), file(fixture()));

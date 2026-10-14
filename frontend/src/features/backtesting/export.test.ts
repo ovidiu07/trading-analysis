@@ -65,6 +65,7 @@ describe('backtesting CSV export', () => {
     expect(rows[2]['TP hit date']).toBeNull()
     expect(rows[3]['TP hit date']).toBeNull()
     expect(rows[4]['Exit date and time']).toBeNull()
+    expect(tradeExportRows([trade('currency', { priceCurrency: 'EUR' })])[0]['Price currency']).toBe('EUR')
     expect(rows[0]).toMatchObject({ 'Entry price': 24490.7, 'Favorable excursion': 152.55, 'Adverse excursion': -58.84, 'Source cumulative PnL': 700, 'Planned R:R': 1.5, 'Realized R': 1.5, 'PnL currency': 'USD' })
     expect(exitKind('TP1')).toBe('TP')
     expect(exitKind('Stop-loss')).toBe('SL')
