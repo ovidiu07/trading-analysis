@@ -36,7 +36,7 @@ public class BacktestingWorkspaceCompatibilityService {
                 evidence.getStrategyNameSnapshot(), strategyName(workspace)));
 
         InstrumentMatch instrumentMatch = instrumentMatch(workspace.getSymbol(), evidence.getInstrument());
-        checks.add(check(instrumentMatch.code(), instrumentMatch.matches(), exactRulesRequired,
+        checks.add(check(instrumentMatch.code(), instrumentMatch.matches(), exactRulesRequired && StringUtils.hasText(workspace.getSymbol()),
                 evidence.getInstrument(), workspace.getSymbol()));
 
         boolean sessionMatches = optionalSessionMatch(workspace.getSession(), evidence.getSession());
@@ -88,6 +88,7 @@ public class BacktestingWorkspaceCompatibilityService {
     }
 
     private InstrumentMatch instrumentMatch(String workspaceSymbol, String tradeSymbol) {
+        if (!StringUtils.hasText(workspaceSymbol)) return new InstrumentMatch(true, "INSTRUMENT_NOT_RESTRICTED");
         String workspaceToken = instrumentAliasService.normalizeDisplayToken(workspaceSymbol);
         String tradeToken = instrumentAliasService.normalizeDisplayToken(tradeSymbol);
         if (!workspaceToken.isEmpty() && workspaceToken.equals(tradeToken)) {
@@ -156,7 +157,8 @@ public class BacktestingWorkspaceCompatibilityService {
     private String workspaceName(BacktestingWorkspace workspace) {
         if (StringUtils.hasText(workspace.getTitle())) return workspace.getTitle();
         String strategy = strategyName(workspace);
-        return workspace.getSymbol() + (StringUtils.hasText(strategy) ? " · " + strategy : "");
+        String name = StringUtils.hasText(workspace.getSymbol()) ? workspace.getSymbol() : "Research workspace";
+        return name + (StringUtils.hasText(strategy) ? " · " + strategy : "");
     }
 
     private record InstrumentMatch(boolean matches, String code) { }

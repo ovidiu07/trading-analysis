@@ -532,7 +532,8 @@ public class LiveTradeEvidenceSyncService {
     private String workspaceName(BacktestingWorkspace workspace) {
         if (StringUtils.hasText(workspace.getTitle())) return workspace.getTitle();
         String strategy = workspace.getStrategy() == null ? workspace.getStrategyNameSnapshot() : workspace.getStrategy().getName();
-        return workspace.getSymbol() + (StringUtils.hasText(strategy) ? " · " + strategy : "");
+        String name = StringUtils.hasText(workspace.getSymbol()) ? workspace.getSymbol() : "Research workspace";
+        return name + (StringUtils.hasText(strategy) ? " · " + strategy : "");
     }
 
     private String weekday(LocalDate date) {

@@ -79,7 +79,9 @@ public final class FvgSignalMetadata {
 
     private static Map<String, String> tokens(String signal) {
         Map<String, String> values = new HashMap<>();
-        for (String token : signal.substring(signal.indexOf(MARKER) + MARKER.length()).split("\\s+")) {
+        // Versioned payloads are separate sections; later sections remain in the raw signal.
+        String payload = signal.substring(signal.indexOf(MARKER) + MARKER.length()).split(" \\| ", 2)[0];
+        for (String token : payload.split("\\s+")) {
             String[] pair = token.split("=", 2);
             if (pair.length != 2 || values.putIfAbsent(pair[0], pair[1]) != null)
                 throw new IllegalArgumentException("invalid or duplicate token");

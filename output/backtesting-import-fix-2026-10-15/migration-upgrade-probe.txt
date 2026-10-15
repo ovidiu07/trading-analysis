@@ -1,0 +1,19 @@
+BEGIN
+CREATE SCHEMA
+SET
+CREATE TABLE
+CREATE TABLE
+INSERT 0 1
+INSERT 0 2
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+ legacy_signals_preserved | legacy_instrument_preserved | blank_normalized | nullable_instrument | full_signals_supported 
+--------------------------+-----------------------------+------------------+---------------------+------------------------
+ t                        | t                           | t                | t                   | t
+(1 row)
+
+ROLLBACK

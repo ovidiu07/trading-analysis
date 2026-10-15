@@ -291,8 +291,6 @@ public class BacktestingResearchService {
                     if (parsed.trades().stream().anyMatch(trade -> !Objects.equals(trade.getPriceCurrency(), trade.getCurrency())))
                         warnings.add("Price currency differs from PnL currency. Both source currencies are preserved without FX conversion.");
                     if (!StringUtils.hasText(timezone)) warnings.add("Timezone is unspecified; timestamps retain the exported local clock. Session classification treats this clock as Europe/Bucharest; provide the export timezone if different.");
-                    if (symbol != null && !symbol.equalsIgnoreCase(workspace.getSymbol()))
-                        warnings.add("Imported instrument " + symbol + " differs from workspace " + workspace.getSymbol() + ". The CSV instrument is retained.");
                 } else {
                     format = "TRADEJAUDIT_CSV";
                     for (CSVRecord record : records) {

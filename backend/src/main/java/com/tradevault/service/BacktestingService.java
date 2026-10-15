@@ -128,7 +128,7 @@ public class BacktestingService {
         UserStrategy strategy = resolveStrategy(request.getStrategyId(), user);
         BacktestingWorkspace workspace = BacktestingWorkspace.builder()
                 .user(user)
-                .symbol(requireText(request.getSymbol(), "symbol").toUpperCase(Locale.ROOT))
+                .symbol(normalizeSymbol(request.getSymbol()))
                 .marketType(normalizeOptionalText(request.getMarketType()))
                 .strategy(strategy)
                 .strategyNameSnapshot(resolveStrategyNameSnapshot(request, strategy))
@@ -169,7 +169,7 @@ public class BacktestingService {
         User user = currentUserService.getCurrentUser();
         BacktestingWorkspace workspace = requireOwnedWorkspace(id, user);
         UserStrategy strategy = resolveStrategy(request.getStrategyId(), user);
-        workspace.setSymbol(requireText(request.getSymbol(), "symbol").toUpperCase(Locale.ROOT));
+        workspace.setSymbol(normalizeSymbol(request.getSymbol()));
         workspace.setMarketType(normalizeOptionalText(request.getMarketType()));
         workspace.setStrategy(strategy);
         workspace.setStrategyNameSnapshot(resolveStrategyNameSnapshot(request, strategy));
@@ -413,7 +413,9 @@ public class BacktestingService {
         String bestPerformer = workspaces.stream()
                 .filter(item -> item.getNumberOfTrades() != null && item.getNumberOfTrades() > 0)
                 .max(Comparator.comparing(BacktestingWorkspaceResponse::getWinRate))
-                .map(item -> item.getSymbol() + " · " + (item.getStrategyName() == null ? "Manual strategy" : item.getStrategyName()))
+                .map(item -> (StringUtils.hasText(item.getSymbol()) ? item.getSymbol()
+                        : StringUtils.hasText(item.getTitle()) ? item.getTitle() : "Research workspace")
+                        + " · " + (item.getStrategyName() == null ? "Manual strategy" : item.getStrategyName()))
                 .orElse(null);
         List<BigDecimal> knownExpectancies = workspaces.stream().map(BacktestingWorkspaceResponse::getExpectancy)
                 .filter(Objects::nonNull).toList();
@@ -652,10 +654,10 @@ public class BacktestingService {
         return manual;
     }
 
-    private String requireText(String value, String field) {
-        String normalized = normalizeOptionalText(value);
-        if (normalized == null) throw new IllegalArgumentException(field + " is required");
-        return normalized;
+    private String normalizeSymbol(String value) {
+        String symbol = normalizeOptionalText(value);
+        if (symbol != null && symbol.length() > 40) throw new IllegalArgumentException("symbol must be at most 40 characters");
+        return symbol == null ? null : symbol.toUpperCase(Locale.ROOT);
     }
 
     private String normalizeOptionalText(String value) {

@@ -29,7 +29,7 @@ export type BacktestingStrategySummary = {
 
 export type BacktestingWorkspace = {
   id: string
-  symbol: string
+  symbol: string | null
   marketType?: string | null
   strategyId?: string | null
   strategyNameSnapshot?: string | null
@@ -87,7 +87,7 @@ export type BacktestingWorkspace = {
 }
 
 export type BacktestingWorkspacePayload = {
-  symbol: string
+  symbol?: string | null
   marketType?: string | null
   strategyId?: string | null
   strategyNameSnapshot?: string | null

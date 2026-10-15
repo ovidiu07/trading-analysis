@@ -7,6 +7,7 @@ import com.tradevault.repository.*;
 import com.tradevault.dto.backtesting.BacktestingTradeRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import com.tradevault.service.backtesting.ReplayCsvParser;
+import com.tradevault.service.backtesting.FvgSignalMetadata;
 import org.apache.commons.csv.CSVFormat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,19 @@ class BacktestingReplayImportTest {
         return "Trade number,Type,Date and time,Signal,Price EUR,Size (qty),Net PnL USD\n"
                 + "1,Entry short,2024-10-08 17:20," + entrySignal + "," + price + ",2.7,-94.82\n"
                 + "1,Exit short,2024-10-08 18:50," + exitSignal + ",19230.5,2.7,-94.82\n";
+    }
+
+    @Test void preservesLongEntryAndExitSignalsAndParsesOnlyTheFvgSection() throws Exception {
+        String entry = FVG_ENTRY + " | FVGAGEv1 id=PEPPERSTONE:GER40F:5:1728397200000:-1 srcBar=851 orderAge=0 ageOn=1 maxAge=3 session=3 sessionName=New_York submitted=1728397200000 sl=19230.5";
+        String exit = "SL | audit=" + "x".repeat(1000);
+        var result = parse(fvgCsv(entry, exit, "19198.5"));
+        assertThat(result.errors()).isEmpty();
+        var trade = result.trades().getFirst();
+        assertThat(trade.getEntrySignal()).isEqualTo(entry);
+        assertThat(trade.getExitSignal()).isEqualTo(exit);
+        assertThat(trade.isGapPresent()).isTrue();
+        assertThat(trade.getGapLow()).isEqualByComparingTo("19198.5");
+        assertThat(FvgSignalMetadata.protectedProfitPercent(entry)).isEqualByComparingTo("30");
     }
 
     @Test void importsVersionedGapFactsAndKeepsUnavailableNativeFieldsBlank() throws Exception {
@@ -272,10 +286,11 @@ class BacktestingReplayImportTest {
         assertThat(eur.getAverageFavorableExcursion()).isEqualByComparingTo("159.68"); assertThat(eur.getAverageAdverseExcursion()).isEqualByComparingTo("-79.3");
         assertThat(eur.getAverageDurationBars()).isEqualByComparingTo("12.32"); assertThat(eur.getCommission()).isZero();
     }
-    @Test void previewDoesNotPersistAndReportsInstrumentAndTimezoneWarnings() throws Exception {
+    @Test void previewDoesNotPersistOrRequireMatchingWorkspaceInstrument() throws Exception {
         var result = service.importCsv(workspace.getId(), file(fixture()), null, null, true);
         assertThat(result.isPreview()).isTrue(); assertThat(result.getImported()).isEqualTo(25);
-        assertThat(result.getWarnings()).anyMatch(s -> s.contains("differs from workspace"));
+        assertThat(result.getWarnings()).noneMatch(s -> s.contains("differs from workspace"));
+        assertThat(result.getWarnings()).anyMatch(s -> s.contains("Timezone is unspecified"));
         assertThat(workspace.getUpdatedAt()).isNull(); verify(trades, never()).saveAll(anyList());
     }
     @Test void renamedFileRequiresExplicitSymbolAndAllowsVerifiedTimezone() throws Exception {

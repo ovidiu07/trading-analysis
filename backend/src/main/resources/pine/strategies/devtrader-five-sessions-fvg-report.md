@@ -3,6 +3,13 @@
 Applies to `devtrader-five-sessions-fvg-windows.pine` (14 October 2026).
 Private TradingView script: **Devtrader · Five Sessions FVG Windows · FVG Report + Profit Lock**.
 
+The optional source-bar age filter and additional `FVGAGEv1` / `FVG_AGE_V1`
+metadata are documented in [FVG Age Filter](devtrader-five-sessions-fvg-age-filter.md).
+The table's entry-age column now uses actual detection-timeframe fill age;
+existing `Bars To Fill` and first-touch chart-bar export fields keep their meaning.
+The validation below predates the age-filter change; see the new guide and its
+separate regression artifacts for the updated source.
+
 ## Entry configuration
 
 Under **Strategy Execution**:

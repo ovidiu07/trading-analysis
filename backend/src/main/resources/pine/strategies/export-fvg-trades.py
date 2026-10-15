@@ -40,6 +40,17 @@ def extract(source: Path, destination: Path) -> int:
             row["Direction Name"] = {1: "LONG", -1: "SHORT"}.get(int(float(row["Direction"])), "UNKNOWN")
             row["Exit Name"] = {0: "OTHER", 1: "SL", 2: "TP", 3: "BE"}.get(int(float(row["Exit Reason"])), "UNKNOWN")
             row["Size Points / Pips"] = (float(row["Upper"]) - float(row["Lower"])) / float(row["Point Size"])
+            if "Signed Age Limit" in row:
+                signed_limit = int(float(row["Signed Age Limit"]))
+                row["Age Filter Enabled"] = int(signed_limit > 0)
+                row["Maximum FVG Age"] = abs(signed_limit)
+                row["FVG Identifier Suffix"] = f"{int(float(row['Created ms']))}:{int(float(row['Direction']))}"
+                row["FVG Identifier Scope"] = "Append to symbol:detection-timeframe; see native FVGAGEv1 id"
+                # Fill Age is already measured on the source timeframe. Never
+                # substitute Bars To Fill (chart bars) when the source is HTF.
+                fill_age = row.get("Fill Age", "").strip()
+                if signed_limit > 0 and fill_age and fill_age.lower() not in {"nan", "na", "n/a"} and float(fill_age) > abs(signed_limit):
+                    raise ValueError(f"Trade {trade_number} filled beyond its FVG age limit")
             for name in ("Created", "Entry", "Exit"):
                 row[name + " UTC"] = datetime.fromtimestamp(float(row[name + " ms"]) / 1000, timezone.utc).isoformat()
             rows.append(row)

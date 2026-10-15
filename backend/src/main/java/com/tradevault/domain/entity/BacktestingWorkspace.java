@@ -43,7 +43,7 @@ public class BacktestingWorkspace {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false, length = 40)
+    @Column(length = 40)
     private String symbol;
 
     @Column(name = "market_type", length = 40)

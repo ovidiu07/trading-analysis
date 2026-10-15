@@ -1,0 +1,51 @@
+{
+  "classification": "exploratory functional chart backtests, not out-of-sample validation",
+  "symbol": "PEPPERSTONE:GER40F",
+  "chart_timeframe": "5",
+  "detection_timeframe": "Chart (5)",
+  "report_timezone": "Europe/Bucharest",
+  "chart_report_range": [
+    "2026-06-15",
+    "2026-10-14"
+  ],
+  "initial_capital_usd": 1000000,
+  "source_default_initial_capital_usd": 10000,
+  "non_age_trading_inputs": "source defaults, unchanged across A-E",
+  "entry_depth_percent": 25,
+  "reward_risk_ratio": 1.5,
+  "breakeven_enabled": true,
+  "breakeven_trigger_percent": 70,
+  "breakeven_lock_percent": 0,
+  "commission_percent": 0,
+  "slippage_ticks": 0,
+  "bar_magnifier": true,
+  "calc_on_every_tick": false,
+  "calc_on_order_fills": false,
+  "process_orders_on_close": false,
+  "script_private_name": "Devtrader \u00b7 Five Sessions FVG Windows \u00b7 FVG Age Filter",
+  "qa_layout": "https://www.tradingview.com/chart/vae2K9SR/",
+  "original_sha256": "1603f5aafba7e20e7022e911a7cf4659699c75bda2c66134a058fca850381277",
+  "final_source_sha256": "a72b0028994b509c75bf6de40132fc8bd834809672ef8a11f4e3daab1e9dffd1",
+  "modes": {
+    "A": {
+      "enabled": false,
+      "maximum": 3
+    },
+    "B": {
+      "enabled": true,
+      "maximum": 2
+    },
+    "C": {
+      "enabled": true,
+      "maximum": 3
+    },
+    "D": {
+      "enabled": true,
+      "maximum": 4
+    },
+    "E": {
+      "enabled": true,
+      "maximum": 6
+    }
+  }
+}

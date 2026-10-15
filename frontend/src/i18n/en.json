@@ -4030,11 +4030,10 @@
       "adverseExcursion": "Adverse excursion (MAE)",
 
       "importDescription": "Import a TradingView Replay or strategy trade-list CSV with paired entry/exit rows, or the existing TradeJAudit CSV format. The strategy title and export date can vary. Preview the closed trades before saving.",
-      "destination": "Workspace: {{name}} · {{symbol}}",
+      "destination": "Workspace: {{name}}",
       "instrument": "CSV instrument",
-      "instrumentHelp": "Replay exports omit the symbol. Check the symbol inferred from the filename, or enter it explicitly. This does not change the workspace symbol.",
+      "instrumentHelp": "Check the instrument inferred from the filename, or enter it explicitly for renamed Replay files. Each imported trade keeps this instrument. The workspace instrument is optional and does not need to match.",
       "instrumentNotDetected": "The instrument could not be detected from this filename. For a Replay CSV, enter the symbol here before previewing, for example PEPPERSTONE:GER40F.",
-      "symbolMismatch": "CSV instrument {{instrument}} differs from workspace {{workspace}}. These trades keep the CSV instrument.",
       "timezone": "Export timezone (optional)",
       "timezoneHelp": "Enter the export’s IANA timezone if known. Leave blank to keep it unspecified; clock times are preserved as exported.",
       "previewResult": "{{count}} closed trades ready · {{rows}} CSV rows · {{duplicates}} duplicates skipped · {{invalid}} validation issues",
@@ -4168,7 +4167,9 @@
     },
     "workspace": {
       "name": "Workspace name",
-      "instrument": "Instrument",
+      "instrument": "Instrument (optional)",
+      "instrumentHelp": "Leave blank to research any instrument. Imported trades keep their CSV instrument.",
+      "anyInstrument": "Any instrument",
       "linkedStrategy": "Linked strategy",
       "manualStrategyName": "Strategy name",
       "market": "Market",
@@ -4186,7 +4187,7 @@
     "autoImport": {
       "EXACT_MATCH": {
         "label": "Exact match",
-        "description": "Synchronize closed live trades when strategy, instrument, and any configured session or timeframe match."
+        "description": "Synchronize closed live trades when the strategy and any configured instrument, session or timeframe match. A blank workspace instrument accepts any instrument."
       },
       "STRATEGY_MATCH": {
         "label": "Strategy match",
@@ -4365,6 +4366,7 @@
         "STRATEGY_MATCH": "Strategy matches",
         "STRATEGY_MISMATCH": "Strategy does not match — trade: {{trade}}; workspace: {{workspace}}",
         "INSTRUMENT_MATCH": "Instrument matches",
+        "INSTRUMENT_NOT_RESTRICTED": "Workspace accepts any instrument",
         "INSTRUMENT_ALIAS_MATCH": "Instrument matches through alias: {{trade}} → {{workspace}}",
         "INSTRUMENT_MISMATCH": "Instrument does not match — trade: {{trade}}; workspace: {{workspace}}",
         "SESSION_MATCH": "Session matches",

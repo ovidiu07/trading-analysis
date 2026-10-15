@@ -1,7 +1,7 @@
 package com.tradevault.dto.backtesting;
 
 import com.tradevault.domain.enums.BacktestingAutoImportMode;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -9,7 +9,7 @@ import java.util.UUID;
 
 @Data
 public class BacktestingWorkspaceRequest {
-    @NotBlank
+    @Size(max = 40)
     private String symbol;
     private String marketType;
     private UUID strategyId;

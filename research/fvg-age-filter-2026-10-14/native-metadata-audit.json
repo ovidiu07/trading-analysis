@@ -1,0 +1,37 @@
+{
+  "A": {
+    "trades": 92,
+    "native_rows": 184,
+    "full_metadata_association": true,
+    "independent_fill_age_timestamp_checks": 92,
+    "same_bar_round_trips": 2
+  },
+  "B": {
+    "trades": 65,
+    "native_rows": 130,
+    "full_metadata_association": true,
+    "independent_fill_age_timestamp_checks": 65,
+    "same_bar_round_trips": 1
+  },
+  "C": {
+    "trades": 81,
+    "native_rows": 162,
+    "full_metadata_association": true,
+    "independent_fill_age_timestamp_checks": 81,
+    "same_bar_round_trips": 1
+  },
+  "D": {
+    "trades": 83,
+    "native_rows": 166,
+    "full_metadata_association": true,
+    "independent_fill_age_timestamp_checks": 83,
+    "same_bar_round_trips": 1
+  },
+  "E": {
+    "trades": 86,
+    "native_rows": 172,
+    "full_metadata_association": true,
+    "independent_fill_age_timestamp_checks": 86,
+    "same_bar_round_trips": 1
+  }
+}

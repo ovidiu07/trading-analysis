@@ -112,7 +112,7 @@ export function WorkspaceDialog({
   useEffect(() => {
     setDraft(workspace ? {
       ...emptyWorkspace,
-      symbol: workspace.symbol,
+      symbol: workspace.symbol || '',
       title: workspace.title || '',
       marketType: workspace.marketType || '',
       strategyId: workspace.strategyId || null,
@@ -152,7 +152,7 @@ export function WorkspaceDialog({
             <TextField fullWidth required label={t('backtesting.workspace.name')} value={draft.title || ''} onChange={(event) => set('title', event.target.value)} />
           </Grid>
           <Grid item xs={12} sm={5}>
-            <TextField fullWidth required label={t('backtesting.workspace.instrument')} value={draft.symbol} onChange={(event) => set('symbol', event.target.value.toUpperCase())} />
+            <TextField fullWidth label={t('backtesting.workspace.instrument')} value={draft.symbol || ''} inputProps={{ maxLength: 40 }} helperText={t('backtesting.workspace.instrumentHelp')} onChange={(event) => set('symbol', event.target.value.toUpperCase())} />
           </Grid>
           <Grid item xs={12} sm={6}>
             <FormControl fullWidth>
@@ -196,7 +196,7 @@ export function WorkspaceDialog({
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose}>{t('backtesting.actions.cancel')}</Button>
-        <Button variant="contained" disabled={saving || !draft.symbol.trim() || !(draft.title || '').trim()} onClick={() => onSave({ ...draft, strategyNameSnapshot: selectedStrategy?.name || draft.strategyNameSnapshot })}>
+        <Button variant="contained" disabled={saving || !(draft.title || '').trim()} onClick={() => onSave({ ...draft, symbol: draft.symbol?.trim() || null, strategyNameSnapshot: selectedStrategy?.name || draft.strategyNameSnapshot })}>
           {saving ? t('backtesting.actions.saving') : t('backtesting.actions.save')}
         </Button>
       </DialogActions>
@@ -229,7 +229,7 @@ export function ManualTradeDialog({
   const [draft, setDraft] = useState<BacktestingTradePayload>(emptyTrade())
   useEffect(() => {
     const next = emptyTrade()
-    next.instrument = workspace.symbol
+    next.instrument = workspace.symbol || ''
     next.strategyId = workspace.strategyId || null
     next.strategyNameSnapshot = workspace.strategyName || workspace.strategyNameSnapshot || ''
     next.session = workspace.session || ''

@@ -36,6 +36,22 @@ class BacktestingWorkspaceCompatibilityServiceTest {
     }
 
     @Test
+    void blankWorkspaceInstrumentAcceptsAnyInstrumentAndStillRequiresStrategy() {
+        for (String symbol : new String[]{null, "", " "}) {
+            var workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, strategyId, symbol, null, null);
+            var evidence = evidence(strategyId, "PEPPERSTONE:GER40F", "London", "1m", BacktestingSyncStatus.NOT_LINKED);
+            assertThat(service.isAutomaticMatch(workspace, evidence)).isTrue();
+            assertThat(service.evaluate(workspace, evidence).getChecks()).anySatisfy(check -> {
+                assertThat(check.getCode()).isEqualTo("INSTRUMENT_NOT_RESTRICTED");
+                assertThat(check.isMatches()).isTrue();
+                assertThat(check.isBlocking()).isFalse();
+            });
+            evidence.setStrategyId(UUID.randomUUID());
+            assertThat(service.isAutomaticMatch(workspace, evidence)).isFalse();
+        }
+    }
+
+    @Test
     void strategyMismatchIsAlwaysBlockingAndExplicit() {
         var result = service.evaluate(workspace(BacktestingAutoImportMode.STRATEGY_MATCH, UUID.randomUUID(), "DAX", null, null),
                 evidence(strategyId, "GER40", "London", "1m", BacktestingSyncStatus.NOT_LINKED));

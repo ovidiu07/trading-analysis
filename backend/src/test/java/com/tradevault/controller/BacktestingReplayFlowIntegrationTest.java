@@ -18,8 +18,15 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVRecord;
 
+import java.io.StringReader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.List;
@@ -138,6 +145,77 @@ class BacktestingReplayFlowIntegrationTest {
         assertThat(jdbc.queryForObject("select sync_status from tradevault.backtest_evidence_links where id=?", String.class, evidenceId)).isEqualTo("EXCLUDED");
         assertThat(jdbc.queryForObject("select included_in_analytics from tradevault.backtest_evidence_links where id=?", Boolean.class, evidenceId)).isFalse();
         assertThat(call(token, multipart(route + "/trades/import").file(fixture())).path("imported").asInt()).isEqualTo(25);
+    }
+
+    @Test void longSignalsImportWithoutAWorkspaceInstrumentAndReloadWithoutTruncation() throws Exception {
+        String token = actor();
+        var workspace = call(token, post("/api/backtesting/workspaces").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Any instrument research\"}"));
+        assertThat(workspace.path("symbol").isNull()).isTrue();
+        String id = workspace.path("id").asText(), route = "/api/backtesting/workspaces/" + id;
+        byte[] bytes = Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-strategy-ger40f-long-signals.csv")).readAllBytes();
+        var file = new MockMultipartFile("file", "Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_38b5c.csv", "text/csv", bytes);
+        Map<String, CSVRecord> source = new HashMap<>();
+        try (var parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build()
+                .parse(new StringReader(new String(bytes, StandardCharsets.UTF_8).replaceFirst("^\\uFEFF", "")))) {
+            for (var row : parser) source.put(row.get("Trade number") + ":" + row.get("Type").split(" ")[0], row);
+        }
+        var preview = call(token, multipart(route + "/trades/import").file(file).param("preview", "true"));
+        assertThat(preview.path("imported").asInt()).isEqualTo(531);
+        assertThat(preview.path("rowCount").asInt()).isEqualTo(1062);
+        assertThat(preview.path("invalid").asInt()).isZero();
+        assertThat(preview.path("errors").isEmpty()).isTrue();
+        assertThat(preview.path("warnings").toString()).doesNotContain("differs from workspace");
+        assertThat(call(token, get(route + "/trades")).isEmpty()).isTrue();
+        var imported = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(imported.path("imported").asInt()).isEqualTo(531);
+        assertThat(imported.path("invalid").asInt()).isZero();
+        var stored = call(token, get(route + "/trades"));
+        assertThat(stored.size()).isEqualTo(531);
+        for (var trade : stored) {
+            String number = trade.path("importTradeNumber").asText();
+            var entry = source.get(number + ":Entry");
+            var exit = source.get(number + ":Exit");
+            assertThat(trade.path("entrySignal").asText()).isEqualTo(entry.get("Signal")).hasSizeGreaterThan(255);
+            assertThat(trade.path("exitSignal").asText()).isEqualTo(exit.get("Signal"));
+            assertThat(trade.path("instrument").asText()).isEqualTo("PEPPERSTONE:GER40F");
+            assertThat(trade.path("priceCurrency").asText()).isEqualTo("EUR");
+            assertThat(trade.path("currency").asText()).isEqualTo("USD");
+            assertThat(trade.path("gapPresent").asBoolean()).isTrue();
+            assertThat(trade.path("pnlR").isNull()).isTrue();
+            for (var execution : Map.of("entry", entry, "exit", exit).entrySet()) {
+                var timestamp = LocalDateTime.parse(execution.getValue().get("Date and time").replace(' ', 'T'));
+                String prefix = execution.getKey();
+                assertThat(trade.path(prefix.equals("entry") ? "date" : "exitDate").asText()).isEqualTo(timestamp.toLocalDate().toString());
+                assertThat(java.time.LocalTime.parse(trade.path(prefix + "Time").asText())).isEqualTo(timestamp.toLocalTime());
+                assertThat(trade.path(prefix + "Price").decimalValue()).isEqualByComparingTo(execution.getValue().get("Price EUR"));
+            }
+            for (var field : Map.ofEntries(Map.entry("quantity", "Size (qty)"), Map.entry("positionValue", "Size (value)"),
+                    Map.entry("netPnl", "Net PnL USD"), Map.entry("commission", "Commission USD"),
+                    Map.entry("returnPercent", "Return %"), Map.entry("favorableExcursion", "Favorable excursion USD"),
+                    Map.entry("adverseExcursion", "Adverse excursion USD"), Map.entry("favorableExcursionPercent", "Favorable excursion %"),
+                    Map.entry("adverseExcursionPercent", "Adverse excursion %"), Map.entry("reportedCumulativePnl", "Cumulative PnL USD"),
+                    Map.entry("reportedCumulativePercent", "Cumulative PnL %"), Map.entry("durationBars", "Duration (bars)")).entrySet()) {
+                assertThat(trade.path(field.getKey()).decimalValue()).isEqualByComparingTo(new BigDecimal(exit.get(field.getValue())));
+            }
+        }
+        var repeat = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(repeat.path("duplicates").asInt()).isEqualTo(531);
+        assertThat(repeat.path("imported").asInt()).isZero();
+        assertThat(repeat.path("invalid").asInt()).isZero();
+        var baseline = call(token, get(route + "/analytics")).path("baseline");
+        assertThat(baseline.path("currencyMetrics").path("USD").path("netPnl").decimalValue()).isEqualByComparingTo("5834.85");
+        assertThat(call(token, get(route)).path("symbol").isNull()).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from tradevault.backtesting_trades where workspace_id=? and length(entry_signal)>255", Integer.class, UUID.fromString(id))).isEqualTo(531);
+    }
+
+    @Test void workspaceInstrumentCanBeClearedOrOmittedOnUpdate() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        for (String json : List.of("{\"title\":\"Multi-instrument\",\"symbol\":\" \"}", "{\"title\":\"Multi-instrument\"}")) {
+            assertThat(call(token, patch(route).contentType(MediaType.APPLICATION_JSON).content(json)).path("symbol").isNull()).isTrue();
+            assertThat(call(token, get(route)).path("symbol").isNull()).isTrue();
+        }
+        assertThat(call(token, get("/api/backtesting/workspaces")).path("workspaces").size()).isEqualTo(1);
     }
 
     @Test void strategyExportPersistsIndependentCurrenciesAndSkipsAllRepeatedExecutions() throws Exception {

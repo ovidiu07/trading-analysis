@@ -108,10 +108,6 @@ public final class ReplayCsvParser {
         if (entry.direction() != exit.direction() || entry.quantity().compareTo(exit.quantity()) != 0)
             throw new IllegalArgumentException("entry/exit direction or quantity differs; partial exits are unsupported");
         if (entry.number().length() > 64) throw new IllegalArgumentException("trade number exceeds 64 characters");
-        for (Event event : List.of(entry, exit)) {
-            String signal = optional(event.row(), "Signal");
-            if (signal != null && signal.length() > 255) throw new IllegalArgumentException("signal exceeds 255 characters");
-        }
         BigDecimal pnl = decimal(exit.row(), pnlHeader);
         if (pnl == null) throw new IllegalArgumentException("net PnL is required");
         // Both copies must agree. Do not add them or subtract commission from already-net PnL.

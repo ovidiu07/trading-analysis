@@ -1,0 +1,27 @@
+{
+  "original_trades": 92,
+  "updated_off_trades": 92,
+  "matching_non_signal_cells": 2944,
+  "non_signal_columns": [
+    "Adverse excursion %",
+    "Adverse excursion USD",
+    "Commission USD",
+    "Cumulative PnL %",
+    "Cumulative PnL USD",
+    "Date and time",
+    "Duration (bars)",
+    "Favorable excursion %",
+    "Favorable excursion USD",
+    "Net PnL USD",
+    "Price EUR",
+    "Return %",
+    "Size (qty)",
+    "Size (value)",
+    "Trade number",
+    "Type"
+  ],
+  "all_non_signal_cells_identical": true,
+  "comment_metadata_entries": 92,
+  "fill_metadata_exits": 90,
+  "final_source_metadata_lookup_matches_previous_all_92_records": true
+}

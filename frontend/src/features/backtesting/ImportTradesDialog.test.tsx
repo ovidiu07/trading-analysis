@@ -10,9 +10,9 @@ const api = vi.hoisted(() => ({ importBacktestingTrades: vi.fn() }))
 vi.mock('../../api/backtesting', () => api)
 const workspace = { id: 'workspace-1', title: 'Five sessions', symbol: 'GER40U2026' } as BacktestingWorkspace
 const result = { imported: 25, rowCount: 50, invalid: 1, duplicates: 2, format: 'TRADINGVIEW_REPLAY', errors: ['Row 55: entry has no matching exit'], trades: [] }
-function setup() {
+function setup(destination = workspace) {
   const onImported = vi.fn().mockResolvedValue(undefined)
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}><I18nProvider><ImportTradesDialog workspace={workspace} onClose={vi.fn()} onImported={onImported} /></I18nProvider></QueryClientProvider>)
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}><I18nProvider><ImportTradesDialog workspace={destination} onClose={vi.fn()} onImported={onImported} /></I18nProvider></QueryClientProvider>)
   return onImported
 }
 describe('backtesting replay import review', () => {
@@ -23,7 +23,7 @@ describe('backtesting replay import review', () => {
     const file = new File(['csv'], 'Replay_Trading_PEPPERSTONE_GER40F_2025-10-06_to_2025-10-30_combined.csv', { type: 'text/csv' })
     fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [file] } })
     expect(screen.getByRole('textbox', { name: 'CSV instrument' })).toHaveValue('PEPPERSTONE:GER40F')
-    expect(screen.getByText(/differs from workspace/)).toBeInTheDocument()
+    expect(screen.queryByText(/differs from workspace/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
     expect(await screen.findByText(/25 closed trades ready/)).toBeInTheDocument()
     expect(api.importBacktestingTrades).toHaveBeenLastCalledWith('workspace-1', file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: true })
@@ -33,6 +33,20 @@ describe('backtesting replay import review', () => {
     expect(api.importBacktestingTrades).toHaveBeenLastCalledWith('workspace-1', file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: false })
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument()
   })
+  it('previews and saves into a workspace with no instrument', async () => {
+    api.importBacktestingTrades.mockResolvedValue({ ...result, invalid: 0, errors: [] })
+    const saved = setup({ ...workspace, symbol: null })
+    const file = new File(['csv'], 'Five_Sessions_FVG_Windows_PEPPERSTONE_GER40F_2026-10-14_38b5c.csv')
+    fireEvent.change(screen.getByLabelText(/Choose CSV/i), { target: { files: [file] } })
+    expect(screen.getByText('Workspace: Five sessions')).toBeInTheDocument()
+    expect(screen.queryByText(/differs from workspace/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Import 25 trades' }))
+    expect(await screen.findByText(/25 trades imported/)).toBeInTheDocument()
+    expect(saved).toHaveBeenCalledOnce()
+    expect(api.importBacktestingTrades).toHaveBeenLastCalledWith(workspace.id, file, { instrument: 'PEPPERSTONE:GER40F', timezone: '', preview: false })
+  })
+
   it('invalidates an old preview when metadata changes and disables an empty import', async () => {
     api.importBacktestingTrades.mockResolvedValue({ ...result, imported: 0, invalid: 0, duplicates: 25, errors: [], preview: true })
     setup()

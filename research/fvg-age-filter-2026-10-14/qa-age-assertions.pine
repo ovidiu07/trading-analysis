@@ -1,0 +1,498 @@
+//@version=6
+indicator("QA · FVG Report + BE + Loss Limits", overlay=true)
+type LossLimitState
+    int sessionStart = na
+    int dayKey = na
+    int sessionStreak = 0
+    int dailyStreak = 0
+    bool sessionPaused = false
+    bool dailyPaused = false
+
+f_lossDayKey(int eventTime, string timezoneValue) =>
+    year(eventTime, timezoneValue) * 10000 + month(eventTime, timezoneValue) * 100 + dayofmonth(eventTime, timezoneValue)
+
+f_syncLossSession(LossLimitState s, int sessionStart) =>
+    if not na(sessionStart) and (na(s.sessionStart) or s.sessionStart != sessionStart)
+        s.sessionStart := sessionStart
+        s.sessionStreak := 0
+        s.sessionPaused := false
+    true
+
+f_syncLossDay(LossLimitState s, int eventTime, string timezoneValue) =>
+    int dayKey = f_lossDayKey(eventTime, timezoneValue)
+    if na(s.dayKey) or s.dayKey != dayKey
+        s.dayKey := dayKey
+        s.dailyStreak := 0
+        s.dailyPaused := false
+    true
+
+f_recordLossResult(LossLimitState s, int tradeSessionStart, int exitTime, float profit, int sessionLimit, int dailyLimit, string timezoneValue) =>
+    f_syncLossDay(s, exitTime, timezoneValue)
+    if not na(profit)
+        bool lost = profit < 0
+        s.dailyStreak := lost ? s.dailyStreak + 1 : 0
+        s.dailyPaused := s.dailyPaused or (dailyLimit > 0 and s.dailyStreak >= dailyLimit)
+        if not na(tradeSessionStart) and not na(s.sessionStart) and tradeSessionStart == s.sessionStart
+            s.sessionStreak := lost ? s.sessionStreak + 1 : 0
+            s.sessionPaused := s.sessionPaused or (sessionLimit > 0 and s.sessionStreak >= sessionLimit)
+    true
+
+f_lossEntriesAllowed(LossLimitState s) =>
+    not s.sessionPaused and not s.dailyPaused
+
+
+type BreakevenState
+    float entry
+    float trigger
+    float stop
+    bool active = false
+    int activatedAt = na
+    float protectedStop = na
+
+f_breakevenTrigger(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent > 0 and percent <= 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.ceil(raw / tick - 0.000000001) : math.floor(raw / tick + 0.000000001)) * tick : na
+
+f_breakevenObservation(int bias, int currentBar, int entryBar, float closingPrice, float barHigh, float barLow) =>
+    currentBar > entryBar ? (bias == 1 ? barHigh : barLow) : closingPrice
+
+f_breakevenLock(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent >= 0 and percent < 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.floor(raw / tick + 0.000000001) : math.ceil(raw / tick - 0.000000001)) * tick : na
+
+f_armBreakeven(BreakevenState s, bool enabled, int bias, float favorablePrice, int decisionTime) =>
+    bool activated = enabled and not s.active and not na(s.trigger) and not na(favorablePrice) and bias * (favorablePrice - s.trigger) >= 0
+    if activated
+        // A better existing stop is never loosened, including after a gap fill.
+        float destination = na(s.protectedStop) ? s.entry : s.protectedStop
+        s.stop := bias == 1 ? math.max(s.stop, destination) : math.min(s.stop, destination)
+        s.active := true
+        s.activatedAt := decisionTime
+    activated
+
+
+f_fvgEntry(float upper, float lower, int bias, bool usePercentage, float percent, float tick) =>
+    float fraction = usePercentage ? percent / 100.0 : 0.0
+    math.round((bias == 1 ? upper - (upper - lower) * fraction : lower + (upper - lower) * fraction) / tick) * tick
+
+// Fill depth intentionally remains unclamped: a gap through the zone can fill
+// beyond 100%, and rounding can put a fill just outside a very narrow gap.
+f_fvgDepth(float upper, float lower, int bias, float price) =>
+    upper > lower and not na(price) ? (bias == 1 ? upper - price : price - lower) / (upper - lower) * 100.0 : na
+
+f_fvgSizePercent(float upper, float lower, int bias) =>
+    float denominator = bias == 1 ? lower : upper
+    denominator > 0 ? (upper - lower) / denominator * 100.0 : na
+
+f_fvgTouched(float upper, float lower, float barHigh, float barLow) =>
+    barLow <= upper and barHigh >= lower
+
+f_fvgFillBars(int createdBar, int entryBar) =>
+    entryBar >= createdBar ? entryBar - createdBar : na
+
+// Age is tied to a selected gap's immutable SOURCE index, never to the latest
+// detected gap, submission time, a session clock, or elapsed wall-clock minutes.
+f_fvgAge(int confirmationBar, int sourceBar) =>
+    not na(confirmationBar) and not na(sourceBar) and sourceBar >= confirmationBar ? sourceBar - confirmationBar : na
+
+f_fvgCanRest(bool enabled, int age, int maximumAge) =>
+    not enabled or (not na(age) and age >= 0 and age < maximumAge)
+
+f_fvgAgeExpired(bool enabled, int age, int maximumAge) =>
+    enabled and (na(age) or age >= maximumAge)
+
+// lookahead_off returns the last closed HTF bar historically, and can return
+// the developing bar in realtime. Normalize both to the last COMPLETED index.
+f_fvgCompletedSourceBar(int rawBar, int rawClose, int chartClose) =>
+    na(rawBar) or na(rawClose) ? na : rawBar - (rawClose > chartClose ? 1 : 0)
+
+// A fill belongs to the source bar containing its execution candle, including
+// the first child candle after an HTF close. No future OHLC values are used.
+f_fvgContainingSourceBar(int rawBar, int rawClose, int chartOpen) =>
+    na(rawBar) or na(rawClose) ? na : rawBar + (chartOpen >= rawClose ? 1 : 0)
+
+type TradePlan
+    int windowIndex
+    int windowStart
+    int sessionStart
+    int expires
+    int bias
+    string orderId
+    float entry
+    float stop
+    float target
+    float upper
+    float lower
+    int anchorTime
+    int sourceClose
+    int createdChartBar
+    int firstTouchBar = na
+    float actualEntry = na
+    int entryBar = na
+    int entryTime = na
+    bool filled = false
+    line entryLine = na
+    line stopLine = na
+    line targetLine = na
+    box zoneBox = na
+    label setupLabel = na
+    BreakevenState breakeven = na
+    line breakevenStopLine = na
+    int confirmationSourceBar = na
+    int submissionAge = na
+    int fillAge = na
+    int submittedAt = na
+    bool ageFilterEnabled = false
+    int maximumAge = 3
+    int sessionIndex = na
+    string sessionName = ""
+    string fvgId = ""
+    float initialRiskAccount = na
+
+// A separate closed-trade ledger survives plan cleanup and same-bar round trips.
+// One entry/open position at a time means at most one closure per chart bar.
+type FvgTradeAudit
+    int tradeNumber
+    TradePlan plan
+    int exitTime
+    float exitPrice
+    float profit
+    float priceR
+    string result
+
+var array<FvgTradeAudit> fvgTradeHistory = array.new<FvgTradeAudit>()
+var array<label> fvgAgeExpiryLabels = array.new<label>()
+FvgTradeAudit closedFvgAudit = na
+
+f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime, int filledSourceBar = na) =>
+    if na(p.actualEntry)
+        p.actualEntry := price
+        p.entryBar := entryBar
+        p.entryTime := entryTime
+        p.fillAge := f_fvgAge(p.confirmationSourceBar, filledSourceBar)
+        // An emulator gap fill can skip the candle's overlap with the zone.
+        // The fill bar is still the first entry touch if none was seen earlier.
+        p.firstTouchBar := na(p.firstTouchBar) ? entryBar : math.min(p.firstTouchBar, entryBar)
+        if not na(p.setupLabel)
+            label.set_text(p.setupLabel, label.get_text(p.setupLabel) + "\nFill " + str.tostring(price, format.mintick) + " · depth " + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, price), "#.##") + "%\nBars to fill " + str.tostring(f_fvgFillBars(p.createdChartBar, entryBar)) + " · first touch " + str.tostring(p.firstTouchBar - p.createdChartBar))
+    true
+
+
+f_assert(bool condition, string description) =>
+    if not condition
+        runtime.error("FAIL: " + description)
+    1
+var int passed = 0
+if barstate.isfirst
+    string tz = "Europe/Bucharest"
+    int morning = timestamp(tz, 2026, 10, 14, 10, 0)
+    int afternoon = timestamp(tz, 2026, 10, 14, 16, 0)
+    int midnight = timestamp(tz, 2026, 10, 15, 0, 0)
+    LossLimitState s = LossLimitState.new()
+    f_syncLossSession(s, morning)
+    f_syncLossDay(s, morning, tz)
+    passed += f_assert(f_lossEntriesAllowed(s) and s.sessionStreak == 0 and s.dailyStreak == 0, "initial state")
+    f_recordLossResult(s, morning, morning, -100, 2, 3, tz)
+    passed += f_assert(f_lossEntriesAllowed(s) and s.sessionStreak == 1 and s.dailyStreak == 1, "first loss permits another entry")
+    f_recordLossResult(s, morning, morning, 150, 2, 3, tz)
+    passed += f_assert(s.sessionStreak == 0 and s.dailyStreak == 0, "win breaks both streaks")
+    f_recordLossResult(s, morning, morning, -100, 2, 3, tz)
+    f_recordLossResult(s, morning, morning, 0, 2, 3, tz)
+    passed += f_assert(s.sessionStreak == 0 and s.dailyStreak == 0, "breakeven breaks both streaks")
+    f_recordLossResult(s, morning, morning, -100, 2, 3, tz)
+    f_recordLossResult(s, morning, morning, -100, 2, 3, tz)
+    passed += f_assert(s.sessionPaused and not s.dailyPaused and not f_lossEntriesAllowed(s), "second consecutive session loss pauses entries")
+    f_syncLossSession(s, morning)
+    passed += f_assert(s.sessionStreak == 2 and s.sessionPaused, "same session or a new entry window cannot reset pause")
+    f_syncLossSession(s, na)
+    passed += f_assert(s.sessionPaused, "gap outside sessions cannot clear a pause")
+    f_syncLossSession(s, afternoon)
+    passed += f_assert(s.sessionStreak == 0 and not s.sessionPaused and s.dailyStreak == 2, "new session resets only session state")
+    f_recordLossResult(s, afternoon, afternoon, -100, 2, 3, tz)
+    passed += f_assert(s.dailyPaused and s.dailyStreak == 3 and s.sessionStreak == 1, "third daily consecutive loss across sessions pauses entries")
+    passed += f_assert(not f_lossEntriesAllowed(s), "daily pause blocks entries below session limit")
+    f_syncLossSession(s, afternoon + 3600000)
+    passed += f_assert(s.dailyPaused and not s.sessionPaused and not f_lossEntriesAllowed(s), "another session cannot bypass daily pause")
+    f_recordLossResult(s, afternoon + 3600000, afternoon, 150, 2, 3, tz)
+    passed += f_assert(s.dailyStreak == 0 and s.dailyPaused, "daily pause stays latched after a later win")
+    f_syncLossDay(s, midnight, tz)
+    passed += f_assert(not s.dailyPaused and s.dailyStreak == 0 and f_lossEntriesAllowed(s), "midnight releases daily pause")
+    LossLimitState carry = LossLimitState.new()
+    f_syncLossSession(carry, afternoon)
+    f_recordLossResult(carry, morning, afternoon, -100, 2, 3, tz)
+    passed += f_assert(carry.dailyStreak == 1 and carry.sessionStreak == 0, "carried loss counts for exit day but not next session")
+    f_recordLossResult(carry, afternoon, afternoon, -100, 2, 3, tz)
+    f_recordLossResult(carry, morning, afternoon, 150, 2, 3, tz)
+    passed += f_assert(carry.dailyStreak == 0 and carry.sessionStreak == 1, "carried win cannot reset next session streak")
+    f_recordLossResult(carry, afternoon, afternoon, -100, 2, 3, tz)
+    passed += f_assert(carry.sessionPaused and not carry.dailyPaused, "session cap remains independent of daily sequence")
+    f_recordLossResult(carry, afternoon, afternoon, 0, 2, 3, tz)
+    passed += f_assert(carry.sessionPaused and carry.sessionStreak == 0, "session pause stays latched after breakeven")
+    f_syncLossDay(carry, midnight, tz)
+    passed += f_assert(carry.sessionPaused and not f_lossEntriesAllowed(carry), "midnight cannot release an overnight session pause")
+    f_syncLossSession(carry, midnight + 3600000)
+    passed += f_assert(f_lossEntriesAllowed(carry), "new overnight session releases remaining pause")
+    LossLimitState off = LossLimitState.new()
+    f_syncLossSession(off, morning)
+    for i = 0 to 4
+        f_recordLossResult(off, morning, morning, -100, 0, 0, tz)
+    passed += f_assert(off.sessionStreak == 5 and off.dailyStreak == 5 and f_lossEntriesAllowed(off), "zero independently disables both limits")
+    f_recordLossResult(off, morning, morning, -100, 0, 6, tz)
+    passed += f_assert(off.dailyPaused and not off.sessionPaused, "editable daily threshold with session limit disabled")
+    LossLimitState one = LossLimitState.new()
+    f_syncLossSession(one, morning)
+    f_recordLossResult(one, morning, morning, -0.01, 1, 0, tz)
+    passed += f_assert(one.sessionPaused and not one.dailyPaused, "editable one-loss threshold uses actual P/L")
+    LossLimitState unknown = LossLimitState.new()
+    f_syncLossSession(unknown, morning)
+    f_recordLossResult(unknown, na, morning, -100, 2, 3, tz)
+    passed += f_assert(unknown.dailyStreak == 1 and unknown.sessionStreak == 0, "unknown entry owner cannot contaminate session streak")
+    f_recordLossResult(unknown, morning, morning, na, 2, 3, tz)
+    passed += f_assert(unknown.dailyStreak == 1 and unknown.sessionStreak == 0, "unavailable P/L is not a breakeven")
+    LossLimitState edge = LossLimitState.new()
+    f_syncLossSession(edge, afternoon)
+    f_recordLossResult(edge, afternoon, midnight - 1, -100, 0, 1, tz)
+    passed += f_assert(edge.dayKey == 20261014 and edge.dailyPaused, "exit before midnight belongs to yesterday")
+    f_syncLossDay(edge, midnight, tz)
+    passed += f_assert(edge.dayKey == 20261015 and not edge.dailyPaused and edge.dailyStreak == 0, "midnight bar processes exits before next-day entry gate")
+    f_recordLossResult(edge, afternoon, midnight, -100, 0, 1, tz)
+    passed += f_assert(edge.dayKey == 20261015 and edge.dailyStreak == 1 and edge.dailyPaused, "exit exactly at midnight belongs to new day")
+    f_syncLossDay(edge, timestamp(tz, 2026, 10, 19, 10, 0), tz)
+    passed += f_assert(edge.dailyStreak == 0 and not edge.dailyPaused, "feed gap or weekend resets daily state")
+    passed += f_assert(f_lossDayKey(timestamp("UTC", 2026, 10, 14, 21, 30), tz) == 20261015, "Bucharest date rather than exchange or chart date")
+    passed += f_assert(f_lossDayKey(timestamp("UTC", 2026, 10, 14, 21, 30), "America/New_York") == 20261014, "editable reset timezone changes date attribution")
+    passed += f_assert(f_lossDayKey(timestamp("UTC", 2026, 10, 25, 21, 30), tz) == 20261025, "Bucharest DST fall-back uses correct date")
+    passed += f_assert(f_lossDayKey(timestamp("UTC", 2026, 10, 25, 22, 0), tz) == 20261026, "midnight after DST fall-back")
+    passed += f_assert(f_lossDayKey(timestamp(tz, 2027, 1, 1, 0, 0), tz) == 20270101, "year boundary has a distinct day key")
+
+if barstate.isfirst
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 110, 70, 1, 0.1) - 107) < 0.000001, "long default trigger is 70 percent to TP")
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 90, 70, -1, 0.1) - 93) < 0.000001, "short default trigger is 70 percent to TP")
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 110, 50, 1, 0.1) - 105) < 0.000001, "editable 50 percent trigger")
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 110, 100, 1, 0.1) - 110) < 0.000001, "100 percent is TP itself")
+    passed += f_assert(math.abs(f_breakevenTrigger(98, 110, 70, 1, 0.1) - 106.4) < 0.000001, "gap fill uses actual entry rather than planned entry")
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 101, 70, 1, 0.25) - 100.75) < 0.000001, "long fractional trigger rounds toward TP")
+    passed += f_assert(math.abs(f_breakevenTrigger(100, 99, 70, -1, 0.25) - 99.25) < 0.000001, "short fractional trigger rounds toward TP")
+    passed += f_assert(na(f_breakevenTrigger(100, 100, 70, 1, 0.1)), "zero reward cannot activate")
+    passed += f_assert(na(f_breakevenTrigger(100, 99, 70, 1, 0.1)), "wrong-side TP cannot activate")
+    passed += f_assert(na(f_breakevenTrigger(100, 110, 0, 1, 0.1)) and na(f_breakevenTrigger(100, 110, 101, 1, 0.1)), "invalid percentage cannot activate")
+    passed += f_assert(na(f_breakevenTrigger(100, 110, 70, 1, 0)), "invalid tick cannot activate")
+    BreakevenState longTrade = BreakevenState.new(100, 107, 95)
+    passed += f_assert(not f_armBreakeven(longTrade, false, 1, 109, 1000) and longTrade.stop == 95, "disabled breakeven keeps original stop")
+    passed += f_assert(not f_armBreakeven(longTrade, true, 1, 106.9, 1000) and not longTrade.active, "below-trigger long remains at risk")
+    passed += f_assert(f_armBreakeven(longTrade, true, 1, 107, 2000) and longTrade.stop == 100 and longTrade.active, "long exact touch moves stop to filled entry")
+    passed += f_assert(longTrade.activatedAt == 2000, "activation time is the observation close")
+    passed += f_assert(not f_armBreakeven(longTrade, true, 1, 96, 3000) and longTrade.stop == 100 and longTrade.activatedAt == 2000, "retracement cannot undo or redraw activation")
+    BreakevenState shortTrade = BreakevenState.new(100, 93, 105)
+    passed += f_assert(not f_armBreakeven(shortTrade, true, -1, 93.1, 1000) and shortTrade.stop == 105, "above-trigger short remains at risk")
+    passed += f_assert(f_armBreakeven(shortTrade, true, -1, 92.9, 2000) and shortTrade.stop == 100, "short crossing moves stop to filled entry")
+    passed += f_assert(not f_armBreakeven(shortTrade, true, -1, 104, 3000) and shortTrade.stop == 100, "short retracement keeps breakeven latched")
+    BreakevenState betterLong = BreakevenState.new(100, 107, 101)
+    f_armBreakeven(betterLong, true, 1, 108, 1000)
+    passed += f_assert(betterLong.stop == 101, "existing better long stop is never loosened")
+    BreakevenState betterShort = BreakevenState.new(100, 93, 99)
+    f_armBreakeven(betterShort, true, -1, 92, 1000)
+    passed += f_assert(betterShort.stop == 99, "existing better short stop is never loosened")
+    BreakevenState missing = BreakevenState.new(100, na, 95)
+    passed += f_assert(not f_armBreakeven(missing, true, 1, 108, 1000) and missing.stop == 95, "unavailable trigger leaves bracket unchanged")
+    passed += f_assert(not f_armBreakeven(missing, true, 1, na, 1000), "missing observed price cannot activate")
+    passed += f_assert(f_breakevenObservation(1, 10, 10, 103, 109, 99) == 103, "entry candle long ignores possible pre-fill high")
+    passed += f_assert(f_breakevenObservation(-1, 10, 10, 97, 101, 91) == 97, "entry candle short ignores possible pre-fill low")
+    passed += f_assert(f_breakevenObservation(1, 11, 10, 103, 109, 99) == 109, "later long candle uses its high")
+    passed += f_assert(f_breakevenObservation(-1, 11, 10, 97, 101, 91) == 91, "later short candle uses its low")
+    BreakevenState entryBar = BreakevenState.new(100, 107, 95)
+    passed += f_assert(not f_armBreakeven(entryBar, true, 1, f_breakevenObservation(1, 10, 10, 103, 109, 99), 1000), "entry-bar pre-fill wick cannot arm stop")
+    passed += f_assert(f_armBreakeven(entryBar, true, 1, f_breakevenObservation(1, 10, 10, 108, 109, 99), 1000), "entry-bar confirmed close can arm stop")
+    BreakevenState fresh = BreakevenState.new(200, 207, 195)
+    passed += f_assert(not fresh.active and na(fresh.activatedAt) and fresh.stop == 195, "next trade starts without prior breakeven state")
+    LossLimitState beResult = LossLimitState.new()
+    f_syncLossSession(beResult, 1000)
+    f_recordLossResult(beResult, 1000, 1000, -100, 2, 3, "UTC")
+    f_recordLossResult(beResult, 1000, 1000, 0, 2, 3, "UTC")
+    passed += f_assert(beResult.sessionStreak == 0 and beResult.dailyStreak == 0 and f_lossEntriesAllowed(beResult), "zero-P/L breakeven breaks loss streaks")
+    f_recordLossResult(beResult, 1000, 1000, -1, 2, 3, "UTC")
+    passed += f_assert(beResult.sessionStreak == 1 and beResult.dailyStreak == 1, "negative P/L after BE fees or gap is still a loss")
+    passed += f_assert(math.abs(f_breakevenLock(100, 130, 30, 1, 0.1) - 109) < 0.000001, "1 to 3 long locks 0.9R at 30 percent of target")
+    passed += f_assert(math.abs(f_breakevenLock(100, 70, 30, -1, 0.1) - 91) < 0.000001, "1 to 3 short locks 0.9R at 30 percent of target")
+    passed += f_assert(f_breakevenLock(100, 130, 0, 1, 0.1) == 100, "zero lock preserves entry-price breakeven")
+    passed += f_assert(f_breakevenLock(100, 101, 30, 1, 0.25) == 100.25, "long lock rounds toward entry")
+    passed += f_assert(f_breakevenLock(100, 99, 30, -1, 0.25) == 99.75, "short lock rounds toward entry")
+    passed += f_assert(na(f_breakevenLock(100, 100, 30, 1, 0.1)) and na(f_breakevenLock(100, 130, 100, 1, 0.1)), "invalid lock cannot produce a protected level")
+    BreakevenState protectedLong = BreakevenState.new(100, 127, 90, protectedStop=109)
+    passed += f_assert(not f_armBreakeven(protectedLong, true, 1, 126.9, 1000) and protectedLong.stop == 90, "90 percent trigger does not arm early")
+    passed += f_assert(f_armBreakeven(protectedLong, true, 1, 127, 2000) and protectedLong.stop == 109, "90 percent trigger locks 30 percent for a long")
+    passed += f_assert(not f_armBreakeven(protectedLong, true, 1, 101, 3000) and protectedLong.stop == 109, "profit lock cannot loosen on retracement")
+    BreakevenState protectedShort = BreakevenState.new(100, 73, 110, protectedStop=91)
+    passed += f_assert(f_armBreakeven(protectedShort, true, -1, 73, 2000) and protectedShort.stop == 91, "90 percent trigger locks 30 percent for a short")
+    BreakevenState tighter = BreakevenState.new(100, 127, 112, protectedStop=109)
+    f_armBreakeven(tighter, true, 1, 127, 2000)
+    passed += f_assert(tighter.stop == 112, "configured protection cannot loosen a better stop")
+
+if barstate.isfirst
+    passed += f_assert(f_fvgEntry(110, 100, 1, true, 25, 0.1) == 107.5, "long configured percentage entry")
+    passed += f_assert(f_fvgEntry(110, 100, -1, true, 25, 0.1) == 102.5, "short configured percentage entry")
+    passed += f_assert(f_fvgEntry(110, 100, 1, false, 75, 0.1) == 110, "disabled percentage enters bullish near edge")
+    passed += f_assert(f_fvgEntry(110, 100, -1, false, 75, 0.1) == 100, "disabled percentage enters bearish near edge")
+    passed += f_assert(f_fvgEntry(110, 100, 1, true, 100, 0.1) == 100, "100 percent long is far edge")
+    passed += f_assert(f_fvgEntry(110, 100, -1, true, 100, 0.1) == 110, "100 percent short is far edge")
+    passed += f_assert(f_fvgDepth(110, 100, 1, 107.5) == 25, "actual bullish fill depth")
+    passed += f_assert(f_fvgDepth(110, 100, -1, 102.5) == 25, "actual bearish fill depth")
+    passed += f_assert(f_fvgDepth(110, 100, 1, 98) == 120, "gap fill beyond zone remains visible")
+    passed += f_assert(na(f_fvgDepth(100, 100, 1, 100)), "zero width depth is unavailable")
+    passed += f_assert(math.abs(f_fvgSizePercent(110, 100, 1) - 10) < 0.000001, "bullish size matches detector denominator")
+    passed += f_assert(math.abs(f_fvgSizePercent(110, 100, -1) - 1000.0 / 110) < 0.000001, "bearish size matches detector denominator")
+    passed += f_assert(na(f_fvgSizePercent(10, 0, 1)), "zero reference price is unavailable")
+    passed += f_assert(f_fvgTouched(110, 100, 115, 110), "near-edge touch counts")
+    passed += f_assert(f_fvgTouched(110, 100, 105, 99), "partial overlap counts")
+    passed += f_assert(not f_fvgTouched(110, 100, 115, 111), "range above gap does not count")
+    passed += f_assert(not f_fvgTouched(110, 100, 99, 95), "gap-through without range overlap is distinct")
+    passed += f_assert(f_fvgFillBars(10, 11) == 1, "next chart candle is one bar after confirmation")
+    passed += f_assert(f_fvgFillBars(10, 18) == 8, "queued gap retains creation age")
+    passed += f_assert(na(f_fvgFillBars(10, 9)), "pre-creation fill age is unavailable")
+    TradePlan p = TradePlan.new(0, 0, 0, 1000000, 1, "TEST", 107.5, 95, 130, 110, 100, 0, 300000, 10)
+    f_captureFvgFill(p, 106, 15, 1500000)
+    passed += f_assert(p.actualEntry == 106 and p.entryBar == 15 and p.firstTouchBar == 15, "closed-ledger fill works without an open observation")
+    f_captureFvgFill(p, 105, 16, 1800000)
+    passed += f_assert(p.actualEntry == 106 and p.entryBar == 15, "fill capture is idempotent")
+    TradePlan earlierTouch = TradePlan.new(0, 0, 0, 1000000, -1, "TEST2", 102.5, 115, 80, 110, 100, 0, 300000, 10, firstTouchBar=12)
+    f_captureFvgFill(earlierTouch, 102.5, 15, 1500000)
+    passed += f_assert(earlierTouch.firstTouchBar == 12 and earlierTouch.entryBar == 15, "first touch remains separate from deeper entry")
+    FvgTradeAudit audit = FvgTradeAudit.new(1, p, 1800000, 130, 120, 2, "TP")
+    array.push(fvgTradeHistory, audit)
+    passed += f_assert(array.get(fvgTradeHistory, 0).plan.actualEntry == 106, "closed audit survives a separate replacement plan")
+
+if barstate.isfirst
+    passed += f_assert(f_fvgAge(100, 100) == 0, "confirmation age 0 maximum 2")
+    passed += f_assert(f_fvgCanRest(false, 0, 2), "OFF ignores age 0 maximum 2")
+    passed += f_assert(f_fvgCanRest(true, 0, 2) == true, "can rest next bar age 0 max 2")
+    passed += f_assert(f_fvgAgeExpired(true, 0, 2) == false, "cancel at last eligible close age 0 max 2")
+    passed += f_assert(f_fvgAge(100, 101) == 1, "confirmation age 1 maximum 2")
+    passed += f_assert(f_fvgCanRest(false, 1, 2), "OFF ignores age 1 maximum 2")
+    passed += f_assert(f_fvgCanRest(true, 1, 2) == true, "can rest next bar age 1 max 2")
+    passed += f_assert(f_fvgAgeExpired(true, 1, 2) == false, "cancel at last eligible close age 1 max 2")
+    passed += f_assert(f_fvgAge(100, 102) == 2, "confirmation age 2 maximum 2")
+    passed += f_assert(f_fvgCanRest(false, 2, 2), "OFF ignores age 2 maximum 2")
+    passed += f_assert(f_fvgCanRest(true, 2, 2) == false, "can rest next bar age 2 max 2")
+    passed += f_assert(f_fvgAgeExpired(true, 2, 2) == true, "cancel at last eligible close age 2 max 2")
+    passed += f_assert(f_fvgAge(100, 103) == 3, "confirmation age 3 maximum 2")
+    passed += f_assert(f_fvgCanRest(false, 3, 2), "OFF ignores age 3 maximum 2")
+    passed += f_assert(f_fvgCanRest(true, 3, 2) == false, "can rest next bar age 3 max 2")
+    passed += f_assert(f_fvgAgeExpired(true, 3, 2) == true, "cancel at last eligible close age 3 max 2")
+    passed += f_assert(f_fvgAge(100, 104) == 4, "confirmation age 4 maximum 2")
+    passed += f_assert(f_fvgCanRest(false, 4, 2), "OFF ignores age 4 maximum 2")
+    passed += f_assert(f_fvgCanRest(true, 4, 2) == false, "can rest next bar age 4 max 2")
+    passed += f_assert(f_fvgAgeExpired(true, 4, 2) == true, "cancel at last eligible close age 4 max 2")
+    passed += f_assert(f_fvgAge(100, 100) == 0, "confirmation age 0 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 0, 3), "OFF ignores age 0 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 0, 3) == true, "can rest next bar age 0 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 0, 3) == false, "cancel at last eligible close age 0 max 3")
+    passed += f_assert(f_fvgAge(100, 101) == 1, "confirmation age 1 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 1, 3), "OFF ignores age 1 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 1, 3) == true, "can rest next bar age 1 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 1, 3) == false, "cancel at last eligible close age 1 max 3")
+    passed += f_assert(f_fvgAge(100, 102) == 2, "confirmation age 2 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 2, 3), "OFF ignores age 2 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 2, 3) == true, "can rest next bar age 2 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 2, 3) == false, "cancel at last eligible close age 2 max 3")
+    passed += f_assert(f_fvgAge(100, 103) == 3, "confirmation age 3 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 3, 3), "OFF ignores age 3 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 3, 3) == false, "can rest next bar age 3 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 3, 3) == true, "cancel at last eligible close age 3 max 3")
+    passed += f_assert(f_fvgAge(100, 104) == 4, "confirmation age 4 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 4, 3), "OFF ignores age 4 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 4, 3) == false, "can rest next bar age 4 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 4, 3) == true, "cancel at last eligible close age 4 max 3")
+    passed += f_assert(f_fvgAge(100, 105) == 5, "confirmation age 5 maximum 3")
+    passed += f_assert(f_fvgCanRest(false, 5, 3), "OFF ignores age 5 maximum 3")
+    passed += f_assert(f_fvgCanRest(true, 5, 3) == false, "can rest next bar age 5 max 3")
+    passed += f_assert(f_fvgAgeExpired(true, 5, 3) == true, "cancel at last eligible close age 5 max 3")
+    passed += f_assert(f_fvgAge(100, 100) == 0, "confirmation age 0 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 0, 4), "OFF ignores age 0 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 0, 4) == true, "can rest next bar age 0 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 0, 4) == false, "cancel at last eligible close age 0 max 4")
+    passed += f_assert(f_fvgAge(100, 101) == 1, "confirmation age 1 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 1, 4), "OFF ignores age 1 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 1, 4) == true, "can rest next bar age 1 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 1, 4) == false, "cancel at last eligible close age 1 max 4")
+    passed += f_assert(f_fvgAge(100, 102) == 2, "confirmation age 2 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 2, 4), "OFF ignores age 2 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 2, 4) == true, "can rest next bar age 2 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 2, 4) == false, "cancel at last eligible close age 2 max 4")
+    passed += f_assert(f_fvgAge(100, 103) == 3, "confirmation age 3 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 3, 4), "OFF ignores age 3 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 3, 4) == true, "can rest next bar age 3 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 3, 4) == false, "cancel at last eligible close age 3 max 4")
+    passed += f_assert(f_fvgAge(100, 104) == 4, "confirmation age 4 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 4, 4), "OFF ignores age 4 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 4, 4) == false, "can rest next bar age 4 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 4, 4) == true, "cancel at last eligible close age 4 max 4")
+    passed += f_assert(f_fvgAge(100, 105) == 5, "confirmation age 5 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 5, 4), "OFF ignores age 5 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 5, 4) == false, "can rest next bar age 5 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 5, 4) == true, "cancel at last eligible close age 5 max 4")
+    passed += f_assert(f_fvgAge(100, 106) == 6, "confirmation age 6 maximum 4")
+    passed += f_assert(f_fvgCanRest(false, 6, 4), "OFF ignores age 6 maximum 4")
+    passed += f_assert(f_fvgCanRest(true, 6, 4) == false, "can rest next bar age 6 max 4")
+    passed += f_assert(f_fvgAgeExpired(true, 6, 4) == true, "cancel at last eligible close age 6 max 4")
+    passed += f_assert(f_fvgAge(100, 100) == 0, "confirmation age 0 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 0, 6), "OFF ignores age 0 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 0, 6) == true, "can rest next bar age 0 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 0, 6) == false, "cancel at last eligible close age 0 max 6")
+    passed += f_assert(f_fvgAge(100, 101) == 1, "confirmation age 1 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 1, 6), "OFF ignores age 1 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 1, 6) == true, "can rest next bar age 1 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 1, 6) == false, "cancel at last eligible close age 1 max 6")
+    passed += f_assert(f_fvgAge(100, 102) == 2, "confirmation age 2 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 2, 6), "OFF ignores age 2 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 2, 6) == true, "can rest next bar age 2 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 2, 6) == false, "cancel at last eligible close age 2 max 6")
+    passed += f_assert(f_fvgAge(100, 103) == 3, "confirmation age 3 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 3, 6), "OFF ignores age 3 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 3, 6) == true, "can rest next bar age 3 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 3, 6) == false, "cancel at last eligible close age 3 max 6")
+    passed += f_assert(f_fvgAge(100, 104) == 4, "confirmation age 4 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 4, 6), "OFF ignores age 4 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 4, 6) == true, "can rest next bar age 4 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 4, 6) == false, "cancel at last eligible close age 4 max 6")
+    passed += f_assert(f_fvgAge(100, 105) == 5, "confirmation age 5 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 5, 6), "OFF ignores age 5 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 5, 6) == true, "can rest next bar age 5 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 5, 6) == false, "cancel at last eligible close age 5 max 6")
+    passed += f_assert(f_fvgAge(100, 106) == 6, "confirmation age 6 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 6, 6), "OFF ignores age 6 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 6, 6) == false, "can rest next bar age 6 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 6, 6) == true, "cancel at last eligible close age 6 max 6")
+    passed += f_assert(f_fvgAge(100, 107) == 7, "confirmation age 7 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 7, 6), "OFF ignores age 7 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 7, 6) == false, "can rest next bar age 7 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 7, 6) == true, "cancel at last eligible close age 7 max 6")
+    passed += f_assert(f_fvgAge(100, 108) == 8, "confirmation age 8 maximum 6")
+    passed += f_assert(f_fvgCanRest(false, 8, 6), "OFF ignores age 8 maximum 6")
+    passed += f_assert(f_fvgCanRest(true, 8, 6) == false, "can rest next bar age 8 max 6")
+    passed += f_assert(f_fvgAgeExpired(true, 8, 6) == true, "cancel at last eligible close age 8 max 6")
+    passed += f_assert(na(f_fvgAge(101, 100)) and na(f_fvgAge(na, 100)), "unknown and future confirmation unavailable")
+    passed += f_assert(f_fvgCanRest(false, na, 3) and not f_fvgAgeExpired(false, na, 3), "OFF does not add missing-age restriction")
+    passed += f_assert(not f_fvgCanRest(true, na, 3) and f_fvgAgeExpired(true, na, 3), "ON refuses unknown source age")
+    passed += f_assert(f_fvgCompletedSourceBar(100, 900000, 900000) == 100, "HTF exact close confirms source index")
+    passed += f_assert(f_fvgCompletedSourceBar(101, 1800000, 1200000) == 100, "realtime developing source is not completed")
+    passed += f_assert(f_fvgCompletedSourceBar(100, 900000, 1200000) == 100, "historical last confirmed source remains completed")
+    passed += f_assert(f_fvgContainingSourceBar(100, 900000, 900000) == 101, "first HTF child has following source index")
+    passed += f_assert(f_fvgContainingSourceBar(101, 1800000, 900000) == 101, "realtime and historical containing source agree")
+    passed += f_assert(f_fvgContainingSourceBar(101, 1800000, 1500000) == 101, "HTF closing child retains correct containing bar")
+    passed += f_assert(f_fvgAge(100, f_fvgContainingSourceBar(100, 900000, 259200000)) == 1, "weekend wall-clock jump counts one source bar")
+    TradePlan bull = TradePlan.new(0, 0, 0, 9999999, 1, "bull", 105, 95, 130, 110, 100, 0, 900000, 10, confirmationSourceBar=100, submissionAge=0, ageFilterEnabled=true, maximumAge=3)
+    f_captureFvgFill(bull, 105, 19, 3600000, 103)
+    passed += f_assert(bull.fillAge == 3 and bull.submissionAge == 0, "bull actual fill age differs from order age")
+    f_captureFvgFill(bull, 106, 20, 3900000, 104)
+    passed += f_assert(bull.fillAge == 3 and bull.entryBar == 19, "bull fill metadata is immutable")
+    TradePlan bear = TradePlan.new(0, 0, 0, 9999999, -1, "bear", 105, 115, 130, 110, 100, 0, 900000, 10, confirmationSourceBar=100, submissionAge=0, ageFilterEnabled=true, maximumAge=3)
+    f_captureFvgFill(bear, 105, 19, 3600000, 103)
+    passed += f_assert(bear.fillAge == 3 and bear.submissionAge == 0, "bear actual fill age differs from order age")
+    f_captureFvgFill(bear, 106, 20, 3900000, 104)
+    passed += f_assert(bear.fillAge == 3 and bear.entryBar == 19, "bear fill metadata is immutable")
+    passed += f_assert(bull.confirmationSourceBar == 100 and bear.confirmationSourceBar == 100, "a later FVG cannot mutate selected confirmation")
+var table result = table.new(position.bottom_left, 1, 1)
+if barstate.islastconfirmedhistory or barstate.islast
+    table.cell(result, 0, 0, "PASS " + str.tostring(passed) + " / 223 AGE + FVG + BE + LOSS assertions", text_color=color.white, bgcolor=color.green)

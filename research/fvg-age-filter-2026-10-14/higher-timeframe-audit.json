@@ -1,0 +1,14 @@
+{
+  "trades": 10,
+  "source_minutes": 15,
+  "chart_minutes": 5,
+  "maximum_source_age": 3,
+  "observed_fill_ages": [
+    1,
+    2,
+    3
+  ],
+  "source_age_matches_independent_timestamp_buckets": true,
+  "fills_after_age_three": 0,
+  "native_rows": 20
+}

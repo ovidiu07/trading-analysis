@@ -223,10 +223,10 @@ public class BacktestingTrade {
     @Column(name = "duration_bars")
     private Integer durationBars;
 
-    @Column(name = "entry_signal", length = 255)
+    @Column(name = "entry_signal", columnDefinition = "TEXT")
     private String entrySignal;
 
-    @Column(name = "exit_signal", length = 255)
+    @Column(name = "exit_signal", columnDefinition = "TEXT")
     private String exitSignal;
 
     @Column(name = "import_format", length = 64)

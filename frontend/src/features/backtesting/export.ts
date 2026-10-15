@@ -157,7 +157,7 @@ export function buildBacktestingReport(workspace: BacktestingWorkspace, trades: 
       'Tags (JSON)': JSON.stringify(item.tags), 'Created at': item.createdAt, 'Updated at': item.updatedAt }))
   return {
     'trades.csv': rowsToCsv(tradeExportRows(selected)),
-    'overview.csv': rowsToCsv(metricRows(analyzed, 'Overview', workspace.title || workspace.symbol), metricHeaders),
+    'overview.csv': rowsToCsv(metricRows(analyzed, 'Overview', workspace.title || workspace.symbol || 'Research workspace'), metricHeaders),
     'edge-analysis.csv': rowsToCsv(edgeRows(analyzed, baseline), metricHeaders),
     'periods.csv': rowsToCsv(periods, ['Period start', 'Period end', ...metricHeaders]),
     'saved-edge-lenses.csv': rowsToCsv(lensRows, ['Lens ID', 'Lens name', 'Description', 'Filters (JSON)', 'Status', 'Unsupported filters', ...metricHeaders]),
@@ -168,7 +168,7 @@ export function buildBacktestingReport(workspace: BacktestingWorkspace, trades: 
       unknownTimezone: selected.filter(trade => !trade.sourceTimezone).length,
       workspace, workspaceStatisticsScope: 'ALL_TIME_SNAPSHOT_NOT_SELECTED_PERIOD' }, null, 2),
     'README.txt': [
-      `Backtesting export: ${workspace.title || workspace.symbol}`, `Generated at (UTC): ${generatedAt}`,
+      `Backtesting export: ${workspace.title || workspace.symbol || 'Research workspace'}`, `Generated at (UTC): ${generatedAt}`,
       `Inclusive ${period.dateBasis} date period: ${period.from} to ${period.to}. Dates use each trade's recorded local clock.`,
       `Exported trades: ${selected.length}. Analytics trades: ${analyzed.length}. Excluded trades retained in trades.csv: ${selected.length - analyzed.length}.`,
       'trades.csv: one row per trade, with entry and exit details and every available API trade field. Live trades are excluded.',
@@ -202,7 +202,7 @@ export function reportArchive(files: Record<string, string>) {
 }
 
 export function exportFilename(workspace: BacktestingWorkspace, period: ExportPeriod, extension: 'zip' | 'csv') {
-  const name = (workspace.title || workspace.symbol).replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 90) || 'workspace'
+  const name = (workspace.title || workspace.symbol || 'workspace').replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 90) || 'workspace'
   return `backtesting-${name}-${period.dateBasis}-${period.from}-${period.to}.${extension}`
 }
 

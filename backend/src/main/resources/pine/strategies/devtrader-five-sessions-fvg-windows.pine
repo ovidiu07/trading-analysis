@@ -816,6 +816,10 @@ string G_LOSS = "Strategy Loss Limits"
 string G_BE = "Strategy Breakeven"
 string G_FVG = "Fair Value Gaps"
 string G_VIS = "Strategy Visuals / Audit"
+string G_AGE = "FVG Age Filter"
+bool enableFvgAgeFilter = input.bool(false, "Enable FVG Age Filter", group=G_AGE)
+int maximumFvgAgeBars = input.int(3, "Maximum FVG Age", options=[2, 3, 4, 6], group=G_AGE, active=enableFvgAgeFilter, tooltip="Completed detection-timeframe bars after the selected FVG's confirmation. Confirmation = 0. An unfilled order is cancelled at the close of bar N, before bar N+1 can fill it. Existing window/session and minute-age deadlines still apply.")
+bool showFvgAgeDebug = input.bool(false, "Show FVG Age Debug Information", group=G_AGE)
 string executionTimeframe = input.timeframe("5", "Execution Timeframe", group=G_EXEC, tooltip="Set the standard candle chart to this interval. It must divide 15 minutes; window boundaries must also align with it.")
 bool useFvgEntryPercentage = input.bool(true, "Use FVG Entry Percentage", group=G_EXEC, tooltip="Disable to enter on any eligible mitigation/touch of the near edge (0% depth). This still submits a resting limit order after confirmation; it never fills retrospectively on the creation candle. Existing session, stop, size, and loss limits apply.")
 float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, maxval=100, step=0.1, group=G_EXEC, active=useFvgEntryPercentage, tooltip="Depth from the retest edge: bullish top toward bottom, bearish bottom toward top. Matches the FVG indicator's percentage line.")
@@ -898,6 +902,27 @@ f_fvgTouched(float upper, float lower, float barHigh, float barLow) =>
 
 f_fvgFillBars(int createdBar, int entryBar) =>
     entryBar >= createdBar ? entryBar - createdBar : na
+
+// Age is tied to a selected gap's immutable SOURCE index, never to the latest
+// detected gap, submission time, a session clock, or elapsed wall-clock minutes.
+f_fvgAge(int confirmationBar, int sourceBar) =>
+    not na(confirmationBar) and not na(sourceBar) and sourceBar >= confirmationBar ? sourceBar - confirmationBar : na
+
+f_fvgCanRest(bool enabled, int age, int maximumAge) =>
+    not enabled or (not na(age) and age >= 0 and age < maximumAge)
+
+f_fvgAgeExpired(bool enabled, int age, int maximumAge) =>
+    enabled and (na(age) or age >= maximumAge)
+
+// lookahead_off returns the last closed HTF bar historically, and can return
+// the developing bar in realtime. Normalize both to the last COMPLETED index.
+f_fvgCompletedSourceBar(int rawBar, int rawClose, int chartClose) =>
+    na(rawBar) or na(rawClose) ? na : rawBar - (rawClose > chartClose ? 1 : 0)
+
+// A fill belongs to the source bar containing its execution candle, including
+// the first child candle after an HTF close. No future OHLC values are used.
+f_fvgContainingSourceBar(int rawBar, int rawClose, int chartOpen) =>
+    na(rawBar) or na(rawClose) ? na : rawBar + (chartOpen >= rawClose ? 1 : 0)
 
 f_stopPrice(float entry, float structuralStop, int bias) =>
     float structuralDistance = bias * (entry - structuralStop)
@@ -987,6 +1012,9 @@ bool detectionCompatible = not na(detectionSeconds) and detectionSeconds >= char
 bool fvgAgeAligned = not firstTradeFromSessionFvg or (chartMs > 0 and maximumFvgAgeMinutes * 60000 % chartMs == 0)
 bool nativeMode = executionChart and detectionCompatible and windowBoundariesAligned and anyExecutableProfile and fvgAgeAligned
 [fvgBullRaw, fvgBearRaw, fvgMaxRaw, fvgMinRaw, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceBarIndexRaw, fvgSourceCloseRaw, structureLowRaw, structureHighRaw] = request.security(syminfo.tickerid, fvgDetectionTf, f_strategyFvgPayload(), lookahead=barmerge.lookahead_off)
+bool fvgOnChartTimeframe = detectionSeconds == chartSeconds
+int completedFvgSourceBar = fvgOnChartTimeframe ? bar_index : f_fvgCompletedSourceBar(fvgSourceBarIndexRaw, fvgSourceCloseRaw, time_close)
+int containingFvgSourceBar = fvgOnChartTimeframe ? bar_index : f_fvgContainingSourceBar(fvgSourceBarIndexRaw, fvgSourceCloseRaw, time)
 var int lastConfirmedFvgSourceTime = na
 bool confirmedNewFvg = barstate.isconfirmed and time_close == fvgSourceCloseRaw and (fvgBullRaw or fvgBearRaw) and (na(lastConfirmedFvgSourceTime) or lastConfirmedFvgSourceTime != fvgSourceTimeRaw)
 if confirmedNewFvg
@@ -1008,6 +1036,7 @@ type SessionFvg
     int createdChartBar
     int firstTouchBar = na
     bool attempted = false
+    int confirmationSourceBar = na
 
 type SessionTradeState
     int startTime = na
@@ -1025,7 +1054,7 @@ f_pruneSessionFvgs(int sessionStart, bool sessionActive) =>
         SessionFvg gap = array.get(sessionFvgs, i)
         if bar_index > gap.createdChartBar and na(gap.firstTouchBar) and f_fvgTouched(gap.upper, gap.lower, high, low)
             gap.firstTouchBar := bar_index
-        if not sessionActive or gap.sessionStart != sessionStart or time_close >= gap.expires or gap.attempted or f_gapMitigated(gap)
+        if not sessionActive or gap.sessionStart != sessionStart or time_close >= gap.expires or gap.attempted or f_gapMitigated(gap) or f_fvgAgeExpired(enableFvgAgeFilter, f_fvgAge(gap.confirmationSourceBar, completedFvgSourceBar), maximumFvgAgeBars)
             array.remove(sessionFvgs, i)
         i -= 1
     true
@@ -1100,6 +1129,16 @@ type TradePlan
     label setupLabel = na
     BreakevenState breakeven = na
     line breakevenStopLine = na
+    int confirmationSourceBar = na
+    int submissionAge = na
+    int fillAge = na
+    int submittedAt = na
+    bool ageFilterEnabled = false
+    int maximumAge = 3
+    int sessionIndex = na
+    string sessionName = ""
+    string fvgId = ""
+    float initialRiskAccount = na
 
 // A separate closed-trade ledger survives plan cleanup and same-bar round trips.
 // One entry/open position at a time means at most one closure per chart bar.
@@ -1113,13 +1152,15 @@ type FvgTradeAudit
     string result
 
 var array<FvgTradeAudit> fvgTradeHistory = array.new<FvgTradeAudit>()
+var array<label> fvgAgeExpiryLabels = array.new<label>()
 FvgTradeAudit closedFvgAudit = na
 
-f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime) =>
+f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime, int filledSourceBar = na) =>
     if na(p.actualEntry)
         p.actualEntry := price
         p.entryBar := entryBar
         p.entryTime := entryTime
+        p.fillAge := f_fvgAge(p.confirmationSourceBar, filledSourceBar)
         // An emulator gap fill can skip the candle's overlap with the zone.
         // The fill bar is still the first entry touch if none was seen earlier.
         p.firstTouchBar := na(p.firstTouchBar) ? entryBar : math.min(p.firstTouchBar, entryBar)
@@ -1129,14 +1170,18 @@ f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime) =>
 
 f_fvgEntryComment(TradePlan p, string windowTag) =>
     string base = (p.bias == 1 ? "LONG " : "SHORT ") + windowTag
-    includeFvgOrderComments ? base + " | FVGv1 tf=" + fvgDetectionTf + " lo=" + str.tostring(p.lower, format.mintick) + " hi=" + str.tostring(p.upper, format.mintick) + " size=" + str.tostring(p.upper - p.lower, format.mintick) + " sizePct=" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + " created=" + str.tostring(p.sourceClose) + " mode=" + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + " depth=" + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + " rr=" + str.tostring(rewardRiskRatio) + " BE=" + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "OFF") : base
+    string ageDetails = " | FVGAGEv1 id=" + p.fvgId + " srcBar=" + str.tostring(p.confirmationSourceBar) + " orderAge=" + str.tostring(p.submissionAge) + " ageOn=" + (p.ageFilterEnabled ? "1" : "0") + " maxAge=" + str.tostring(p.maximumAge) + " session=" + str.tostring(p.sessionIndex) + " sessionName=" + str.replace_all(p.sessionName, " ", "_") + " submitted=" + str.tostring(p.submittedAt) + " sl=" + str.tostring(p.stop, format.mintick)
+    includeFvgOrderComments ? base + " | FVGv1 tf=" + fvgDetectionTf + " lo=" + str.tostring(p.lower, format.mintick) + " hi=" + str.tostring(p.upper, format.mintick) + " size=" + str.tostring(p.upper - p.lower, format.mintick) + " sizePct=" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + " created=" + str.tostring(p.sourceClose) + " mode=" + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + " depth=" + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + " rr=" + str.tostring(rewardRiskRatio) + " BE=" + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "OFF") + ageDetails : base
 
 f_fvgFillComment(TradePlan p) =>
-    includeFvgOrderComments and not na(p.actualEntry) ? " | fillPct=" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + " fillBars=" + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " touchBars=" + str.tostring(p.firstTouchBar - p.createdChartBar) + " ageMin=" + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##") : ""
+    includeFvgOrderComments and not na(p.actualEntry) ? " | fillPct=" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + " fillBars=" + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " touchBars=" + str.tostring(p.firstTouchBar - p.createdChartBar) + " ageMin=" + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##") + " fillAge=" + str.tostring(p.fillAge) + " entryMs=" + str.tostring(p.entryTime) : ""
 
 f_logFvgTrade(FvgTradeAudit a) =>
     TradePlan p = a.plan
     if logFvgTradeCsv
+        // Separate versioned age record: preserves the existing FVG_TRADE_V1
+        // schema, and includes same-candle round trips after ledger capture.
+        log.info("FVG_AGE_V1," + str.tostring(a.tradeNumber) + "," + p.fvgId + "," + str.tostring(p.bias) + "," + fvgDetectionTf + "," + str.tostring(p.sourceClose) + "," + str.tostring(p.confirmationSourceBar) + "," + str.tostring(p.submissionAge) + "," + str.tostring(p.fillAge) + "," + str.tostring((p.upper - p.lower) / stopPointSize) + "," + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias)) + "," + str.tostring(p.upper) + "," + str.tostring(p.lower) + "," + str.tostring(p.maximumAge) + "," + (p.ageFilterEnabled ? "1" : "0") + "," + str.tostring(p.sessionIndex) + "," + str.tostring(p.sessionStart) + "," + str.tostring(p.submittedAt) + "," + str.tostring(p.entryTime) + "," + str.tostring(a.exitTime) + "," + str.tostring(a.priceR) + "," + a.result + "," + str.tostring(a.profit) + "," + str.tostring(p.initialRiskAccount) + "," + str.tostring(p.initialRiskAccount > 0 ? a.profit / p.initialRiskAccount : na))
         // Schema is documented alongside this strategy. Epoch times are UTC ms.
         log.info("FVG_TRADE_V1," + str.tostring(a.tradeNumber) + "," + p.orderId + "," + str.tostring(p.bias) + "," + fvgDetectionTf + "," + str.tostring(p.sourceClose) + "," + str.tostring(p.lower) + "," + str.tostring(p.upper) + "," + str.tostring(p.upper - p.lower) + "," + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias)) + "," + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + "," + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + "," + str.tostring(p.entry) + "," + str.tostring(p.actualEntry) + "," + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry)) + "," + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + "," + str.tostring(p.firstTouchBar - p.createdChartBar) + "," + str.tostring((p.entryTime - p.sourceClose) / 60000.0) + "," + str.tostring(p.entryTime) + "," + str.tostring(a.exitTime) + "," + str.tostring(p.stop) + "," + str.tostring(p.target) + "," + str.tostring(rewardRiskRatio) + "," + str.tostring(enableBreakeven ? breakevenTriggerPercent : na) + "," + str.tostring(enableBreakeven ? breakevenLockPercent : na) + "," + str.tostring(not na(p.breakeven) and p.breakeven.active ? 1 : 0) + "," + str.tostring(a.exitPrice) + "," + a.result + "," + str.tostring(a.profit) + "," + str.tostring(a.priceR))
     true
@@ -1256,7 +1301,7 @@ if barstate.isconfirmed
         f_pruneSessionFvgs(fiveSessionState.startTime, fiveSessionState.active)
         if nativeMode and fiveSessionState.active and not sessionTradeState.hasFill and confirmedNewFvg and fvgSourceTimeRaw >= fiveSessionState.startTime and fvgSourceCloseRaw <= fiveSessionState.endTime
             int gapExpiry = math.min(fvgSourceCloseRaw + maximumFvgAgeMinutes * 60000, fiveSessionState.endTime)
-            array.push(sessionFvgs, SessionFvg.new(fiveSessionState.startTime, fvgBullRaw ? 1 : -1, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, gapExpiry, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index))
+            array.push(sessionFvgs, SessionFvg.new(fiveSessionState.startTime, fvgBullRaw ? 1 : -1, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, gapExpiry, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index, confirmationSourceBar=completedFvgSourceBar))
     if not na(activePlan) and not activePlan.filled and bar_index > activePlan.createdChartBar and na(activePlan.firstTouchBar) and f_fvgTouched(activePlan.upper, activePlan.lower, high, low)
         activePlan.firstTouchBar := bar_index
     // A limit entry and bracket can both fill within one chart candle. Read the
@@ -1269,8 +1314,14 @@ if barstate.isconfirmed
             // every newly closed trade once, including same-candle round trips.
             f_recordLossResult(lossLimitState, tradeSessionStart, strategy.closedtrades.exit_time(i), strategy.closedtrades.profit(i), maximumSessionConsecutiveLosses, maximumDailyConsecutiveLosses, dailyLossResetTimezone)
             if ownsPlan
-                f_captureFvgFill(activePlan, strategy.closedtrades.entry_price(i), strategy.closedtrades.entry_bar_index(i), strategy.closedtrades.entry_time(i))
+                // Index the globally evaluated source series directly. A
+                // conditional function-local history would create sparse history.
+                int entryHistoryOffset = bar_index - strategy.closedtrades.entry_bar_index(i)
+                int filledSourceBar = entryHistoryOffset >= 0 and entryHistoryOffset < 5000 ? containingFvgSourceBar[entryHistoryOffset] : na
+                f_captureFvgFill(activePlan, strategy.closedtrades.entry_price(i), strategy.closedtrades.entry_bar_index(i), strategy.closedtrades.entry_time(i), filledSourceBar)
                 float initialActualRisk = activePlan.bias * (activePlan.actualEntry - activePlan.stop)
+                if na(activePlan.initialRiskAccount) and initialActualRisk > 0
+                    activePlan.initialRiskAccount := strategy.convert_to_account(initialActualRisk * math.abs(strategy.closedtrades.size(i)) * syminfo.pointvalue)
                 float priceR = initialActualRisk > 0 ? activePlan.bias * (strategy.closedtrades.exit_price(i) - activePlan.actualEntry) / initialActualRisk : na
                 string exitComment = strategy.closedtrades.exit_comment(i)
                 string exitResult = str.startswith(exitComment, "TP") ? "TP" : str.startswith(exitComment, "BE") ? "BE" : str.startswith(exitComment, "SL") ? "SL" : exitComment
@@ -1292,7 +1343,12 @@ if barstate.isconfirmed
     f_syncLossDay(lossLimitState, time_close, dailyLossResetTimezone)
     bool lossEntriesAllowed = f_lossEntriesAllowed(lossLimitState)
     if not na(activePlan) and strategy.position_size != 0
-        f_captureFvgFill(activePlan, strategy.position_avg_price, strategy.opentrades.entry_bar_index(0), strategy.opentrades.entry_time(0))
+        int entryHistoryOffset = bar_index - strategy.opentrades.entry_bar_index(0)
+        int filledSourceBar = entryHistoryOffset >= 0 and entryHistoryOffset < 5000 ? containingFvgSourceBar[entryHistoryOffset] : na
+        f_captureFvgFill(activePlan, strategy.position_avg_price, strategy.opentrades.entry_bar_index(0), strategy.opentrades.entry_time(0), filledSourceBar)
+        float initialActualRisk = activePlan.bias * (activePlan.actualEntry - activePlan.stop)
+        if na(activePlan.initialRiskAccount) and initialActualRisk > 0
+            activePlan.initialRiskAccount := strategy.convert_to_account(initialActualRisk * math.abs(strategy.position_size) * syminfo.pointvalue)
         f_countFill(activePlan)
         lastEvent := "Open " + activePlan.orderId
         if na(activePlan.breakeven)
@@ -1315,9 +1371,12 @@ if barstate.isconfirmed
     if not na(activePlan) and not activePlan.filled
         ExecutionWindow owner = array.get(executionWindows, activePlan.windowIndex)
         bool expired = time_close >= activePlan.expires or owner.occurrenceStart != activePlan.windowStart
+        // Fills are reconciled above. At close N the pending entry has had all
+        // of eligible bar N to fill; cancel NOW, before prohibited bar N+1.
+        bool ageExpired = f_fvgAgeExpired(activePlan.ageFilterEnabled, f_fvgAge(activePlan.confirmationSourceBar, completedFvgSourceBar), activePlan.maximumAge)
         bool directionChanged = currentActiveSessionIndex == 0 or fiveSessionState.startTime != activePlan.sessionStart or fiveSessionState.bias != activePlan.bias
         bool invalidated = activePlan.bias == 1 ? close < activePlan.lower : close > activePlan.upper
-        if not lossEntriesAllowed or not nativeMode or expired or directionChanged or invalidated
+        if not lossEntriesAllowed or not nativeMode or expired or ageExpired or directionChanged or invalidated
             strategy.cancel(activePlan.orderId)
             strategy.cancel(activePlan.orderId + "-EXIT")
             f_finishPlanDrawing(activePlan, time_close)
@@ -1325,7 +1384,11 @@ if barstate.isconfirmed
             plannedQtyValue := na
             plannedRiskValue := na
             targetRiskValue := na
-            lastEvent := "Pending entry cancelled: " + (not lossEntriesAllowed ? "consecutive loss limit" : not nativeMode ? "chart/settings" : expired ? "FVG age/window/session ended" : directionChanged ? "session direction changed" : "FVG mitigated")
+            lastEvent := "Pending entry cancelled: " + (not lossEntriesAllowed ? "consecutive loss limit" : not nativeMode ? "chart/settings" : expired ? "FVG age/window/session ended" : ageExpired ? "FVG bar age expired" : directionChanged ? "session direction changed" : "FVG mitigated")
+            if showFvgAgeDebug and ageExpired and not expired
+                array.push(fvgAgeExpiryLabels, label.new(time_close, activePlan.entry, "FVG EXPIRED", xloc=xloc.bar_time, style=label.style_label_left, color=color.gray, textcolor=color.white, size=size.tiny))
+                if array.size(fvgAgeExpiryLabels) > 100
+                    label.delete(array.shift(fvgAgeExpiryLabels))
             activePlan := na
 
     bool directionReady = fiveSessionState.active and fiveSessionState.evaluated and fiveSessionState.bias != 0 and time_close >= fiveSessionState.openingEnd
@@ -1340,8 +1403,9 @@ if barstate.isconfirmed
         bool useSessionGap = firstTradeFromSessionFvg and not sessionTradeState.hasFill
         SessionFvg candidate = useSessionGap ? f_firstSessionFvg(fiveSessionState.bias) : na
         if not useSessionGap and confirmedNewFvg and afterWindowOpened and afterDirectionKnown and alignedFvg
-            candidate := SessionFvg.new(fiveSessionState.startTime, fiveSessionState.bias, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, fiveSessionState.endTime, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index)
-        if beforeDeadline and allowance and not na(candidate)
+            candidate := SessionFvg.new(fiveSessionState.startTime, fiveSessionState.bias, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, fiveSessionState.endTime, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index, confirmationSourceBar=completedFvgSourceBar)
+        int candidateAge = na(candidate) ? na : f_fvgAge(candidate.confirmationSourceBar, completedFvgSourceBar)
+        if beforeDeadline and allowance and not na(candidate) and f_fvgCanRest(enableFvgAgeFilter, candidateAge, maximumFvgAgeBars)
             // Consume an attempted gap once; a rejection/cancellation cannot loop
             // back to it or prevent the next valid gap from being considered.
             candidate.attempted := true
@@ -1370,7 +1434,7 @@ if barstate.isconfirmed
             else
                 int expires = math.min(ew.occurrenceEnd, candidate.expires)
                 string orderId = (bias == 1 ? "LONG-" : "SHORT-") + str.tostring(candidate.sourceTime) + "-" + str.tostring(selectedWindow)
-                activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose, candidate.createdChartBar, firstTouchBar=candidate.firstTouchBar)
+                activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose, candidate.createdChartBar, firstTouchBar=candidate.firstTouchBar, confirmationSourceBar=candidate.confirmationSourceBar, submissionAge=candidateAge, submittedAt=time_close, ageFilterEnabled=enableFvgAgeFilter, maximumAge=maximumFvgAgeBars, sessionIndex=currentActiveSessionIndex, sessionName=fiveOccurrenceName, fvgId=syminfo.tickerid + ":" + fvgDetectionTf + ":" + str.tostring(candidate.sourceClose) + ":" + str.tostring(bias))
                 plannedQtyValue := qty
                 plannedRiskValue := qty * math.abs(activePlan.entry - activePlan.stop) / stopPointSize * pointValue
                 targetRiskValue := riskPerTrade
@@ -1463,6 +1527,29 @@ plot(na(closedFvgAudit) ? na : closedFvgAudit.profit, "FVG Trade: Profit", displ
 plot(na(closedFvgAudit) ? na : closedFvgAudit.priceR, "FVG Trade: Price R", display=display.data_window)
 plot(na(closedFvgPlan) ? na : stopPointSize, "FVG Trade: Point Size", display=display.data_window)
 plot(na(closedFvgAudit) ? na : closedFvgAudit.result == "SL" ? 1 : closedFvgAudit.result == "TP" ? 2 : closedFvgAudit.result == "BE" ? 3 : 0, "FVG Trade: Exit Reason", display=display.data_window)
+// Four remaining plot slots (64 total). A signed limit carries both settings:
+// positive = enabled, negative = disabled. The extractor exposes separate fields.
+plot(na(closedFvgPlan) ? na : closedFvgPlan.confirmationSourceBar, "FVG Trade: Confirmation Source Bar", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.submissionAge, "FVG Trade: Submission Age", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.fillAge, "FVG Trade: Fill Age", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.ageFilterEnabled ? closedFvgPlan.maximumAge : -closedFvgPlan.maximumAge, "FVG Trade: Signed Age Limit", display=display.data_window)
+
+var table fvgAgeDebug = table.new(position.middle_right, 2, 7, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+if barstate.islast or barstate.islastconfirmedhistory
+    table.clear(fvgAgeDebug, 0, 0, 1, 6)
+    if showFvgAgeDebug
+        SessionFvg selectedGap = na(activePlan) and firstTradeFromSessionFvg ? f_firstSessionFvg(fiveSessionState.bias) : na
+        int selectedBar = not na(activePlan) ? activePlan.confirmationSourceBar : not na(selectedGap) ? selectedGap.confirmationSourceBar : na
+        int selectedClose = not na(activePlan) ? activePlan.sourceClose : not na(selectedGap) ? selectedGap.sourceClose : na
+        int selectedBias = not na(activePlan) ? activePlan.bias : not na(selectedGap) ? selectedGap.bias : 0
+        int selectedAge = f_fvgAge(selectedBar, completedFvgSourceBar)
+        bool canRest = f_fvgCanRest(enableFvgAgeFilter, selectedAge, maximumFvgAgeBars)
+        string status = na(activePlan) ? "No pending order" : activePlan.filled ? "OPEN · age no longer applies" : "PENDING"
+        array<string> ageKeys = array.from("FVG age · source TF " + fvgDetectionTf, "Direction", "Completed source age", "Maximum age", "Confirmed", "Order status", "Eligible to remain pending")
+        array<string> ageVals = array.from(enableFvgAgeFilter ? "ON" : "OFF", selectedBias == 1 ? "Bullish" : selectedBias == -1 ? "Bearish" : "—", na(selectedAge) ? "—" : str.tostring(selectedAge), str.tostring(maximumFvgAgeBars), na(selectedClose) ? "—" : str.format_time(selectedClose, "yyyy-MM-dd HH:mm Z", dailyLossResetTimezone), status, na(selectedBar) ? "—" : not na(activePlan) and activePlan.filled ? "Not applicable to open position" : canRest ? "YES · age rule; other rules apply" : "NO · last eligible bar complete")
+        for row = 0 to 6
+            table.cell(fvgAgeDebug, 0, row, array.get(ageKeys, row), text_color=color.silver, text_size=size.tiny)
+            table.cell(fvgAgeDebug, 1, row, array.get(ageVals, row), text_color=color.white, text_size=size.tiny)
 
 var table fvgReport = table.new(position.bottom_left, 9, fvgReportRows + 2, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
 if barstate.islast or barstate.islastconfirmedhistory
@@ -1473,7 +1560,7 @@ if barstate.islast or barstate.islastconfirmedhistory
         int page = math.min(fvgReportPage, pages)
         string config = (useFvgEntryPercentage ? "Depth " + str.tostring(entryDepthPercent) + "%" : "Any touch") + " · RR 1:" + str.tostring(rewardRiskRatio) + " · BE " + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "% → " + str.tostring(breakevenLockPercent) + "%" : "OFF")
         array<string> contextCells = array.from("FVG Report", useFvgEntryPercentage ? str.tostring(entryDepthPercent) + "% depth" : "Any touch", "RR 1:" + str.tostring(rewardRiskRatio), enableBreakeven ? "BE " + str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "BE OFF", "Page " + str.tostring(page) + "/" + str.tostring(pages), "TF " + fvgDetectionTf, str.tostring(count) + " closed", "Chart run", "Hover details")
-        array<string> headings = array.from("Trade", "Created / TF", "Gap low / high", "Size pts / %", "Fill / depth %", "First touch\nchart bars", "Entry age\nbars / min", "Exit / price R\nP/L", "BE activated")
+        array<string> headings = array.from("Trade", "Created / TF", "Gap low / high", "Size pts / %", "Fill / depth %", "First touch\nchart bars", "Fill age\nsource bars / min", "Exit / price R\nP/L", "BE activated")
         for c = 0 to 8
             table.cell(fvgReport, c, 0, array.get(contextCells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=config + "\nMost recent 1000 closed chart-run trades retained. Export chart data for FVG Trade columns.")
             table.cell(fvgReport, c, 1, array.get(headings, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.silver, text_size=f_labelSize(fvgReportTextSize))
@@ -1482,7 +1569,7 @@ if barstate.islast or barstate.islastconfirmedhistory
             if index >= 0
                 FvgTradeAudit a = array.get(fvgTradeHistory, index)
                 TradePlan p = a.plan
-                string details = p.orderId + "\nConfirmed " + str.format_time(p.sourceClose, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + " (" + dailyLossResetTimezone + ")\nPlanned E / SL / TP: " + f_price(p.entry) + " / " + f_price(p.stop) + " / " + f_price(p.target) + "\nActual entry: " + f_price(p.actualEntry) + " · " + str.format_time(p.entryTime, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + "\nChart bars are measured from the detection candle's confirmation (creation bar = 0).\nFirst touch is range overlap, not close-through invalidation. Price R excludes fees."
-                array<string> cells = array.from(str.tostring(a.tradeNumber) + (p.bias == 1 ? " LONG" : " SHORT"), str.format_time(p.sourceClose, "MM-dd HH:mm", dailyLossResetTimezone) + "\n" + fvgDetectionTf, f_price(p.lower) + "\n" + f_price(p.upper), str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + "\n" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + "%", f_price(p.actualEntry) + "\n" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + "%", str.tostring(p.firstTouchBar - p.createdChartBar), str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " / " + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##"), a.result + " / " + str.tostring(a.priceR, "#.##") + "R\n" + str.tostring(a.profit, "#.##"), not na(p.breakeven) and p.breakeven.active ? "YES" : "NO")
+                string details = p.orderId + "\nConfirmed " + str.format_time(p.sourceClose, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + " (" + dailyLossResetTimezone + ")\nPlanned E / SL / TP: " + f_price(p.entry) + " / " + f_price(p.stop) + " / " + f_price(p.target) + "\nActual entry: " + f_price(p.actualEntry) + " · " + str.format_time(p.entryTime, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + "\nFVG ID: " + p.fvgId + "\nSource confirmation bar " + str.tostring(p.confirmationSourceBar) + " · order age " + str.tostring(p.submissionAge) + " · fill age " + str.tostring(p.fillAge) + "\nAge filter " + (p.ageFilterEnabled ? "ON" : "OFF") + " · maximum " + str.tostring(p.maximumAge) + " · session " + p.sessionName + "\nFirst touch is in chart bars; fill age is in source bars. Price R excludes fees."
+                array<string> cells = array.from(str.tostring(a.tradeNumber) + (p.bias == 1 ? " LONG" : " SHORT"), str.format_time(p.sourceClose, "MM-dd HH:mm", dailyLossResetTimezone) + "\n" + fvgDetectionTf, f_price(p.lower) + "\n" + f_price(p.upper), str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + "\n" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + "%", f_price(p.actualEntry) + "\n" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + "%", str.tostring(p.firstTouchBar - p.createdChartBar), str.tostring(p.fillAge) + " / " + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##"), a.result + " / " + str.tostring(a.priceR, "#.##") + "R\n" + str.tostring(a.profit, "#.##"), not na(p.breakeven) and p.breakeven.active ? "YES" : "NO")
                 for c = 0 to 8
                     table.cell(fvgReport, c, row + 2, array.get(cells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=details)

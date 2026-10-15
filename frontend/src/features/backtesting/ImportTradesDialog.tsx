@@ -35,10 +35,9 @@ export default function ImportTradesDialog({ workspace, onClose, onImported }: {
     <DialogTitle id="backtesting-import-dialog-title">{t('backtesting.dialogs.importTrades')}</DialogTitle>
     <DialogContent dividers><Stack spacing={2}>
       <Alert severity="info">{t('backtesting.replay.importDescription')}</Alert>
-      <Typography variant="body2">{t('backtesting.replay.destination', { name: workspace.title || workspace.symbol, symbol: workspace.symbol })}</Typography>
+      <Typography variant="body2">{t('backtesting.replay.destination', { name: workspace.title || workspace.symbol || t('backtesting.workspace.anyInstrument') })}</Typography>
       <Button component="label" variant="outlined" disabled={mutation.isLoading} sx={{ overflowWrap: 'anywhere' }}>{file?.name || t('backtesting.actions.chooseCsv')}<input aria-label={t('backtesting.actions.chooseCsv')} hidden type="file" accept=".csv,text/csv" onChange={event => { choose(event.target.files?.[0] || null); event.target.value = '' }} /></Button>
       <TextField label={t('backtesting.replay.instrument')} value={instrument} disabled={mutation.isLoading || completed} inputProps={{ maxLength: 64 }} helperText={t(file && !instrument.trim() ? 'backtesting.replay.instrumentNotDetected' : 'backtesting.replay.instrumentHelp')} onChange={event => { setInstrument(event.target.value.toUpperCase()); reset() }} />
-      {instrument && instrument !== workspace.symbol && <Alert severity="warning">{t('backtesting.replay.symbolMismatch', { instrument, workspace: workspace.symbol })}</Alert>}
       <TextField label={t('backtesting.replay.timezone')} value={timezone} disabled={mutation.isLoading || completed} placeholder="Europe/Bucharest" helperText={t('backtesting.replay.timezoneHelp')} onChange={event => { setTimezone(event.target.value); reset() }} />
       {mutation.isError && <Alert severity="error">{mutation.error instanceof Error ? mutation.error.message : t('backtesting.errors.import')}</Alert>}
       {result && <Stack spacing={1} aria-live="polite">

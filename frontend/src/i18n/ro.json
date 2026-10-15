@@ -4029,11 +4029,10 @@
       "adverseExcursion": "Excursie adversă (MAE)",
 
       "importDescription": "Importă un CSV TradingView Replay sau lista de tranzacții a unei strategii, cu perechi de intrări/ieșiri, ori formatul CSV TradeJAudit existent. Numele strategiei și data exportului pot varia. Verifică tranzacțiile închise înainte de salvare.",
-      "destination": "Spațiu de lucru: {{name}} · {{symbol}}",
+      "destination": "Spațiu de lucru: {{name}}",
       "instrument": "Instrumentul din CSV",
-      "instrumentHelp": "Exporturile Replay nu includ simbolul. Verifică simbolul dedus din numele fișierului sau introdu-l explicit. Simbolul spațiului de lucru rămâne același.",
+      "instrumentHelp": "Verifică instrumentul dedus din numele fișierului sau introdu-l explicit pentru fișierele Replay redenumite. Fiecare tranzacție importată păstrează acest instrument. Instrumentul spațiului este opțional și nu trebuie să coincidă.",
       "instrumentNotDetected": "Instrumentul nu a putut fi dedus din numele fișierului. Pentru un CSV Replay, introdu simbolul aici înainte de previzualizare, de exemplu PEPPERSTONE:GER40F.",
-      "symbolMismatch": "Instrumentul CSV {{instrument}} diferă de {{workspace}}. Tranzacțiile păstrează instrumentul CSV.",
       "timezone": "Fusul orar al exportului (opțional)",
       "timezoneHelp": "Introdu fusul orar IANA al exportului dacă îl cunoști. Lasă gol dacă este necunoscut; orele sunt păstrate ca în export.",
       "previewResult": "{{count}} tranzacții închise pregătite · {{rows}} rânduri CSV · {{duplicates}} duplicate omise · {{invalid}} probleme de validare",
@@ -4167,7 +4166,9 @@
     },
     "workspace": {
       "name": "Numele spațiului",
-      "instrument": "Instrument",
+      "instrument": "Instrument (opțional)",
+      "instrumentHelp": "Lasă necompletat pentru a cerceta orice instrument. Tranzacțiile importate păstrează instrumentul din CSV.",
+      "anyInstrument": "Orice instrument",
       "linkedStrategy": "Strategie asociată",
       "manualStrategyName": "Numele strategiei",
       "market": "Piață",
@@ -4185,7 +4186,7 @@
     "autoImport": {
       "EXACT_MATCH": {
         "label": "Potrivire exactă",
-        "description": "Sincronizează tranzacțiile live închise când strategia, instrumentul și sesiunea sau intervalul configurat se potrivesc."
+        "description": "Sincronizează tranzacțiile live închise când strategia și instrumentul, sesiunea sau intervalul configurat se potrivesc. Un instrument necompletat acceptă orice instrument."
       },
       "STRATEGY_MATCH": {
         "label": "Potrivire după strategie",
@@ -4364,6 +4365,7 @@
         "STRATEGY_MATCH": "Strategia corespunde",
         "STRATEGY_MISMATCH": "Strategia nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
         "INSTRUMENT_MATCH": "Instrumentul corespunde",
+        "INSTRUMENT_NOT_RESTRICTED": "Spațiul acceptă orice instrument",
         "INSTRUMENT_ALIAS_MATCH": "Instrumentul corespunde printr-un alias: {{trade}} → {{workspace}}",
         "INSTRUMENT_MISMATCH": "Instrumentul nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
         "SESSION_MATCH": "Sesiunea corespunde",

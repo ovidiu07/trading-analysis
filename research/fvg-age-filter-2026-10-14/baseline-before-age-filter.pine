@@ -1,0 +1,1488 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+strategy("Devtrader · Five Sessions FVG Windows", shorttitle="Five Sessions FVG Windows", overlay=true, pyramiding=0,
+     initial_capital=10000, currency=currency.USD, default_qty_type=strategy.fixed, default_qty_value=0.1,
+     commission_type=strategy.commission.percent, commission_value=0, slippage=0,
+     margin_long=100, margin_short=100, calc_on_every_tick=false, calc_on_order_fills=false,
+     process_orders_on_close=false, use_bar_magnifier=true, max_bars_back=5000,
+     max_lines_count=500, max_labels_count=500, max_boxes_count=100)
+
+// Standalone strategy: no external indicator plot selection is required.
+// Confirmed bars create limit orders for the next tick, with SL/TP attached at
+// submission. Pending entries expire at window/session end; open brackets remain.
+// Breakeven amendments are submitted on confirmed candle closes, never applied
+// retroactively to an earlier intrabar move. The entry candle uses its close.
+// Keep the close-only calculation settings above unchanged. TradingView controls
+// historical fills; no script executes during a missing-feed interval.
+// --- General Settings ---
+groupGeneral = "General Settings"
+showLabelsGlobal = input.bool(true, "Show Labels Globally", group = groupGeneral, tooltip = "Toggle all labels on/off.")
+lineExtendModeInput = input.string("Both", "Vertical Line Extend", options = ["Both", "None"], group = groupGeneral, tooltip = "Choose if lines should extend across the whole chart height.")
+maxHistoricalMarkers = input.int(300, "Maximum Historical Lines/Labels", minval = 50, maxval = 500, group = groupGeneral, tooltip = "Limit the number of objects on chart to maintain performance.")
+showCurrentProfileLabel = input.bool(false, "Show Status Label", group = groupGeneral, tooltip = "Shows which profile is currently active on the right side of the chart.")
+
+// Match the native Visibility tab captured on 2026-10-13 (display only).
+useConfiguredVisibility = input.bool(true, "Use Configured Interval Visibility", group = groupGeneral, tooltip = "Show on ticks, ranges, 1-59 seconds, and 1-12 minutes. Disable to draw on other intervals. TradingView's Visibility tab can further restrict display.")
+bool configuredChartVisible = not useConfiguredVisibility or timeframe.isticks or chart.is_range or (timeframe.isseconds and timeframe.multiplier <= 59) or (timeframe.isminutes and timeframe.multiplier <= 12)
+
+// --- Helper Functions ---
+f_symbolMatches(string configuredSymbol) =>
+    string normalizedConfigured = str.upper(str.trim(configuredSymbol))
+    string ticker = str.upper(syminfo.ticker)
+    string root = str.upper(syminfo.root)
+    string tickerId = str.upper(syminfo.tickerid)
+
+    normalizedConfigured != "" and (
+         ticker == normalizedConfigured or
+         root == normalizedConfigured or
+         str.contains(tickerId, normalizedConfigured)
+     )
+
+f_extendMode(string mode) =>
+    mode == "Both" ? extend.both : extend.none
+
+f_lineStyle(string styleText) =>
+    switch styleText
+        "Solid"  => line.style_solid
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_dotted
+
+f_labelSize(string sizeText) =>
+    switch sizeText
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+        => size.small
+
+// --- Drawing Management ---
+var array<line> windowLines = array.new<line>()
+var array<label> windowLabels = array.new<label>()
+
+f_pushLimitedLine(line newLine, int maxCount) =>
+    if not na(newLine)
+        array.push(windowLines, newLine)
+        if array.size(windowLines) > maxCount
+            line.delete(array.shift(windowLines))
+
+f_pushLimitedLabel(label newLabel, int maxCount) =>
+    if not na(newLabel)
+        array.push(windowLabels, newLabel)
+        if array.size(windowLabels) > maxCount
+            label.delete(array.shift(windowLabels))
+
+f_drawVerticalMarker(
+     bool shouldDraw,
+     string markerText,
+     color lineColor,
+     int lineWidth,
+     string lineStyleText,
+     bool showLabel,
+     color labelTextColor,
+     string labelSizeText
+ ) =>
+    if shouldDraw and configuredChartVisible
+        line newLine = line.new(
+             bar_index,
+             low,
+             bar_index,
+             math.max(high, low + syminfo.mintick),
+             xloc = xloc.bar_index,
+             extend = f_extendMode(lineExtendModeInput),
+             color = lineColor,
+             style = f_lineStyle(lineStyleText),
+             width = lineWidth
+         )
+        f_pushLimitedLine(newLine, math.min(maxHistoricalMarkers, 350))
+
+        if showLabelsGlobal and showLabel
+            label newLabel = label.new(
+                 bar_index,
+                 high,
+                 markerText,
+                 xloc = xloc.bar_index,
+                 yloc = yloc.price,
+                 style = label.style_label_down,
+                 textcolor = labelTextColor,
+                 color = color.new(lineColor, 75),
+                 size = f_labelSize(labelSizeText)
+             )
+            f_pushLimitedLabel(newLabel, math.min(maxHistoricalMarkers, 350))
+
+f_processInterval(
+     bool tickerEnabled,
+     string tickerSymbol,
+     string tickerTimezone,
+     bool intervalEnabled,
+     string intervalSession,
+     string intervalText,
+     color intervalColor,
+     int intervalWidth,
+     string intervalStyle,
+     bool intervalShowLabel,
+     color intervalLabelColor,
+     string intervalLabelSize
+ ) =>
+    bool symbolOk = tickerEnabled and f_symbolMatches(tickerSymbol)
+    int sessionTime = time("", intervalSession, tickerTimezone)
+    bool inWindow = symbolOk and intervalEnabled and not na(sessionTime)
+    bool wasInWindow = symbolOk and intervalEnabled and not na(sessionTime[1])
+    bool windowStarted = inWindow and not wasInWindow
+    bool windowEnded = not inWindow and wasInWindow
+
+    f_drawVerticalMarker(
+        windowStarted,
+        intervalText + " START",
+        intervalColor,
+        intervalWidth,
+        intervalStyle,
+        intervalShowLabel,
+        intervalLabelColor,
+        intervalLabelSize
+    )
+
+    f_drawVerticalMarker(
+        windowEnded,
+        intervalText + " END",
+        intervalColor,
+        intervalWidth,
+        intervalStyle,
+        intervalShowLabel,
+        intervalLabelColor,
+        intervalLabelSize
+    )
+
+    symbolOk
+
+// --- Ticker Profiles ---
+
+// Note for Users: The session input is interpreted in the ticker profile timezone.
+// If you want to use a specific local time (e.g., Europe/Bucharest), update the Timezone input accordingly.
+
+// Ticker 1 - GER40
+groupT1 = "Ticker 1 - GER40"
+t1_en = input.bool(true, "Enable Ticker Profile", group = groupT1)
+t1_sym = input.string("GER", "Ticker Match Text", group = groupT1)
+t1_tz = input.string("Europe/Bucharest", "Timezone", group = groupT1)
+t1_i1_en = input.bool(true, "Int 1 Enabled", group = groupT1)
+t1_i1_ses = input.session("1015-1400", "Int 1 Session", group = groupT1)
+t1_i1_txt = input.string("GER40 Main", "Int 1 Label", group = groupT1)
+t1_i1_col = input.color(color.white, "Int 1 Color", group = groupT1)
+t1_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT1)
+t1_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
+t1_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT1)
+t1_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT1)
+t1_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT1)
+
+t1_i2_en = input.bool(true, "Int 2 Enabled", group = groupT1)
+t1_i2_ses = input.session("1645-1930", "Int 2 Session", group = groupT1)
+t1_i2_txt = input.string("GER40 Evening", "Int 2 Label", group = groupT1)
+t1_i2_col = input.color(color.white, "Int 2 Color", group = groupT1)
+t1_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT1)
+t1_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
+t1_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT1)
+t1_i2_lcol = input.color(color.white, "Int 2 Label Color", group = groupT1)
+t1_i2_lsiz = input.string("Small", "Int 2 Label Size", ["Tiny", "Small", "Normal"], group = groupT1)
+
+t1_i3_en = input.bool(false, "Int 3 Enabled", group = groupT1)
+t1_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT1)
+t1_i3_txt = input.string("", "Int 3 Label", group = groupT1)
+t1_i3_col = input.color(#089981, "Int 3 Color", group = groupT1)
+t1_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT1)
+t1_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
+t1_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT1)
+t1_i4_en = input.bool(false, "Int 4 Enabled", group = groupT1)
+t1_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT1)
+t1_i4_txt = input.string("", "Int 4 Label", group = groupT1)
+t1_i4_col = input.color(#089981, "Int 4 Color", group = groupT1)
+t1_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT1)
+t1_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
+t1_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT1)
+
+// Ticker 2 - NQ
+groupT2 = "Ticker 2 - NQ"
+t2_en = input.bool(true, "Enable Ticker Profile", group = groupT2)
+t2_sym = input.string("NQ", "Ticker Match Text", group = groupT2)
+t2_tz = input.string("Europe/Bucharest", "Timezone", group = groupT2)
+t2_i1_en = input.bool(true, "Int 1 Enabled", group = groupT2)
+t2_i1_ses = input.session("1645-1830", "Int 1 Session", group = groupT2)
+t2_i1_txt = input.string("NQ Open", "Int 1 Label", group = groupT2)
+t2_i1_col = input.color(color.white, "Int 1 Color", group = groupT2)
+t2_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT2)
+t2_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
+t2_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT2)
+t2_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT2)
+t2_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT2)
+
+t2_i2_en = input.bool(true, "Int 2 Enabled", group = groupT2)
+t2_i2_ses = input.session("1915-2200", "Int 2 Session", group = groupT2)
+t2_i2_txt = input.string("NQ PM", "Int 2 Label", group = groupT2)
+t2_i2_col = input.color(color.white, "Int 2 Color", group = groupT2)
+t2_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT2)
+t2_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
+t2_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT2)
+t2_i2_lcol = input.color(color.white, "Int 2 Label Color", group = groupT2)
+t2_i2_lsiz = input.string("Small", "Int 2 Label Size", ["Tiny", "Small", "Normal"], group = groupT2)
+
+t2_i3_en = input.bool(false, "Int 3 Enabled", group = groupT2)
+t2_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT2)
+t2_i3_txt = input.string("", "Int 3 Label", group = groupT2)
+t2_i3_col = input.color(#5b9cf6, "Int 3 Color", group = groupT2)
+t2_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT2)
+t2_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
+t2_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT2)
+t2_i4_en = input.bool(false, "Int 4 Enabled", group = groupT2)
+t2_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT2)
+t2_i4_txt = input.string("", "Int 4 Label", group = groupT2)
+t2_i4_col = input.color(#5b9cf6, "Int 4 Color", group = groupT2)
+t2_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT2)
+t2_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
+t2_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT2)
+
+// Ticker 3 - UK100
+groupT3 = "Ticker 3 - UK100"
+t3_en = input.bool(true, "Enable Ticker Profile", group = groupT3)
+t3_sym = input.string("UK100", "Ticker Match Text", group = groupT3)
+t3_tz = input.string("Europe/Bucharest", "Timezone", group = groupT3)
+t3_i1_en = input.bool(true, "Int 1 Enabled", group = groupT3)
+t3_i1_ses = input.session("1045-1445", "Int 1 Session", group = groupT3)
+t3_i1_txt = input.string("UK100 Main", "Int 1 Label", group = groupT3)
+t3_i1_col = input.color(color.white, "Int 1 Color", group = groupT3)
+t3_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT3)
+t3_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
+t3_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT3)
+t3_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT3)
+t3_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT3)
+t3_i2_en = input.bool(true, "Int 2 Enabled", group = groupT3)
+t3_i2_ses = input.session("1650-1945", "Int 2 Session", group = groupT3)
+t3_i2_txt = input.string("", "Int 2 Label", group = groupT3)
+t3_i2_col = input.color(color.white, "Int 2 Color", group = groupT3)
+t3_i2_wid = input.int(2, "Int 2 Width", 1, 5, group = groupT3)
+t3_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
+t3_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT3)
+t3_i3_en = input.bool(false, "Int 3 Enabled", group = groupT3)
+t3_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT3)
+t3_i3_txt = input.string("", "Int 3 Label", group = groupT3)
+t3_i3_col = input.color(#f23645, "Int 3 Color", group = groupT3)
+t3_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT3)
+t3_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
+t3_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT3)
+t3_i4_en = input.bool(false, "Int 4 Enabled", group = groupT3)
+t3_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT3)
+t3_i4_txt = input.string("", "Int 4 Label", group = groupT3)
+t3_i4_col = input.color(#f23645, "Int 4 Color", group = groupT3)
+t3_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT3)
+t3_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
+t3_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT3)
+
+// Ticker 4 - INTC
+groupT4 = "Ticker 4 - INTC"
+t4_en = input.bool(true, "Enable Ticker Profile", group = groupT4)
+t4_sym = input.string("GBPUSD", "Ticker Match Text", group = groupT4)
+t4_tz = input.string("Europe/Bucharest", "Timezone", group = groupT4)
+t4_i1_en = input.bool(true, "Int 1 Enabled", group = groupT4)
+t4_i1_ses = input.session("0945-1415", "Int 1 Session", group = groupT4)
+t4_i1_txt = input.string("GU Open", "Int 1 Label", group = groupT4)
+t4_i1_col = input.color(color.white, "Int 1 Color", group = groupT4)
+t4_i1_wid = input.int(3, "Int 1 Width", 1, 5, group = groupT4)
+t4_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
+t4_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT4)
+t4_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT4)
+t4_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT4)
+t4_i2_en = input.bool(true, "Int 2 Enabled", group = groupT4)
+t4_i2_ses = input.session("1600-1715", "Int 2 Session", group = groupT4)
+t4_i2_txt = input.string("", "Int 2 Label", group = groupT4)
+t4_i2_col = input.color(color.white, "Int 2 Color", group = groupT4)
+t4_i2_wid = input.int(2, "Int 2 Width", 1, 5, group = groupT4)
+t4_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
+t4_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT4)
+t4_i3_en = input.bool(false, "Int 3 Enabled", group = groupT4)
+t4_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT4)
+t4_i3_txt = input.string("", "Int 3 Label", group = groupT4)
+t4_i3_col = input.color(color.orange, "Int 3 Color", group = groupT4)
+t4_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT4)
+t4_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
+t4_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT4)
+t4_i4_en = input.bool(false, "Int 4 Enabled", group = groupT4)
+t4_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT4)
+t4_i4_txt = input.string("", "Int 4 Label", group = groupT4)
+t4_i4_col = input.color(color.orange, "Int 4 Color", group = groupT4)
+t4_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT4)
+t4_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
+t4_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT4)
+
+// Ticker 5
+groupT5 = "Ticker 5"
+t5_en = input.bool(false, "Enable Ticker Profile", group = groupT5)
+t5_sym = input.string("", "Ticker Match Text", group = groupT5)
+t5_tz = input.string("America/New_York", "Timezone", group = groupT5)
+t5_i1_en = input.bool(false, "Int 1 Enabled", group = groupT5)
+t5_i1_ses = input.session("0000-0000", "Int 1 Session", group = groupT5)
+t5_i1_txt = input.string("", "Int 1 Label", group = groupT5)
+t5_i1_col = input.color(color.gray, "Int 1 Color", group = groupT5)
+t5_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT5)
+t5_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
+t5_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT5)
+t5_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT5)
+t5_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT5)
+t5_i2_en = input.bool(false, "Int 2 Enabled", group = groupT5)
+t5_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT5)
+t5_i2_txt = input.string("", "Int 2 Label", group = groupT5)
+t5_i2_col = input.color(color.gray, "Int 2 Color", group = groupT5)
+t5_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT5)
+t5_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
+t5_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT5)
+t5_i3_en = input.bool(false, "Int 3 Enabled", group = groupT5)
+t5_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT5)
+t5_i3_txt = input.string("", "Int 3 Label", group = groupT5)
+t5_i3_col = input.color(color.gray, "Int 3 Color", group = groupT5)
+t5_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT5)
+t5_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
+t5_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT5)
+t5_i4_en = input.bool(false, "Int 4 Enabled", group = groupT5)
+t5_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT5)
+t5_i4_txt = input.string("", "Int 4 Label", group = groupT5)
+t5_i4_col = input.color(color.gray, "Int 4 Color", group = groupT5)
+t5_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT5)
+t5_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
+t5_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT5)
+
+// Ticker 6
+groupT6 = "Ticker 6"
+t6_en = input.bool(false, "Enable Ticker Profile", group = groupT6)
+t6_sym = input.string("", "Ticker Match Text", group = groupT6)
+t6_tz = input.string("America/New_York", "Timezone", group = groupT6)
+t6_i1_en = input.bool(false, "Int 1 Enabled", group = groupT6)
+t6_i1_ses = input.session("0000-0000", "Int 1 Session", group = groupT6)
+t6_i1_txt = input.string("", "Int 1 Label", group = groupT6)
+t6_i1_col = input.color(color.gray, "Int 1 Color", group = groupT6)
+t6_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT6)
+t6_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
+t6_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT6)
+t6_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT6)
+t6_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT6)
+t6_i2_en = input.bool(false, "Int 2 Enabled", group = groupT6)
+t6_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT6)
+t6_i2_txt = input.string("", "Int 2 Label", group = groupT6)
+t6_i2_col = input.color(color.gray, "Int 2 Color", group = groupT6)
+t6_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT6)
+t6_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
+t6_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT6)
+t6_i3_en = input.bool(false, "Int 3 Enabled", group = groupT6)
+t6_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT6)
+t6_i3_txt = input.string("", "Int 3 Label", group = groupT6)
+t6_i3_col = input.color(color.gray, "Int 3 Color", group = groupT6)
+t6_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT6)
+t6_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
+t6_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT6)
+t6_i4_en = input.bool(false, "Int 4 Enabled", group = groupT6)
+t6_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT6)
+t6_i4_txt = input.string("", "Int 4 Label", group = groupT6)
+t6_i4_col = input.color(color.gray, "Int 4 Color", group = groupT6)
+t6_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT6)
+t6_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
+t6_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT6)
+
+// Ticker 7
+groupT7 = "Ticker 7"
+t7_en = input.bool(false, "Enable Ticker Profile", group = groupT7)
+t7_sym = input.string("", "Ticker Match Text", group = groupT7)
+t7_tz = input.string("America/New_York", "Timezone", group = groupT7)
+t7_i1_en = input.bool(false, "Int 1 Enabled", group = groupT7)
+t7_i1_ses = input.session("0000-0000", "Int 1 Session", group = groupT7)
+t7_i1_txt = input.string("", "Int 1 Label", group = groupT7)
+t7_i1_col = input.color(color.gray, "Int 1 Color", group = groupT7)
+t7_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT7)
+t7_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
+t7_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT7)
+t7_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT7)
+t7_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT7)
+t7_i2_en = input.bool(false, "Int 2 Enabled", group = groupT7)
+t7_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT7)
+t7_i2_txt = input.string("", "Int 2 Label", group = groupT7)
+t7_i2_col = input.color(color.gray, "Int 2 Color", group = groupT7)
+t7_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT7)
+t7_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
+t7_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT7)
+t7_i3_en = input.bool(false, "Int 3 Enabled", group = groupT7)
+t7_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT7)
+t7_i3_txt = input.string("", "Int 3 Label", group = groupT7)
+t7_i3_col = input.color(color.gray, "Int 3 Color", group = groupT7)
+t7_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT7)
+t7_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
+t7_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT7)
+t7_i4_en = input.bool(false, "Int 4 Enabled", group = groupT7)
+t7_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT7)
+t7_i4_txt = input.string("", "Int 4 Label", group = groupT7)
+t7_i4_col = input.color(color.gray, "Int 4 Color", group = groupT7)
+t7_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT7)
+t7_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
+t7_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT7)
+
+// Ticker 8
+groupT8 = "Ticker 8"
+t8_en = input.bool(false, "Enable Ticker Profile", group = groupT8)
+t8_sym = input.string("", "Ticker Match Text", group = groupT8)
+t8_tz = input.string("America/New_York", "Timezone", group = groupT8)
+t8_i1_en = input.bool(false, "Int 1 Enabled", group = groupT8)
+t8_i1_ses = input.session("0000-0000", "Int 1 Session", group = groupT8)
+t8_i1_txt = input.string("", "Int 1 Label", group = groupT8)
+t8_i1_col = input.color(color.gray, "Int 1 Color", group = groupT8)
+t8_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT8)
+t8_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
+t8_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT8)
+t8_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT8)
+t8_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT8)
+t8_i2_en = input.bool(false, "Int 2 Enabled", group = groupT8)
+t8_i2_ses = input.session("0000-0000", "Int 2 Session", group = groupT8)
+t8_i2_txt = input.string("", "Int 2 Label", group = groupT8)
+t8_i2_col = input.color(color.gray, "Int 2 Color", group = groupT8)
+t8_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT8)
+t8_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
+t8_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT8)
+t8_i3_en = input.bool(false, "Int 3 Enabled", group = groupT8)
+t8_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT8)
+t8_i3_txt = input.string("", "Int 3 Label", group = groupT8)
+t8_i3_col = input.color(color.gray, "Int 3 Color", group = groupT8)
+t8_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT8)
+t8_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
+t8_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT8)
+t8_i4_en = input.bool(false, "Int 4 Enabled", group = groupT8)
+t8_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT8)
+t8_i4_txt = input.string("", "Int 4 Label", group = groupT8)
+t8_i4_col = input.color(color.gray, "Int 4 Color", group = groupT8)
+t8_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT8)
+t8_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
+t8_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT8)
+
+// --- Logic Execution ---
+
+var string matchedProfileName = "None"
+var string matchedProfileTZ = "N/A"
+var bool anyMatched = false
+
+// Processing all profiles and intervals
+// Profile 1
+bool t1Match1 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i1_en, t1_i1_ses, t1_i1_txt, t1_i1_col, t1_i1_wid, t1_i1_sty, t1_i1_lbl, t1_i1_lcol, t1_i1_lsiz)
+bool t1Match2 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i2_en, t1_i2_ses, t1_i2_txt, t1_i2_col, t1_i2_wid, t1_i2_sty, t1_i2_lbl, t1_i2_lcol, t1_i2_lsiz)
+bool t1Match3 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i3_en, t1_i3_ses, t1_i3_txt, t1_i3_col, t1_i3_wid, t1_i3_sty, t1_i3_lbl, color.white, "Small")
+bool t1Match4 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i4_en, t1_i4_ses, t1_i4_txt, t1_i4_col, t1_i4_wid, t1_i4_sty, t1_i4_lbl, color.white, "Small")
+bool t1Matched = t1Match1 or t1Match2 or t1Match3 or t1Match4
+if t1Matched
+    anyMatched := true
+    matchedProfileName := t1_sym
+    matchedProfileTZ := t1_tz
+
+// Profile 2
+bool t2Match1 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i1_en, t2_i1_ses, t2_i1_txt, t2_i1_col, t2_i1_wid, t2_i1_sty, t2_i1_lbl, t2_i1_lcol, t2_i1_lsiz)
+bool t2Match2 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i2_en, t2_i2_ses, t2_i2_txt, t2_i2_col, t2_i2_wid, t2_i2_sty, t2_i2_lbl, t2_i2_lcol, t2_i2_lsiz)
+bool t2Match3 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i3_en, t2_i3_ses, t2_i3_txt, t2_i3_col, t2_i3_wid, t2_i3_sty, t2_i3_lbl, color.white, "Small")
+bool t2Match4 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i4_en, t2_i4_ses, t2_i4_txt, t2_i4_col, t2_i4_wid, t2_i4_sty, t2_i4_lbl, color.white, "Small")
+bool t2Matched = t2Match1 or t2Match2 or t2Match3 or t2Match4
+if t2Matched
+    anyMatched := true
+    matchedProfileName := t2_sym
+    matchedProfileTZ := t2_tz
+
+// Profile 3
+bool t3Match1 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i1_en, t3_i1_ses, t3_i1_txt, t3_i1_col, t3_i1_wid, t3_i1_sty, t3_i1_lbl, t3_i1_lcol, t3_i1_lsiz)
+bool t3Match2 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i2_en, t3_i2_ses, t3_i2_txt, t3_i2_col, t3_i2_wid, t3_i2_sty, t3_i2_lbl, color.white, "Small")
+bool t3Match3 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i3_en, t3_i3_ses, t3_i3_txt, t3_i3_col, t3_i3_wid, t3_i3_sty, t3_i3_lbl, color.white, "Small")
+bool t3Match4 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i4_en, t3_i4_ses, t3_i4_txt, t3_i4_col, t3_i4_wid, t3_i4_sty, t3_i4_lbl, color.white, "Small")
+bool t3Matched = t3Match1 or t3Match2 or t3Match3 or t3Match4
+if t3Matched
+    anyMatched := true
+    matchedProfileName := t3_sym
+    matchedProfileTZ := t3_tz
+
+// Profile 4
+bool t4Match1 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i1_en, t4_i1_ses, t4_i1_txt, t4_i1_col, t4_i1_wid, t4_i1_sty, t4_i1_lbl, t4_i1_lcol, t4_i1_lsiz)
+bool t4Match2 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i2_en, t4_i2_ses, t4_i2_txt, t4_i2_col, t4_i2_wid, t4_i2_sty, t4_i2_lbl, color.white, "Small")
+bool t4Match3 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i3_en, t4_i3_ses, t4_i3_txt, t4_i3_col, t4_i3_wid, t4_i3_sty, t4_i3_lbl, color.white, "Small")
+bool t4Match4 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i4_en, t4_i4_ses, t4_i4_txt, t4_i4_col, t4_i4_wid, t4_i4_sty, t4_i4_lbl, color.white, "Small")
+bool t4Matched = t4Match1 or t4Match2 or t4Match3 or t4Match4
+if t4Matched
+    anyMatched := true
+    matchedProfileName := t4_sym
+    matchedProfileTZ := t4_tz
+
+// Profile 5
+bool t5Match1 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i1_en, t5_i1_ses, t5_i1_txt, t5_i1_col, t5_i1_wid, t5_i1_sty, t5_i1_lbl, t5_i1_lcol, t5_i1_lsiz)
+bool t5Match2 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i2_en, t5_i2_ses, t5_i2_txt, t5_i2_col, t5_i2_wid, t5_i2_sty, t5_i2_lbl, color.white, "Small")
+bool t5Match3 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i3_en, t5_i3_ses, t5_i3_txt, t5_i3_col, t5_i3_wid, t5_i3_sty, t5_i3_lbl, color.white, "Small")
+bool t5Match4 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i4_en, t5_i4_ses, t5_i4_txt, t5_i4_col, t5_i4_wid, t5_i4_sty, t5_i4_lbl, color.white, "Small")
+bool t5Matched = t5Match1 or t5Match2 or t5Match3 or t5Match4
+if t5Matched
+    anyMatched := true
+    matchedProfileName := t5_sym
+    matchedProfileTZ := t5_tz
+
+// Profile 6
+bool t6Match1 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i1_en, t6_i1_ses, t6_i1_txt, t6_i1_col, t6_i1_wid, t6_i1_sty, t6_i1_lbl, t6_i1_lcol, t6_i1_lsiz)
+bool t6Match2 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i2_en, t6_i2_ses, t6_i2_txt, t6_i2_col, t6_i2_wid, t6_i2_sty, t6_i2_lbl, color.white, "Small")
+bool t6Match3 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i3_en, t6_i3_ses, t6_i3_txt, t6_i3_col, t6_i3_wid, t6_i3_sty, t6_i3_lbl, color.white, "Small")
+bool t6Match4 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i4_en, t6_i4_ses, t6_i4_txt, t6_i4_col, t6_i4_wid, t6_i4_sty, t6_i4_lbl, color.white, "Small")
+bool t6Matched = t6Match1 or t6Match2 or t6Match3 or t6Match4
+if t6Matched
+    anyMatched := true
+    matchedProfileName := t6_sym
+    matchedProfileTZ := t6_tz
+
+// Profile 7
+bool t7Match1 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i1_en, t7_i1_ses, t7_i1_txt, t7_i1_col, t7_i1_wid, t7_i1_sty, t7_i1_lbl, t7_i1_lcol, t7_i1_lsiz)
+bool t7Match2 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i2_en, t7_i2_ses, t7_i2_txt, t7_i2_col, t7_i2_wid, t7_i2_sty, t7_i2_lbl, color.white, "Small")
+bool t7Match3 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i3_en, t7_i3_ses, t7_i3_txt, t7_i3_col, t7_i3_wid, t7_i3_sty, t7_i3_lbl, color.white, "Small")
+bool t7Match4 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i4_en, t7_i4_ses, t7_i4_txt, t7_i4_col, t7_i4_wid, t7_i4_sty, t7_i4_lbl, color.white, "Small")
+bool t7Matched = t7Match1 or t7Match2 or t7Match3 or t7Match4
+if t7Matched
+    anyMatched := true
+    matchedProfileName := t7_sym
+    matchedProfileTZ := t7_tz
+
+// Profile 8
+bool t8Match1 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i1_en, t8_i1_ses, t8_i1_txt, t8_i1_col, t8_i1_wid, t8_i1_sty, t8_i1_lbl, t8_i1_lcol, t8_i1_lsiz)
+bool t8Match2 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i2_en, t8_i2_ses, t8_i2_txt, t8_i2_col, t8_i2_wid, t8_i2_sty, t8_i2_lbl, color.white, "Small")
+bool t8Match3 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i3_en, t8_i3_ses, t8_i3_txt, t8_i3_col, t8_i3_wid, t8_i3_sty, t8_i3_lbl, color.white, "Small")
+bool t8Match4 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i4_en, t8_i4_ses, t8_i4_txt, t8_i4_col, t8_i4_wid, t8_i4_sty, t8_i4_lbl, color.white, "Small")
+bool t8Matched = t8Match1 or t8Match2 or t8Match3 or t8Match4
+if t8Matched
+    anyMatched := true
+    matchedProfileName := t8_sym
+    matchedProfileTZ := t8_tz
+
+// --- Status Label ---
+var label statusLabel = na
+if barstate.islast and showCurrentProfileLabel and configuredChartVisible
+    label.delete(statusLabel)
+
+    string labelTxt = ""
+    color labelBg = color.new(color.gray, 90)
+
+    if not timeframe.isintraday
+        labelTxt := "This indicator is designed for intraday charts.\nSwitch to 1m, 5m, 15m, etc. to see accurate trading windows."
+        labelBg := color.new(#f23645, 80)
+    else if anyMatched
+        labelTxt := "Window Profile: " + matchedProfileName + "\nTimezone: " + matchedProfileTZ
+        labelBg := color.new(#089981, 80)
+    else
+        labelTxt := "No ticker window profile matched"
+        labelBg := color.new(#f23645, 80)
+
+    statusLabel := label.new(
+         bar_index,
+         high,
+         labelTxt,
+         xloc = xloc.bar_index,
+         yloc = yloc.price,
+         style = label.style_label_left,
+         textcolor = chart.fg_color,
+         color = labelBg,
+         size = size.small
+     )
+
+// --- Chronological five-session direction (from Sessions POI indicator) ---
+groupFiveSessions = "Five Sessions Direction"
+const string TZ_TOOLTIP_TEXT = "IANA session timezone; daylight saving changes are handled automatically."
+const int FIVE_SESSION_LOOKBACK = 5
+const int FIVE_SESSION_OPENING_MS = 15 * 60 * 1000
+const int FIVE_SESSION_MAX_DRAWINGS = 20
+const string FIRST_SESSION_GROUP = "First Session"
+showFirstSession         = input.bool(true, "Show session", group = FIRST_SESSION_GROUP)
+firstSessionName         = input.string("Tokyo", "Displayed name", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionTime         = input.session("0900-1800", "Session time", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionTimezone     = input.string("Asia/Tokyo", "Session timezone", group = FIRST_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showFirstSession)
+firstSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = FIRST_SESSION_GROUP, active = showFirstSession)
+
+const string SECOND_SESSION_GROUP = "Second Session"
+showSecondSession         = input.bool(true, "Show session", group = SECOND_SESSION_GROUP)
+secondSessionName         = input.string("London", "Displayed name", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionTime         = input.session("0800-1600", "Session time", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionTimezone     = input.string("Europe/London", "Session timezone", group = SECOND_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showSecondSession)
+secondSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = SECOND_SESSION_GROUP, active = showSecondSession)
+
+const string THIRD_SESSION_GROUP = "Third Session"
+showThirdSession         = input.bool(true, "Show session", group = THIRD_SESSION_GROUP)
+thirdSessionName         = input.string("New York", "Displayed name", group = THIRD_SESSION_GROUP, active = showThirdSession)
+thirdSessionTime         = input.session("0930-1600", "Session time", group = THIRD_SESSION_GROUP, active = showThirdSession)
+thirdSessionTimezone     = input.string("America/New_York", "Session timezone", group = THIRD_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showThirdSession)
+thirdSessionSeparatorClr = input.color(color.new(#ffffff, 100), "Separator color", group = THIRD_SESSION_GROUP, active = showThirdSession)
+
+// --- Inputs: Five Sessions Direction ---
+// One chronological history across enabled sessions, independent of ORB / H-L visibility.
+showFiveSessionLine    = input.bool(false, "Show direction line", group = groupFiveSessions, tooltip = "Connect the high of exactly five preceding enabled sessions to the confirmed close of the last candle in this session's first 15 minutes. Sessions are counted chronologically, not separately by name. Later sessions take ownership of overlaps, like Session High / Low.")
+showFiveSessionText    = input.bool(true, "Show direction text", group = groupFiveSessions)
+fiveSessionKeep        = input.int(8, "Session drawings to keep", minval = 1, maxval = FIVE_SESSION_MAX_DRAWINGS, group = groupFiveSessions)
+fiveSessionLongColor   = input.color(#089981, "LONG color", inline = "fiveColors", group = groupFiveSessions)
+fiveSessionShortColor  = input.color(#f23645, "SHORT color", inline = "fiveColors", group = groupFiveSessions)
+fiveSessionFlatColor   = input.color(#787B86, "Neutral / unavailable", group = groupFiveSessions)
+fiveSessionLineWidth   = input.int(1, "Line width", minval = 1, maxval = 4, group = groupFiveSessions, active = showFiveSessionLine)
+fiveSessionTextFormat  = input.string("{session} · {trend} {angle}°", "Text format", group = groupFiveSessions, active = showFiveSessionText, tooltip = "Editable placeholders: {session}, {trend}, {angle}. Example: {trend} | {angle}°. A flat line is NEUTRAL; missing history / opening data is UNAVAILABLE.")
+fiveSessionLongText    = input.string("LONG", "Upward text", inline = "fiveWords", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionShortText   = input.string("SHORT", "Downward text", inline = "fiveWords", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextSize    = input.string("Tiny", "Text size", options = ["Tiny", "Small", "Normal"], group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextBg      = input.color(color.new(#131722, 15), "Text background", group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextX       = input.int(5, "Text offset (minutes)", minval = 0, maxval = 120, group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionTextY       = input.int(0, "Text offset (ticks)", minval = -1000, maxval = 1000, group = groupFiveSessions, active = showFiveSessionText)
+fiveSessionAngleUnit   = input.float(1.0, "Angle price units per 15 minutes", minval = 0.00000001, group = groupFiveSessions, tooltip = "Angle = atan((closing price - reference high) / price units / elapsed 15-minute units), in degrees. This is a signed, zoom-independent normalized slope, not a screen/pixel angle. Adjust for your instrument's price scale. Changing this never changes LONG / SHORT.")
+
+type FiveSessionReference
+    float high
+    int highTime
+    int startTime
+    string sessionName
+
+type FiveSessionState
+    bool active = false
+    int sessionIndex = 0
+    string sessionName = ""
+    int startTime = na
+    int endTime = na
+    int openingEnd = na
+    int lastClose = na
+    float high = na
+    int highTime = na
+    bool complete = false
+    bool openingComplete = false
+    bool evaluated = false
+    FiveSessionReference reference = na
+    string status = "Waiting for a session"
+    int bias = 0
+    float openingPrice = na
+    float angle = na
+
+var array<FiveSessionReference> fiveSessionHistory = array.new<FiveSessionReference>()
+var array<int> fiveSessionSeenStarts = array.new<int>(3, na)
+var array<line> fiveSessionLines = array.new<line>()
+var array<label> fiveSessionLabels = array.new<label>()
+var FiveSessionState fiveSessionState = FiveSessionState.new()
+
+f_getTextSize(string textSizeInput) =>
+    switch textSizeInput
+        "Tiny" => size.tiny
+        "Normal" => size.normal
+        => size.small
+
+f_orbSessionOccurrenceStart(string sessionValue, string timezoneValue) =>
+    int startHour = int(str.tonumber(str.substring(sessionValue, 0, 2)))
+    int startMinute = int(str.tonumber(str.substring(sessionValue, 2, 4)))
+    int localYear = year(time, timezoneValue)
+    int localMonth = month(time, timezoneValue)
+    int localDay = dayofmonth(time, timezoneValue)
+    int occurrenceStart = timestamp(timezoneValue, localYear, localMonth, localDay, startHour, startMinute)
+    if occurrenceStart > time
+        occurrenceStart := timestamp(timezoneValue, localYear, localMonth, localDay - 1, startHour, startMinute)
+    occurrenceStart
+
+f_orbSessionOccurrenceEnd(string sessionValue, string timezoneValue, int occurrenceStartTime) =>
+    int startHour = int(str.tonumber(str.substring(sessionValue, 0, 2)))
+    int startMinute = int(str.tonumber(str.substring(sessionValue, 2, 4)))
+    int endHour = int(str.tonumber(str.substring(sessionValue, 5, 7)))
+    int endMinute = int(str.tonumber(str.substring(sessionValue, 7, 9)))
+    int startMinutes = startHour * 60 + startMinute
+    int endMinutes = endHour * 60 + endMinute
+    int endDayOffset = endMinutes <= startMinutes ? 1 : 0
+    timestamp(timezoneValue, year(occurrenceStartTime, timezoneValue), month(occurrenceStartTime, timezoneValue), dayofmonth(occurrenceStartTime, timezoneValue) + endDayOffset, endHour, endMinute)
+
+f_getSessionState(bool enabled, string sessionValue, string timezoneValue) =>
+    int sessionTime = time("", sessionValue, timezoneValue)
+    bool inSession = enabled and not na(sessionTime)
+    bool wasInSession = enabled and not na(sessionTime[1])
+    [inSession, inSession and not wasInSession, not inSession and wasInSession]
+
+f_fiveNextStart(string sessionValue, string timezoneValue) =>
+    int h = int(str.tonumber(str.substring(sessionValue, 0, 2)))
+    int m = int(str.tonumber(str.substring(sessionValue, 2, 4)))
+    int nextStart = timestamp(timezoneValue, year(time, timezoneValue), month(time, timezoneValue), dayofmonth(time, timezoneValue), h, m)
+    if nextStart <= time
+        nextStart := timestamp(timezoneValue, year(time, timezoneValue), month(time, timezoneValue), dayofmonth(time, timezoneValue) + 1, h, m)
+    nextStart
+
+f_fiveStoreHigh(FiveSessionState s) =>
+    if s.active
+        // Keep an unavailable slot for an incomplete occurrence. Skipping it would
+        // silently select the sixth (or older) session instead of exactly the fifth.
+        bool validHigh = s.complete and not na(s.high)
+        array.push(fiveSessionHistory, FiveSessionReference.new(validHigh ? s.high : na, validHigh ? s.highTime : na, s.startTime, s.sessionName))
+        while array.size(fiveSessionHistory) > FIVE_SESSION_LOOKBACK
+            array.shift(fiveSessionHistory)
+        s.active := false
+    true
+
+f_fiveLabelText(string sessionName, string trend, string angleText) =>
+    string labelText = str.replace_all(fiveSessionTextFormat, "{session}", sessionName)
+    labelText := str.replace_all(labelText, "{trend}", trend)
+    str.replace_all(labelText, "{angle}", angleText)
+
+f_keepFiveLine(array<line> levelLines, line levelLine, int maxCount) =>
+    if not na(levelLine)
+        array.push(levelLines, levelLine)
+        if array.size(levelLines) > maxCount
+            line.delete(array.shift(levelLines))
+
+f_keepFiveLabel(array<label> levelLabels, label levelLabel, int maxCount) =>
+    if not na(levelLabel)
+        array.push(levelLabels, levelLabel)
+        if array.size(levelLabels) > maxCount
+            label.delete(array.shift(levelLabels))
+
+f_fiveEvaluate(FiveSessionState s) =>
+    s.evaluated := true
+    s.openingPrice := close
+    bool openingValid = s.openingComplete and time_close == s.openingEnd and s.lastClose == s.openingEnd
+    bool referenceValid = not na(s.reference) and not na(s.reference.high) and not na(s.reference.highTime)
+    string trend = "UNAVAILABLE"
+    string angleText = "—"
+    color directionColor = fiveSessionFlatColor
+    string detail = not openingValid ? "The complete, aligned first 15 minutes are missing." : "Exactly five complete preceding sessions are required. An incomplete fifth session remains unavailable."
+    if openingValid and referenceValid
+        float difference = close - s.reference.high
+        s.bias := difference > 0 ? 1 : difference < 0 ? -1 : 0
+        float elapsedUnits = (time - s.reference.highTime) / float(FIVE_SESSION_OPENING_MS)
+        float angle = math.atan(difference / fiveSessionAngleUnit / elapsedUnits) * 180.0 / math.pi
+        s.angle := angle
+        trend := difference > 0 ? fiveSessionLongText : difference < 0 ? fiveSessionShortText : "NEUTRAL"
+        directionColor := difference > 0 ? fiveSessionLongColor : difference < 0 ? fiveSessionShortColor : fiveSessionFlatColor
+        angleText := (angle > 0 ? "+" : "") + str.tostring(angle, "0.0")
+        detail := "Fifth prior session: " + s.reference.sessionName + "\nStart: " + str.format_time(s.reference.startTime, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time)\nHigh: " + str.tostring(s.reference.high, format.mintick) + "\nOpening close: " + str.tostring(close, format.mintick) + "\nConfirmed at: " + str.format_time(s.openingEnd, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time)\nAngle: normalized price/time slope; independent of zoom."
+        if showFiveSessionLine
+            // Candle bodies / wicks are centered on their opening timestamps.
+            // The endpoint is the final opening-range candle's CLOSE, never its wick.
+            line directionLine = line.new(s.reference.highTime, s.reference.high, time, close, xloc = xloc.bar_time, extend = extend.none, color = directionColor, width = fiveSessionLineWidth)
+            f_keepFiveLine(fiveSessionLines, directionLine, fiveSessionKeep)
+    s.status := trend + (angleText == "—" ? "" : " " + angleText + "°")
+    if showFiveSessionText
+        label directionLabel = label.new(time + fiveSessionTextX * 60000, close + fiveSessionTextY * syminfo.mintick, f_fiveLabelText(s.sessionName, trend, angleText), xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = fiveSessionTextBg, textcolor = directionColor, size = f_getTextSize(fiveSessionTextSize), tooltip = detail)
+        f_keepFiveLabel(fiveSessionLabels, directionLabel, fiveSessionKeep)
+    true
+
+f_fiveProcess(FiveSessionState s, int owner, int occurrenceStart, int occurrenceEnd, string sessionName) =>
+    FiveSessionState next = s
+    // Flush BEFORE taking the next reference snapshot, including across feed gaps.
+    if next.active and (time >= next.endTime or owner != next.sessionIndex or occurrenceStart != next.startTime)
+        f_fiveStoreHigh(next)
+    if owner > 0 and not na(occurrenceStart) and (na(array.get(fiveSessionSeenStarts, owner - 1)) or array.get(fiveSessionSeenStarts, owner - 1) != occurrenceStart)
+        array.set(fiveSessionSeenStarts, owner - 1, occurrenceStart)
+        next := FiveSessionState.new()
+        next.active := true
+        next.sessionIndex := owner
+        next.sessionName := sessionName
+        next.startTime := occurrenceStart
+        next.endTime := occurrenceEnd
+        next.openingEnd := occurrenceStart + FIVE_SESSION_OPENING_MS
+        // A normal market closure can hide the first scheduled bar. Use the
+        // available session OHLC, like the strategy; exclude a truncated dataset.
+        next.complete := not barstate.isfirst or time <= occurrenceStart
+        next.openingComplete := time == occurrenceStart
+        next.reference := array.size(fiveSessionHistory) == FIVE_SESSION_LOOKBACK ? array.get(fiveSessionHistory, 0) : na
+        next.status := "Waiting for the confirmed 15-minute opening close"
+    if next.active
+        // Session highs use available confirmed candles clipped to the window.
+        // Only the opening price requires a continuous, exactly aligned 15 minutes.
+        bool belongs = time >= next.startTime and time_close <= next.endTime
+        if not belongs
+            next.complete := false
+        if time < next.openingEnd and (not belongs or (not na(next.lastClose) and time != next.lastClose))
+            next.openingComplete := false
+        if belongs
+            if na(next.high) or high > next.high
+                next.high := high
+                next.highTime := time
+            next.lastClose := time_close
+        if not next.evaluated and time_close >= next.openingEnd
+            f_fiveEvaluate(next)
+        if time_close >= next.endTime
+            f_fiveStoreHigh(next)
+    next
+
+[firstInSession, firstSessionStarted, firstSessionEnded] = f_getSessionState(showFirstSession, firstSessionTime, firstSessionTimezone)
+[secondInSession, secondSessionStarted, secondSessionEnded] = f_getSessionState(showSecondSession, secondSessionTime, secondSessionTimezone)
+[thirdInSession, thirdSessionStarted, thirdSessionEnded] = f_getSessionState(showThirdSession, thirdSessionTime, thirdSessionTimezone)
+int currentActiveSessionIndex = thirdInSession ? 3 : secondInSession ? 2 : firstInSession ? 1 : 0
+int fiveOccurrenceStart = currentActiveSessionIndex == 3 ? f_orbSessionOccurrenceStart(thirdSessionTime, thirdSessionTimezone) : currentActiveSessionIndex == 2 ? f_orbSessionOccurrenceStart(secondSessionTime, secondSessionTimezone) : currentActiveSessionIndex == 1 ? f_orbSessionOccurrenceStart(firstSessionTime, firstSessionTimezone) : na
+int fiveOccurrenceEnd = currentActiveSessionIndex == 3 ? f_orbSessionOccurrenceEnd(thirdSessionTime, thirdSessionTimezone, fiveOccurrenceStart) : currentActiveSessionIndex == 2 ? f_orbSessionOccurrenceEnd(secondSessionTime, secondSessionTimezone, fiveOccurrenceStart) : currentActiveSessionIndex == 1 ? f_orbSessionOccurrenceEnd(firstSessionTime, firstSessionTimezone, fiveOccurrenceStart) : na
+string fiveOccurrenceName = currentActiveSessionIndex == 3 ? thirdSessionName : currentActiveSessionIndex == 2 ? secondSessionName : firstSessionName
+if currentActiveSessionIndex == 1 and showSecondSession
+    fiveOccurrenceEnd := math.min(fiveOccurrenceEnd, f_fiveNextStart(secondSessionTime, secondSessionTimezone))
+if currentActiveSessionIndex > 0 and currentActiveSessionIndex < 3 and showThirdSession
+    fiveOccurrenceEnd := math.min(fiveOccurrenceEnd, f_fiveNextStart(thirdSessionTime, thirdSessionTimezone))
+float chartSeconds = timeframe.in_seconds()
+bool directionChartCompatible = chart.is_standard and timeframe.isintraday and not na(chartSeconds) and chartSeconds > 0 and chartSeconds <= 900 and 900 % chartSeconds == 0
+if directionChartCompatible and barstate.isconfirmed
+    fiveSessionState := f_fiveProcess(fiveSessionState, currentActiveSessionIndex, fiveOccurrenceStart, fiveOccurrenceEnd, fiveOccurrenceName)
+
+// --- Execution settings ---
+string G_EXEC = "Strategy Execution"
+string G_LOSS = "Strategy Loss Limits"
+string G_BE = "Strategy Breakeven"
+string G_FVG = "Fair Value Gaps"
+string G_VIS = "Strategy Visuals / Audit"
+string executionTimeframe = input.timeframe("5", "Execution Timeframe", group=G_EXEC, tooltip="Set the standard candle chart to this interval. It must divide 15 minutes; window boundaries must also align with it.")
+bool useFvgEntryPercentage = input.bool(true, "Use FVG Entry Percentage", group=G_EXEC, tooltip="Disable to enter on any eligible mitigation/touch of the near edge (0% depth). This still submits a resting limit order after confirmation; it never fills retrospectively on the creation candle. Existing session, stop, size, and loss limits apply.")
+float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, maxval=100, step=0.1, group=G_EXEC, active=useFvgEntryPercentage, tooltip="Depth from the retest edge: bullish top toward bottom, bearish bottom toward top. Matches the FVG indicator's percentage line.")
+float maxStopPoints = input.float(36.0, "Maximum SL (points / pips)", minval=0.00000001, group=G_EXEC, tooltip="Maximum planned entry-to-SL distance. Keep the structural wick stop within this cap; if it exceeds the cap by no more than the SL tolerance, place SL at the cap instead.")
+float stopTolerancePoints = input.float(9.0, "SL Excess Tolerance (points / pips)", minval=0.0, group=G_EXEC, tooltip="Allow a structural SL up to Maximum SL plus this tolerance. Example: maximum 36 and tolerance 9 accepts structural distances through 45, with the actual SL capped at 36. Zero restores strict rejection above the maximum.")
+float stopPointSize = input.float(1.0, "Price Size Of One Point / Pip", minval=0.00000001, group=G_EXEC, tooltip="1.0 for GER40/NQ price points. For forex, enter your pip size, e.g. 0.0001 for GBPUSD or 0.01 for a JPY quote. This is a price-distance conversion, not position risk sizing.")
+float riskPerTrade = input.float(100.0, "Account Risk Per Trade (account currency)", minval=0.0, group=G_EXEC, tooltip="Target money at risk per position in the account currency. Position size uses the actual planned stop distance, including any SL cap.")
+float pointValue = input.float(1.15, "Money Value Of One Point Per Contract", minval=0.00000001, group=G_EXEC, tooltip="Account-currency P&L of a 1 price-point move on 1 contract. For this GER40 CFD quoted in EUR with a USD account it is about 1.15 (EUR/USD). Set per instrument.")
+float qtyStep = input.float(0.01, "Order Size Step", minval=0.00000001, group=G_EXEC, tooltip="Size is rounded DOWN to this step so realised risk never exceeds the target.")
+float maxQty = input.float(10.0, "Maximum Order Size (0 = unlimited)", minval=0.0, group=G_EXEC, tooltip="Safety cap — a very tight stop would otherwise produce a very large size.")
+float rewardRiskRatio = input.float(1.5, "Reward / Risk", minval=0.01, step=0.1, group=G_EXEC)
+int maximumTradesPerWindow = input.int(0, "Maximum Filled Trades Per Window (0 = unlimited)", minval=0, group=G_EXEC, tooltip="By default, a new FVG can qualify after the previous trade closes, regardless of win/loss. No pyramiding; only one pending entry or open trade at a time.")
+bool firstTradeFromSessionFvg = input.bool(false, "First Trade From Earliest Unmitigated Session FVG", group=G_EXEC, tooltip="For the first filled trade of each direction session, use its earliest still-valid same-direction FVG, including gaps confirmed during the opening 15 minutes or before the entry window. Wait for confirmed direction and an enabled entry window. Later trades require a new FVG as usual. Mitigation follows the detector: a close beyond the far edge.")
+int maximumFvgAgeMinutes = input.int(120, "Maximum FVG Age (minutes)", minval=1, maxval=10080, group=G_EXEC, active=firstTradeFromSessionFvg, tooltip="Applies to first-trade session FVGs when the checkbox is enabled. Measured from the third candle's confirmation, never from order submission. Cancel the pending order at this age or the entry-window/session end, whichever comes first. Must align with the execution interval.")
+int maximumSessionConsecutiveLosses = input.int(2, "Maximum Consecutive Losses Per Session (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades belonging to the same direction session (First / Second / Third Session), across all its entry windows. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until the next session. A trade carried into a later session belongs to its original entry session. Existing positions keep their SL/TP.")
+int maximumDailyConsecutiveLosses = input.int(3, "Maximum Consecutive Losses Per Day (0 = disabled)", minval=0, group=G_LOSS, tooltip="Pause new entries after this many consecutive closed losing trades on the same calendar day, across all sessions. A win or breakeven resets the streak before the limit is reached. Once reached, stay paused until midnight in Daily Reset Timezone. Trades count on their actual exit date. Existing positions keep their SL/TP.")
+string dailyLossResetTimezone = input.string("Europe/Bucharest", "Daily Reset Timezone", group=G_LOSS, tooltip="IANA timezone used for calendar-day loss streaks and the midnight reset. Independent of the chart display timezone and ticker/session timezones; daylight saving changes are handled automatically.")
+bool enableBreakeven = input.bool(true, "Enable Breakeven", group=G_BE, tooltip="Move the existing stop to the configured protected-profit level once the trigger is reached. TP stays fixed. Checked on confirmed candle closes; the amended stop is available from the next tick, never retroactively within the trigger candle. Entry candle: use its close to exclude wicks formed before the fill. Later candles: use high for longs / low for shorts. Stops do not guarantee a net result after fees or gaps.")
+float breakevenTriggerPercent = input.float(70.0, "Breakeven Trigger (% Of Entry-To-TP Distance)", minval=0.1, maxval=100.0, step=0.1, group=G_BE, active=enableBreakeven, tooltip="70 means 70% of the distance from actual filled entry to the fixed TP. Set 90 with a protected profit of 30 to move SL to 30% once 90% is observed. Trigger rounds toward TP; amendments take effect from the next tick.")
+float breakevenLockPercent = input.float(0.0, "BE Protected Profit (% Of Entry-To-TP Distance)", minval=0.0, maxval=99.9, step=0.1, group=G_BE, active=enableBreakeven, tooltip="0 moves SL to actual entry. 30 protects 30% of the entry-to-TP distance: at 1:3 this is +0.9R. Must be less than the trigger percentage. Rounds toward entry so tick rounding cannot overstate protected profit. An existing better stop is never loosened.")
+COLOR_BULL = #98cac2
+COLOR_BEAR = #d3a3a7
+fvgThresholdPercent = input.float(0.04, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
+fvgThresholdAuto = input.bool(false, "Auto", inline="fvgThreshold", group=G_FVG)
+fvgTimeframe = input.timeframe("", "Detection Timeframe", group=G_FVG)
+fvgExtendBars = input.int(20, "Extend", minval=0, inline="fvgRender", group=G_FVG)
+fvgBullColor = input.color(color.new(COLOR_BULL, 70), "Bullish FVG", group=G_FVG)
+fvgBearColor = input.color(color.new(COLOR_BEAR, 70), "Bearish FVG", group=G_FVG)
+bool showTradeBoxes = input.bool(true, "Show Traded FVG Boxes", group=G_VIS)
+bool showEntry = input.bool(true, "Show Entry / Percentage Line", group=G_VIS)
+bool showSL = input.bool(true, "Show SL", group=G_VIS)
+bool showTP = input.bool(true, "Show TP", group=G_VIS)
+bool showTradeLabels = input.bool(true, "Show Trade Labels", group=G_VIS)
+bool showStrategyDashboard = input.bool(true, "Show Strategy Dashboard", group=G_VIS)
+int retainedTradeDrawings = input.int(30, "Retained Setup Drawings", minval=1, maxval=40, group=G_VIS)
+bool showFvgTradeReport = input.bool(true, "Show FVG Trade Report", group=G_VIS)
+int fvgReportPage = input.int(1, "FVG Report Page (1 = latest)", minval=1, group=G_VIS, active=showFvgTradeReport)
+int fvgReportRows = input.int(5, "FVG Report Rows", minval=1, maxval=15, group=G_VIS, active=showFvgTradeReport)
+string fvgReportTextSize = input.string("Small", "FVG Report Text Size", options=["Tiny", "Small", "Normal"], group=G_VIS, active=showFvgTradeReport)
+bool includeFvgOrderComments = input.bool(true, "Include FVG Details In Strategy Trade Signals", group=G_VIS, tooltip="Adds gap bounds, size, confirmation time, entry mode/depth and BE configuration to the native Trades report's entry signal. Fill-time details also appear in the FVG Trade Report and chart-export series, including same-candle round trips.")
+bool logFvgTradeCsv = input.bool(false, "Log Closed FVG Trades As CSV (Pine Logs)", group=G_VIS, tooltip="Logs one FVG_TRADE_V1 CSV record per closed chart-run trade. Pine Logs retain a limited number of messages and do not expose Deep Backtesting trades. The chart report retains the most recent 1000 closed trades. Native trade signals carry gap/configuration details for Deep Backtesting too.")
+
+if barstate.isfirst and enableBreakeven and breakevenLockPercent >= breakevenTriggerPercent
+    runtime.error("BE Protected Profit must be less than Breakeven Trigger. Example: trigger 90, protected profit 30.")
+f_fvgThreshold() =>
+    fvgThresholdAuto ? (bar_index > 0 ? ta.cum((high - low) / low) / bar_index : 0.0) : fvgThresholdPercent / 100.0
+
+f_fvgDetectPayload() =>
+    float threshold = f_fvgThreshold()
+    bool bullFvg = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > threshold
+    bool bearFvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
+    float recordMax = bullFvg ? low : bearFvg ? low[2] : na
+    float recordMin = bullFvg ? high[2] : bearFvg ? high : na
+    [bullFvg, bearFvg, recordMax, recordMin, time, time[2], bar_index]
+
+// Keep the indicator's detector unchanged; append only confirmation and SL data
+// from the SAME detection-timeframe three-candle structure.
+f_strategyFvgPayload() =>
+    [bull, bear, upper, lower, sourceTime, anchorTime, sourceBar] = f_fvgDetectPayload()
+    [bull, bear, upper, lower, sourceTime, anchorTime, sourceBar, time_close, ta.lowest(low, 3), ta.highest(high, 3)]
+
+f_fvgEntry(float upper, float lower, int bias, bool usePercentage, float percent, float tick) =>
+    float fraction = usePercentage ? percent / 100.0 : 0.0
+    math.round((bias == 1 ? upper - (upper - lower) * fraction : lower + (upper - lower) * fraction) / tick) * tick
+
+f_entryPrice(float upper, float lower, int bias) =>
+    f_fvgEntry(upper, lower, bias, useFvgEntryPercentage, entryDepthPercent, syminfo.mintick)
+
+// Fill depth intentionally remains unclamped: a gap through the zone can fill
+// beyond 100%, and rounding can put a fill just outside a very narrow gap.
+f_fvgDepth(float upper, float lower, int bias, float price) =>
+    upper > lower and not na(price) ? (bias == 1 ? upper - price : price - lower) / (upper - lower) * 100.0 : na
+
+f_fvgSizePercent(float upper, float lower, int bias) =>
+    float denominator = bias == 1 ? lower : upper
+    denominator > 0 ? (upper - lower) / denominator * 100.0 : na
+
+f_fvgTouched(float upper, float lower, float barHigh, float barLow) =>
+    barLow <= upper and barHigh >= lower
+
+f_fvgFillBars(int createdBar, int entryBar) =>
+    entryBar >= createdBar ? entryBar - createdBar : na
+
+f_stopPrice(float entry, float structuralStop, int bias) =>
+    float structuralDistance = bias * (entry - structuralStop)
+    // Round the cap DOWN to whole ticks so a non-aligned cap is never exceeded.
+    float capDistance = math.floor(maxStopPoints * stopPointSize / syminfo.mintick + 0.000001) * syminfo.mintick
+    structuralDistance > maxStopPoints * stopPointSize ? math.round_to_mintick(entry - bias * capDistance) : structuralStop
+
+f_stopValid(float entry, float structuralStop, float stop, int bias) =>
+    float structuralRisk = bias * (entry - structuralStop)
+    float actualRisk = bias * (entry - stop)
+    float epsilon = syminfo.mintick * 0.000001
+    structuralRisk > 0 and structuralRisk <= (maxStopPoints + stopTolerancePoints) * stopPointSize + epsilon and actualRisk > 0 and actualRisk <= maxStopPoints * stopPointSize + epsilon
+
+// --- Trading-window occurrences ---
+type ExecutionWindow
+    string symbol
+    string timezone
+    string hours
+    string tag
+    bool enabled
+    int occurrenceStart = na
+    int occurrenceEnd = na
+    int fills = 0
+    bool inside = false
+
+var array<ExecutionWindow> executionWindows = array.new<ExecutionWindow>()
+if barstate.isfirst
+    array.push(executionWindows, ExecutionWindow.new(t1_sym, t1_tz, t1_i1_ses, t1_sym + " / 1", t1_en and t1_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t1_sym, t1_tz, t1_i2_ses, t1_sym + " / 2", t1_en and t1_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t1_sym, t1_tz, t1_i3_ses, t1_sym + " / 3", t1_en and t1_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t1_sym, t1_tz, t1_i4_ses, t1_sym + " / 4", t1_en and t1_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t2_sym, t2_tz, t2_i1_ses, t2_sym + " / 1", t2_en and t2_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t2_sym, t2_tz, t2_i2_ses, t2_sym + " / 2", t2_en and t2_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t2_sym, t2_tz, t2_i3_ses, t2_sym + " / 3", t2_en and t2_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t2_sym, t2_tz, t2_i4_ses, t2_sym + " / 4", t2_en and t2_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t3_sym, t3_tz, t3_i1_ses, t3_sym + " / 1", t3_en and t3_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t3_sym, t3_tz, t3_i2_ses, t3_sym + " / 2", t3_en and t3_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t3_sym, t3_tz, t3_i3_ses, t3_sym + " / 3", t3_en and t3_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t3_sym, t3_tz, t3_i4_ses, t3_sym + " / 4", t3_en and t3_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t4_sym, t4_tz, t4_i1_ses, t4_sym + " / 1", t4_en and t4_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t4_sym, t4_tz, t4_i2_ses, t4_sym + " / 2", t4_en and t4_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t4_sym, t4_tz, t4_i3_ses, t4_sym + " / 3", t4_en and t4_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t4_sym, t4_tz, t4_i4_ses, t4_sym + " / 4", t4_en and t4_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t5_sym, t5_tz, t5_i1_ses, t5_sym + " / 1", t5_en and t5_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t5_sym, t5_tz, t5_i2_ses, t5_sym + " / 2", t5_en and t5_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t5_sym, t5_tz, t5_i3_ses, t5_sym + " / 3", t5_en and t5_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t5_sym, t5_tz, t5_i4_ses, t5_sym + " / 4", t5_en and t5_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t6_sym, t6_tz, t6_i1_ses, t6_sym + " / 1", t6_en and t6_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t6_sym, t6_tz, t6_i2_ses, t6_sym + " / 2", t6_en and t6_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t6_sym, t6_tz, t6_i3_ses, t6_sym + " / 3", t6_en and t6_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t6_sym, t6_tz, t6_i4_ses, t6_sym + " / 4", t6_en and t6_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t7_sym, t7_tz, t7_i1_ses, t7_sym + " / 1", t7_en and t7_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t7_sym, t7_tz, t7_i2_ses, t7_sym + " / 2", t7_en and t7_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t7_sym, t7_tz, t7_i3_ses, t7_sym + " / 3", t7_en and t7_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t7_sym, t7_tz, t7_i4_ses, t7_sym + " / 4", t7_en and t7_i4_en))
+    array.push(executionWindows, ExecutionWindow.new(t8_sym, t8_tz, t8_i1_ses, t8_sym + " / 1", t8_en and t8_i1_en))
+    array.push(executionWindows, ExecutionWindow.new(t8_sym, t8_tz, t8_i2_ses, t8_sym + " / 2", t8_en and t8_i2_en))
+    array.push(executionWindows, ExecutionWindow.new(t8_sym, t8_tz, t8_i3_ses, t8_sym + " / 3", t8_en and t8_i3_en))
+    array.push(executionWindows, ExecutionWindow.new(t8_sym, t8_tz, t8_i4_ses, t8_sym + " / 4", t8_en and t8_i4_en))
+
+int selectedWindow = na
+bool anyExecutableProfile = false
+bool windowBoundariesAligned = true
+int chartMs = int(chartSeconds * 1000)
+for i = 0 to array.size(executionWindows) - 1
+    ExecutionWindow ew = array.get(executionWindows, i)
+    bool matches = ew.enabled and f_symbolMatches(ew.symbol)
+    if matches
+        anyExecutableProfile := true
+        int start = f_orbSessionOccurrenceStart(ew.hours, ew.timezone)
+        int finish = f_orbSessionOccurrenceEnd(ew.hours, ew.timezone, start)
+        if na(ew.occurrenceStart) or start != ew.occurrenceStart
+            ew.occurrenceStart := start
+            ew.fills := 0
+        ew.occurrenceEnd := finish
+        ew.inside := not na(time("", ew.hours, ew.timezone)) and time >= start and time_close <= finish
+        windowBoundariesAligned := windowBoundariesAligned and chartMs > 0 and start % chartMs == 0 and finish % chartMs == 0
+        if ew.inside and na(selectedWindow)
+            selectedWindow := i
+    else
+        ew.inside := false
+
+string fvgDetectionTf = fvgTimeframe == "" ? timeframe.period : fvgTimeframe
+float detectionSeconds = timeframe.in_seconds(fvgDetectionTf)
+bool executionChart = directionChartCompatible and chartSeconds == timeframe.in_seconds(executionTimeframe)
+bool detectionCompatible = not na(detectionSeconds) and detectionSeconds >= chartSeconds and detectionSeconds % chartSeconds == 0
+bool fvgAgeAligned = not firstTradeFromSessionFvg or (chartMs > 0 and maximumFvgAgeMinutes * 60000 % chartMs == 0)
+bool nativeMode = executionChart and detectionCompatible and windowBoundariesAligned and anyExecutableProfile and fvgAgeAligned
+[fvgBullRaw, fvgBearRaw, fvgMaxRaw, fvgMinRaw, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceBarIndexRaw, fvgSourceCloseRaw, structureLowRaw, structureHighRaw] = request.security(syminfo.tickerid, fvgDetectionTf, f_strategyFvgPayload(), lookahead=barmerge.lookahead_off)
+var int lastConfirmedFvgSourceTime = na
+bool confirmedNewFvg = barstate.isconfirmed and time_close == fvgSourceCloseRaw and (fvgBullRaw or fvgBearRaw) and (na(lastConfirmedFvgSourceTime) or lastConfirmedFvgSourceTime != fvgSourceTimeRaw)
+if confirmedNewFvg
+    lastConfirmedFvgSourceTime := fvgSourceTimeRaw
+
+// Store confirmed gaps in creation order, including the opening 15 minutes.
+// The first filled trade belongs to a direction-session occurrence, not a window.
+type SessionFvg
+    int sessionStart
+    int bias
+    int sourceTime
+    int anchorTime
+    int sourceClose
+    int expires
+    float upper
+    float lower
+    float structureLow
+    float structureHigh
+    int createdChartBar
+    int firstTouchBar = na
+    bool attempted = false
+
+type SessionTradeState
+    int startTime = na
+    bool hasFill = false
+
+var array<SessionFvg> sessionFvgs = array.new<SessionFvg>()
+var SessionTradeState sessionTradeState = SessionTradeState.new()
+
+f_gapMitigated(SessionFvg gap) =>
+    gap.bias == 1 ? close < gap.lower : close > gap.upper
+
+f_pruneSessionFvgs(int sessionStart, bool sessionActive) =>
+    int i = array.size(sessionFvgs) - 1
+    while i >= 0
+        SessionFvg gap = array.get(sessionFvgs, i)
+        if bar_index > gap.createdChartBar and na(gap.firstTouchBar) and f_fvgTouched(gap.upper, gap.lower, high, low)
+            gap.firstTouchBar := bar_index
+        if not sessionActive or gap.sessionStart != sessionStart or time_close >= gap.expires or gap.attempted or f_gapMitigated(gap)
+            array.remove(sessionFvgs, i)
+        i -= 1
+    true
+
+f_firstSessionFvg(int bias) =>
+    SessionFvg candidate = na
+    int i = 0
+    while i < array.size(sessionFvgs) and na(candidate)
+        SessionFvg gap = array.get(sessionFvgs, i)
+        if gap.bias == bias and not gap.attempted
+            candidate := gap
+        i += 1
+    candidate
+
+// --- Breakeven state and price observation ---
+type BreakevenState
+    float entry
+    float trigger
+    float stop
+    bool active = false
+    int activatedAt = na
+    float protectedStop = na
+
+f_breakevenTrigger(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent > 0 and percent <= 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.ceil(raw / tick - 0.000000001) : math.floor(raw / tick + 0.000000001)) * tick : na
+
+f_breakevenObservation(int bias, int currentBar, int entryBar, float closingPrice, float barHigh, float barLow) =>
+    currentBar > entryBar ? (bias == 1 ? barHigh : barLow) : closingPrice
+
+f_breakevenLock(float entry, float target, float percent, int bias, float tick) =>
+    bool valid = not na(entry) and not na(target) and (bias == 1 or bias == -1) and bias * (target - entry) > 0 and percent >= 0 and percent < 100 and tick > 0
+    float raw = entry + (target - entry) * percent / 100.0
+    valid ? (bias == 1 ? math.floor(raw / tick + 0.000000001) : math.ceil(raw / tick - 0.000000001)) * tick : na
+
+f_armBreakeven(BreakevenState s, bool enabled, int bias, float favorablePrice, int decisionTime) =>
+    bool activated = enabled and not s.active and not na(s.trigger) and not na(favorablePrice) and bias * (favorablePrice - s.trigger) >= 0
+    if activated
+        // A better existing stop is never loosened, including after a gap fill.
+        float destination = na(s.protectedStop) ? s.entry : s.protectedStop
+        s.stop := bias == 1 ? math.max(s.stop, destination) : math.min(s.stop, destination)
+        s.active := true
+        s.activatedAt := decisionTime
+    activated
+
+// --- A single pending/open plan; attached brackets protect same-bar fills ---
+type TradePlan
+    int windowIndex
+    int windowStart
+    int sessionStart
+    int expires
+    int bias
+    string orderId
+    float entry
+    float stop
+    float target
+    float upper
+    float lower
+    int anchorTime
+    int sourceClose
+    int createdChartBar
+    int firstTouchBar = na
+    float actualEntry = na
+    int entryBar = na
+    int entryTime = na
+    bool filled = false
+    line entryLine = na
+    line stopLine = na
+    line targetLine = na
+    box zoneBox = na
+    label setupLabel = na
+    BreakevenState breakeven = na
+    line breakevenStopLine = na
+
+// A separate closed-trade ledger survives plan cleanup and same-bar round trips.
+// One entry/open position at a time means at most one closure per chart bar.
+type FvgTradeAudit
+    int tradeNumber
+    TradePlan plan
+    int exitTime
+    float exitPrice
+    float profit
+    float priceR
+    string result
+
+var array<FvgTradeAudit> fvgTradeHistory = array.new<FvgTradeAudit>()
+FvgTradeAudit closedFvgAudit = na
+
+f_captureFvgFill(TradePlan p, float price, int entryBar, int entryTime) =>
+    if na(p.actualEntry)
+        p.actualEntry := price
+        p.entryBar := entryBar
+        p.entryTime := entryTime
+        // An emulator gap fill can skip the candle's overlap with the zone.
+        // The fill bar is still the first entry touch if none was seen earlier.
+        p.firstTouchBar := na(p.firstTouchBar) ? entryBar : math.min(p.firstTouchBar, entryBar)
+        if not na(p.setupLabel)
+            label.set_text(p.setupLabel, label.get_text(p.setupLabel) + "\nFill " + str.tostring(price, format.mintick) + " · depth " + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, price), "#.##") + "%\nBars to fill " + str.tostring(f_fvgFillBars(p.createdChartBar, entryBar)) + " · first touch " + str.tostring(p.firstTouchBar - p.createdChartBar))
+    true
+
+f_fvgEntryComment(TradePlan p, string windowTag) =>
+    string base = (p.bias == 1 ? "LONG " : "SHORT ") + windowTag
+    includeFvgOrderComments ? base + " | FVGv1 tf=" + fvgDetectionTf + " lo=" + str.tostring(p.lower, format.mintick) + " hi=" + str.tostring(p.upper, format.mintick) + " size=" + str.tostring(p.upper - p.lower, format.mintick) + " sizePct=" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + " created=" + str.tostring(p.sourceClose) + " mode=" + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + " depth=" + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + " rr=" + str.tostring(rewardRiskRatio) + " BE=" + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "OFF") : base
+
+f_fvgFillComment(TradePlan p) =>
+    includeFvgOrderComments and not na(p.actualEntry) ? " | fillPct=" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + " fillBars=" + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " touchBars=" + str.tostring(p.firstTouchBar - p.createdChartBar) + " ageMin=" + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##") : ""
+
+f_logFvgTrade(FvgTradeAudit a) =>
+    TradePlan p = a.plan
+    if logFvgTradeCsv
+        // Schema is documented alongside this strategy. Epoch times are UTC ms.
+        log.info("FVG_TRADE_V1," + str.tostring(a.tradeNumber) + "," + p.orderId + "," + str.tostring(p.bias) + "," + fvgDetectionTf + "," + str.tostring(p.sourceClose) + "," + str.tostring(p.lower) + "," + str.tostring(p.upper) + "," + str.tostring(p.upper - p.lower) + "," + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias)) + "," + (useFvgEntryPercentage ? "DEPTH" : "TOUCH") + "," + str.tostring(useFvgEntryPercentage ? entryDepthPercent : 0) + "," + str.tostring(p.entry) + "," + str.tostring(p.actualEntry) + "," + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry)) + "," + str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + "," + str.tostring(p.firstTouchBar - p.createdChartBar) + "," + str.tostring((p.entryTime - p.sourceClose) / 60000.0) + "," + str.tostring(p.entryTime) + "," + str.tostring(a.exitTime) + "," + str.tostring(p.stop) + "," + str.tostring(p.target) + "," + str.tostring(rewardRiskRatio) + "," + str.tostring(enableBreakeven ? breakevenTriggerPercent : na) + "," + str.tostring(enableBreakeven ? breakevenLockPercent : na) + "," + str.tostring(not na(p.breakeven) and p.breakeven.active ? 1 : 0) + "," + str.tostring(a.exitPrice) + "," + a.result + "," + str.tostring(a.profit) + "," + str.tostring(a.priceR))
+    true
+
+// --- Consecutive closed-loss limits ---
+// Session ownership follows the entry plan; daily ownership follows actual exit
+// time. A reached limit is latched until its own boundary, even if a later
+// non-losing carried trade closes. No risk rule closes an existing position.
+type LossLimitState
+    int sessionStart = na
+    int dayKey = na
+    int sessionStreak = 0
+    int dailyStreak = 0
+    bool sessionPaused = false
+    bool dailyPaused = false
+
+f_lossDayKey(int eventTime, string timezoneValue) =>
+    year(eventTime, timezoneValue) * 10000 + month(eventTime, timezoneValue) * 100 + dayofmonth(eventTime, timezoneValue)
+
+f_syncLossSession(LossLimitState s, int sessionStart) =>
+    if not na(sessionStart) and (na(s.sessionStart) or s.sessionStart != sessionStart)
+        s.sessionStart := sessionStart
+        s.sessionStreak := 0
+        s.sessionPaused := false
+    true
+
+f_syncLossDay(LossLimitState s, int eventTime, string timezoneValue) =>
+    int dayKey = f_lossDayKey(eventTime, timezoneValue)
+    if na(s.dayKey) or s.dayKey != dayKey
+        s.dayKey := dayKey
+        s.dailyStreak := 0
+        s.dailyPaused := false
+    true
+
+f_recordLossResult(LossLimitState s, int tradeSessionStart, int exitTime, float profit, int sessionLimit, int dailyLimit, string timezoneValue) =>
+    f_syncLossDay(s, exitTime, timezoneValue)
+    if not na(profit)
+        bool lost = profit < 0
+        s.dailyStreak := lost ? s.dailyStreak + 1 : 0
+        s.dailyPaused := s.dailyPaused or (dailyLimit > 0 and s.dailyStreak >= dailyLimit)
+        if not na(tradeSessionStart) and not na(s.sessionStart) and tradeSessionStart == s.sessionStart
+            s.sessionStreak := lost ? s.sessionStreak + 1 : 0
+            s.sessionPaused := s.sessionPaused or (sessionLimit > 0 and s.sessionStreak >= sessionLimit)
+    true
+
+f_lossEntriesAllowed(LossLimitState s) =>
+    not s.sessionPaused and not s.dailyPaused
+
+var LossLimitState lossLimitState = LossLimitState.new()
+var TradePlan activePlan = na
+var float plannedQtyValue = na
+var float plannedRiskValue = na
+var float targetRiskValue = na
+var array<TradePlan> drawingHistory = array.new<TradePlan>()
+var int processedClosed = 0
+var int qualifiedSetups = 0
+var int rejectedWideStop = 0
+var int rejectedQuantity = 0
+var int pendingCancellations = 0
+var string lastEvent = "Waiting for direction and a trading window"
+
+f_erasePlan(TradePlan p) =>
+    line.delete(p.entryLine)
+    line.delete(p.stopLine)
+    line.delete(p.targetLine)
+    line.delete(p.breakevenStopLine)
+    box.delete(p.zoneBox)
+    label.delete(p.setupLabel)
+    true
+
+f_finishPlanDrawing(TradePlan p, int endTime) =>
+    if not na(p.entryLine)
+        line.set_x2(p.entryLine, endTime)
+    if not na(p.stopLine)
+        line.set_x2(p.stopLine, not na(p.breakeven) and p.breakeven.active ? p.breakeven.activatedAt : endTime)
+    if not na(p.breakevenStopLine)
+        line.set_x2(p.breakevenStopLine, endTime)
+    if not na(p.targetLine)
+        line.set_x2(p.targetLine, endTime)
+    true
+
+f_drawPlan(TradePlan p) =>
+    color directionColor = p.bias == 1 ? fiveSessionLongColor : fiveSessionShortColor
+    if showTradeBoxes
+        p.zoneBox := box.new(p.anchorTime, p.upper, time + fvgExtendBars * chartMs, p.lower, xloc=xloc.bar_time, border_color=na, bgcolor=p.bias == 1 ? fvgBullColor : fvgBearColor)
+    if showEntry
+        p.entryLine := line.new(p.anchorTime, p.entry, p.expires, p.entry, xloc=xloc.bar_time, color=directionColor, style=line.style_dashed)
+    if showSL
+        p.stopLine := line.new(p.sourceClose, p.stop, p.expires, p.stop, xloc=xloc.bar_time, color=color.red)
+    if showTP
+        p.targetLine := line.new(p.sourceClose, p.target, p.expires, p.target, xloc=xloc.bar_time, color=color.lime)
+    if showTradeLabels
+        string details = (p.bias == 1 ? "LONG" : "SHORT") + " · " + (useFvgEntryPercentage ? str.tostring(entryDepthPercent, "#.##") + "% FVG" : "Any FVG touch") + "\nGap " + str.tostring(p.lower, format.mintick) + "–" + str.tostring(p.upper, format.mintick) + " · " + str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + " pts/pips\nE " + str.tostring(p.entry, format.mintick) + " · SL " + str.tostring(p.stop, format.mintick) + "\nTP " + str.tostring(p.target, format.mintick) + " · " + str.tostring(math.abs(p.entry - p.stop) / stopPointSize, "#.##") + " pts/pips"
+        p.setupLabel := label.new(p.sourceClose, p.entry, details, xloc=xloc.bar_time, style=p.bias == 1 ? label.style_label_up : label.style_label_down, textcolor=color.white, color=color.new(directionColor, 30), size=size.tiny)
+    array.push(drawingHistory, p)
+    while array.size(drawingHistory) > retainedTradeDrawings
+        f_erasePlan(array.shift(drawingHistory))
+    true
+
+f_countFill(TradePlan p) =>
+    if not p.filled
+        p.filled := true
+        if sessionTradeState.startTime == p.sessionStart
+            sessionTradeState.hasFill := true
+        ExecutionWindow owner = array.get(executionWindows, p.windowIndex)
+        if owner.occurrenceStart == p.windowStart
+            owner.fills += 1
+    true
+
+if barstate.isconfirmed
+    f_syncLossSession(lossLimitState, fiveOccurrenceStart)
+    if na(sessionTradeState.startTime) or sessionTradeState.startTime != fiveSessionState.startTime or not fiveSessionState.active
+        array.clear(sessionFvgs)
+        sessionTradeState.startTime := fiveSessionState.startTime
+        sessionTradeState.hasFill := false
+    if firstTradeFromSessionFvg
+        f_pruneSessionFvgs(fiveSessionState.startTime, fiveSessionState.active)
+        if nativeMode and fiveSessionState.active and not sessionTradeState.hasFill and confirmedNewFvg and fvgSourceTimeRaw >= fiveSessionState.startTime and fvgSourceCloseRaw <= fiveSessionState.endTime
+            int gapExpiry = math.min(fvgSourceCloseRaw + maximumFvgAgeMinutes * 60000, fiveSessionState.endTime)
+            array.push(sessionFvgs, SessionFvg.new(fiveSessionState.startTime, fvgBullRaw ? 1 : -1, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, gapExpiry, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index))
+    if not na(activePlan) and not activePlan.filled and bar_index > activePlan.createdChartBar and na(activePlan.firstTouchBar) and f_fvgTouched(activePlan.upper, activePlan.lower, high, low)
+        activePlan.firstTouchBar := bar_index
+    // A limit entry and bracket can both fill within one chart candle. Read the
+    // closed ledger before the open position so that these round trips count once.
+    if strategy.closedtrades > processedClosed
+        for i = processedClosed to strategy.closedtrades - 1
+            bool ownsPlan = not na(activePlan) and strategy.closedtrades.entry_id(i) == activePlan.orderId
+            int tradeSessionStart = ownsPlan ? activePlan.sessionStart : na
+            // Use ledger P/L, not exit comments or floating/open P/L. Process
+            // every newly closed trade once, including same-candle round trips.
+            f_recordLossResult(lossLimitState, tradeSessionStart, strategy.closedtrades.exit_time(i), strategy.closedtrades.profit(i), maximumSessionConsecutiveLosses, maximumDailyConsecutiveLosses, dailyLossResetTimezone)
+            if ownsPlan
+                f_captureFvgFill(activePlan, strategy.closedtrades.entry_price(i), strategy.closedtrades.entry_bar_index(i), strategy.closedtrades.entry_time(i))
+                float initialActualRisk = activePlan.bias * (activePlan.actualEntry - activePlan.stop)
+                float priceR = initialActualRisk > 0 ? activePlan.bias * (strategy.closedtrades.exit_price(i) - activePlan.actualEntry) / initialActualRisk : na
+                string exitComment = strategy.closedtrades.exit_comment(i)
+                string exitResult = str.startswith(exitComment, "TP") ? "TP" : str.startswith(exitComment, "BE") ? "BE" : str.startswith(exitComment, "SL") ? "SL" : exitComment
+                closedFvgAudit := FvgTradeAudit.new(i + 1, activePlan, strategy.closedtrades.exit_time(i), strategy.closedtrades.exit_price(i), strategy.closedtrades.profit(i), priceR, exitResult)
+                array.push(fvgTradeHistory, closedFvgAudit)
+                if array.size(fvgTradeHistory) > 1000
+                    array.shift(fvgTradeHistory)
+                f_logFvgTrade(closedFvgAudit)
+                f_countFill(activePlan)
+                f_finishPlanDrawing(activePlan, time_close)
+                lastEvent := strategy.closedtrades.exit_comment(i) + " · " + activePlan.orderId
+                plannedQtyValue := na
+                plannedRiskValue := na
+                targetRiskValue := na
+                activePlan := na
+        processedClosed := strategy.closedtrades
+    // Classify exits first, then roll forward to the next order's day. At a
+    // midnight candle close, yesterday's loss must not pause the new day.
+    f_syncLossDay(lossLimitState, time_close, dailyLossResetTimezone)
+    bool lossEntriesAllowed = f_lossEntriesAllowed(lossLimitState)
+    if not na(activePlan) and strategy.position_size != 0
+        f_captureFvgFill(activePlan, strategy.position_avg_price, strategy.opentrades.entry_bar_index(0), strategy.opentrades.entry_time(0))
+        f_countFill(activePlan)
+        lastEvent := "Open " + activePlan.orderId
+        if na(activePlan.breakeven)
+            float filledEntry = strategy.position_avg_price
+            activePlan.breakeven := BreakevenState.new(filledEntry, f_breakevenTrigger(filledEntry, activePlan.target, breakevenTriggerPercent, activePlan.bias, syminfo.mintick), activePlan.stop, protectedStop=f_breakevenLock(filledEntry, activePlan.target, breakevenLockPercent, activePlan.bias, syminfo.mintick))
+        float observedPrice = f_breakevenObservation(activePlan.bias, bar_index, strategy.opentrades.entry_bar_index(0), close, high, low)
+        bool justArmedBreakeven = f_armBreakeven(activePlan.breakeven, enableBreakeven, activePlan.bias, observedPrice, time_close)
+        if justArmedBreakeven
+            if showSL
+                activePlan.breakevenStopLine := line.new(time_close, activePlan.breakeven.stop, time_close, activePlan.breakeven.stop, xloc=xloc.bar_time, color=color.orange, style=line.style_dashed)
+            if not na(activePlan.setupLabel)
+                label.set_text(activePlan.setupLabel, label.get_text(activePlan.setupLabel) + "\nBE active · SL " + str.tostring(activePlan.breakeven.stop, format.mintick))
+            lastEvent := "Breakeven armed · " + activePlan.orderId
+        // Amend the SAME bracket ID and keep its original TP and full size.
+        // Submission happens now; no earlier part of this candle is re-simulated.
+        string fillComment = f_fvgFillComment(activePlan)
+        strategy.exit(activePlan.orderId + "-EXIT", from_entry=activePlan.orderId, stop=activePlan.breakeven.stop, limit=activePlan.target, comment_profit="TP" + fillComment, comment_loss=(activePlan.breakeven.active ? "BE" : "SL") + fillComment)
+        f_finishPlanDrawing(activePlan, time_close)
+
+    if not na(activePlan) and not activePlan.filled
+        ExecutionWindow owner = array.get(executionWindows, activePlan.windowIndex)
+        bool expired = time_close >= activePlan.expires or owner.occurrenceStart != activePlan.windowStart
+        bool directionChanged = currentActiveSessionIndex == 0 or fiveSessionState.startTime != activePlan.sessionStart or fiveSessionState.bias != activePlan.bias
+        bool invalidated = activePlan.bias == 1 ? close < activePlan.lower : close > activePlan.upper
+        if not lossEntriesAllowed or not nativeMode or expired or directionChanged or invalidated
+            strategy.cancel(activePlan.orderId)
+            strategy.cancel(activePlan.orderId + "-EXIT")
+            f_finishPlanDrawing(activePlan, time_close)
+            pendingCancellations += 1
+            plannedQtyValue := na
+            plannedRiskValue := na
+            targetRiskValue := na
+            lastEvent := "Pending entry cancelled: " + (not lossEntriesAllowed ? "consecutive loss limit" : not nativeMode ? "chart/settings" : expired ? "FVG age/window/session ended" : directionChanged ? "session direction changed" : "FVG mitigated")
+            activePlan := na
+
+    bool directionReady = fiveSessionState.active and fiveSessionState.evaluated and fiveSessionState.bias != 0 and time_close >= fiveSessionState.openingEnd
+    bool free = na(activePlan) and strategy.position_size == 0
+    if nativeMode and lossEntriesAllowed and directionReady and free and not na(selectedWindow)
+        ExecutionWindow ew = array.get(executionWindows, selectedWindow)
+        bool afterWindowOpened = fvgSourceCloseRaw > ew.occurrenceStart
+        bool afterDirectionKnown = fvgSourceCloseRaw > fiveSessionState.openingEnd
+        bool beforeDeadline = time_close < ew.occurrenceEnd and time_close < fiveSessionState.endTime
+        bool allowance = maximumTradesPerWindow == 0 or ew.fills < maximumTradesPerWindow
+        bool alignedFvg = fiveSessionState.bias == 1 ? fvgBullRaw : fvgBearRaw
+        bool useSessionGap = firstTradeFromSessionFvg and not sessionTradeState.hasFill
+        SessionFvg candidate = useSessionGap ? f_firstSessionFvg(fiveSessionState.bias) : na
+        if not useSessionGap and confirmedNewFvg and afterWindowOpened and afterDirectionKnown and alignedFvg
+            candidate := SessionFvg.new(fiveSessionState.startTime, fiveSessionState.bias, fvgSourceTimeRaw, fvgAnchorTimeRaw, fvgSourceCloseRaw, fiveSessionState.endTime, fvgMaxRaw, fvgMinRaw, structureLowRaw, structureHighRaw, bar_index)
+        if beforeDeadline and allowance and not na(candidate)
+            // Consume an attempted gap once; a rejection/cancellation cannot loop
+            // back to it or prevent the next valid gap from being considered.
+            candidate.attempted := true
+            int bias = fiveSessionState.bias
+            float entry = f_entryPrice(candidate.upper, candidate.lower, bias)
+            float structuralStop = bias == 1 ? candidate.structureLow : candidate.structureHigh
+            float stop = f_stopPrice(entry, structuralStop, bias)
+            float riskDistance = bias * (entry - stop)
+            float target = math.round_to_mintick(entry + bias * riskDistance * rewardRiskRatio)
+            float riskPoints = riskDistance / stopPointSize
+            float riskPerContract = riskPoints * pointValue
+            float rawQty = riskPerContract > 0 ? riskPerTrade / riskPerContract : na
+            float steppedQty = na(rawQty) ? na : math.floor(rawQty / qtyStep) * qtyStep
+            float qty = na(steppedQty) ? na : maxQty > 0 ? math.min(steppedQty, maxQty) : steppedQty
+            bool stopValid = f_stopValid(entry, structuralStop, stop, bias)
+            bool targetValid = bias * (target - entry) > 0
+            bool quantityValid = not na(qty) and qty >= syminfo.mincontract and qty > 0
+            if not stopValid
+                rejectedWideStop += 1
+                lastEvent := "Rejected structural SL " + str.tostring(bias * (entry - structuralStop) / stopPointSize, "#.##") + " pts/pips"
+            else if not quantityValid
+                rejectedQuantity += 1
+                lastEvent := "Quantity below symbol minimum: " + str.tostring(qty) + " / " + str.tostring(syminfo.mincontract)
+            else if not targetValid
+                lastEvent := "Rejected TP: selected R:R rounds to zero reward at this tick size"
+            else
+                int expires = math.min(ew.occurrenceEnd, candidate.expires)
+                string orderId = (bias == 1 ? "LONG-" : "SHORT-") + str.tostring(candidate.sourceTime) + "-" + str.tostring(selectedWindow)
+                activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose, candidate.createdChartBar, firstTouchBar=candidate.firstTouchBar)
+                plannedQtyValue := qty
+                plannedRiskValue := qty * math.abs(activePlan.entry - activePlan.stop) / stopPointSize * pointValue
+                targetRiskValue := riskPerTrade
+                qualifiedSetups += 1
+                f_drawPlan(activePlan)
+                strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, qty=qty, comment=f_fvgEntryComment(activePlan, ew.tag))
+                strategy.exit(orderId + "-EXIT", from_entry=orderId, stop=stop, limit=target, comment_profit="TP", comment_loss="SL")
+                lastEvent := "Pending " + orderId
+
+// --- Compact diagnostics and exportable audit series ---
+f_price(float value) =>
+    na(value) ? "—" : str.tostring(value, format.mintick)
+string warning = not executionChart ? "Use standard " + executionTimeframe + "-minute candles dividing 15 minutes. Orders disabled." : not detectionCompatible ? "FVG timeframe must be >= chart and a whole multiple. Orders disabled." : not anyExecutableProfile ? "No enabled ticker/window profile matches this symbol." : not windowBoundariesAligned ? "Trading-window boundaries must align with chart bars. Orders disabled." : not fvgAgeAligned ? "Maximum FVG age must align with chart bars. Orders disabled." : ""
+string lossPause = lossLimitState.sessionPaused and lossLimitState.dailyPaused ? "PAUSED · session and daily consecutive loss limits" : lossLimitState.dailyPaused ? "PAUSED · daily consecutive loss limit" : lossLimitState.sessionPaused ? "PAUSED · session consecutive loss limit" : ""
+string strategyStatus = warning != "" ? warning : lossPause != "" ? lossPause : "READY · confirmed candles"
+var table dashboard = table.new(position.top_right, 2, 16, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+if barstate.islast or barstate.islastconfirmedhistory
+    table.clear(dashboard, 0, 0, 1, 15)
+    if showStrategyDashboard or warning != "" or lossPause != ""
+        string windowName = na(selectedWindow) ? "Outside entry windows" : array.get(executionWindows, selectedWindow).tag
+        string directionText = currentActiveSessionIndex == 0 ? "Outside reference sessions" : fiveSessionState.status
+        float currentStop = na(activePlan) ? na : na(activePlan.breakeven) ? activePlan.stop : activePlan.breakeven.stop
+        string breakevenText = not enableBreakeven ? "OFF" : (na(activePlan) or na(activePlan.breakeven) ? "Waiting" : activePlan.breakeven.active ? "ACTIVE · SL " + f_price(activePlan.breakeven.stop) : "Trigger " + f_price(activePlan.breakeven.trigger)) + " · at " + str.tostring(breakevenTriggerPercent) + "% lock " + str.tostring(breakevenLockPercent) + "%"
+        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Session loss streak / limit", "Daily loss streak / limit", "Breakeven", "Last event")
+        array<string> vals = array.from(strategyStatus, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(na(activePlan.breakeven) ? activePlan.entry : activePlan.breakeven.entry), na(activePlan) ? "—" : f_price(currentStop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " + " + str.tostring(stopTolerancePoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), str.tostring(lossLimitState.sessionStreak) + " / " + (maximumSessionConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumSessionConsecutiveLosses)), str.tostring(lossLimitState.dailyStreak) + " / " + (maximumDailyConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumDailyConsecutiveLosses)) + " · " + dailyLossResetTimezone, breakevenText, lastEvent)
+        for i = 0 to 15
+            table.cell(dashboard, 0, i, array.get(keys, i), text_color=color.silver, text_size=size.tiny)
+            table.cell(dashboard, 1, i, array.get(vals, i), text_color=i == 0 and (warning != "" or lossPause != "") ? color.orange : color.white, text_size=size.tiny)
+plot(fiveSessionState.bias, "Audit: Session Bias", display=display.data_window)
+plot(na(fiveSessionState.reference) ? na : fiveSessionState.reference.high, "Audit: Fifth Session High", display=display.data_window)
+plot(fiveSessionState.openingPrice, "Audit: Opening Close", display=display.data_window)
+plot(fiveSessionState.startTime, "Audit: Session Start ms", display=display.data_window)
+plot(fiveSessionState.openingEnd, "Audit: Direction Time ms", display=display.data_window)
+plot(selectedWindow, "Audit: Window Index", display=display.data_window)
+plot(confirmedNewFvg and fvgBullRaw ? 1 : 0, "Audit: Bull FVG", display=display.data_window)
+plot(confirmedNewFvg and fvgBearRaw ? 1 : 0, "Audit: Bear FVG", display=display.data_window)
+plot(confirmedNewFvg ? fvgMaxRaw : na, "Audit: FVG Upper", display=display.data_window)
+plot(confirmedNewFvg ? fvgMinRaw : na, "Audit: FVG Lower", display=display.data_window)
+plot(confirmedNewFvg ? structureLowRaw : na, "Audit: Three Candle Low", display=display.data_window)
+plot(confirmedNewFvg ? structureHighRaw : na, "Audit: Three Candle High", display=display.data_window)
+plot(na(activePlan) ? na : activePlan.entry, "Audit: Planned Entry", display=display.data_window)
+plot(na(activePlan) ? na : activePlan.stop, "Audit: Planned SL", display=display.data_window)
+plot(na(activePlan) ? na : activePlan.target, "Audit: Planned TP", display=display.data_window)
+plot(plannedQtyValue, "Audit: Planned Qty", display=display.data_window)
+plot(plannedRiskValue, "Audit: Planned Risk", display=display.data_window)
+plot(targetRiskValue, "Audit: Target Risk", display=display.data_window)
+plot(na(activePlan) ? na : activePlan.expires, "Audit: Pending Deadline ms", display=display.data_window)
+plot(firstTradeFromSessionFvg ? array.size(sessionFvgs) : na, "Audit: Session FVG Queue", display=display.data_window)
+plot(sessionTradeState.hasFill ? 1 : 0, "Audit: Session First Trade Filled", display=display.data_window)
+plot(na(activePlan) ? na : activePlan.sourceClose, "Audit: Planned FVG Confirmation ms", display=display.data_window)
+plot(lossLimitState.sessionStreak, "Audit: Session Consecutive Losses", display=display.data_window)
+plot(lossLimitState.dailyStreak, "Audit: Daily Consecutive Losses", display=display.data_window)
+plot(lossLimitState.sessionPaused ? 1 : 0, "Audit: Session Loss Limit Paused", display=display.data_window)
+plot(lossLimitState.dailyPaused ? 1 : 0, "Audit: Daily Loss Limit Paused", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.entry : na, "Audit: Actual Filled Entry", display=display.data_window)
+plot(enableBreakeven and not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.trigger : na, "Audit: Breakeven Trigger", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) ? activePlan.breakeven.stop : na, "Audit: Current Stop", display=display.data_window)
+plot(not na(activePlan) and not na(activePlan.breakeven) and activePlan.breakeven.active ? 1 : 0, "Audit: Breakeven Active", display=display.data_window)
+
+// Closed-trade values emit on the exit-observation bar, even if a new plan is
+// submitted on that same close. They never read the replacement activePlan.
+TradePlan closedFvgPlan = na(closedFvgAudit) ? na : closedFvgAudit.plan
+plot(na(closedFvgAudit) ? na : closedFvgAudit.tradeNumber, "FVG Trade: Number", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.bias, "FVG Trade: Direction", display=display.data_window)
+plot(na(closedFvgPlan) ? na : detectionSeconds, "FVG Trade: Detection Seconds", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.sourceClose, "FVG Trade: Created ms", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.lower, "FVG Trade: Lower", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.upper, "FVG Trade: Upper", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.upper - closedFvgPlan.lower, "FVG Trade: Size Price", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgSizePercent(closedFvgPlan.upper, closedFvgPlan.lower, closedFvgPlan.bias), "FVG Trade: Size Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : useFvgEntryPercentage ? 1 : 0, "FVG Trade: Percentage Mode", display=display.data_window)
+plot(na(closedFvgPlan) ? na : useFvgEntryPercentage ? entryDepthPercent : 0, "FVG Trade: Planned Depth Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.entry, "FVG Trade: Planned Entry", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.actualEntry, "FVG Trade: Actual Entry", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgDepth(closedFvgPlan.upper, closedFvgPlan.lower, closedFvgPlan.bias, closedFvgPlan.actualEntry), "FVG Trade: Actual Depth Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : f_fvgFillBars(closedFvgPlan.createdChartBar, closedFvgPlan.entryBar), "FVG Trade: Bars To Fill", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.firstTouchBar - closedFvgPlan.createdChartBar, "FVG Trade: Bars To First Touch", display=display.data_window)
+plot(na(closedFvgPlan) ? na : (closedFvgPlan.entryTime - closedFvgPlan.sourceClose) / 60000.0, "FVG Trade: Minutes To Fill", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.entryTime, "FVG Trade: Entry ms", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.exitTime, "FVG Trade: Exit ms", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.stop, "FVG Trade: Initial SL", display=display.data_window)
+plot(na(closedFvgPlan) ? na : closedFvgPlan.target, "FVG Trade: TP", display=display.data_window)
+plot(na(closedFvgPlan) ? na : rewardRiskRatio, "FVG Trade: Configured RR", display=display.data_window)
+plot(na(closedFvgPlan) ? na : enableBreakeven ? 1 : 0, "FVG Trade: BE Enabled", display=display.data_window)
+plot(na(closedFvgPlan) or not enableBreakeven ? na : breakevenTriggerPercent, "FVG Trade: BE Trigger Percent", display=display.data_window)
+plot(na(closedFvgPlan) or not enableBreakeven ? na : breakevenLockPercent, "FVG Trade: BE Lock Percent", display=display.data_window)
+plot(na(closedFvgPlan) ? na : not na(closedFvgPlan.breakeven) and closedFvgPlan.breakeven.active ? 1 : 0, "FVG Trade: BE Activated", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.exitPrice, "FVG Trade: Exit Price", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.profit, "FVG Trade: Profit", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.priceR, "FVG Trade: Price R", display=display.data_window)
+plot(na(closedFvgPlan) ? na : stopPointSize, "FVG Trade: Point Size", display=display.data_window)
+plot(na(closedFvgAudit) ? na : closedFvgAudit.result == "SL" ? 1 : closedFvgAudit.result == "TP" ? 2 : closedFvgAudit.result == "BE" ? 3 : 0, "FVG Trade: Exit Reason", display=display.data_window)
+
+var table fvgReport = table.new(position.bottom_left, 9, fvgReportRows + 2, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+if barstate.islast or barstate.islastconfirmedhistory
+    table.clear(fvgReport, 0, 0, 8, fvgReportRows + 1)
+    if showFvgTradeReport
+        int count = array.size(fvgTradeHistory)
+        int pages = math.max(1, int(math.ceil(count / float(fvgReportRows))))
+        int page = math.min(fvgReportPage, pages)
+        string config = (useFvgEntryPercentage ? "Depth " + str.tostring(entryDepthPercent) + "%" : "Any touch") + " · RR 1:" + str.tostring(rewardRiskRatio) + " · BE " + (enableBreakeven ? str.tostring(breakevenTriggerPercent) + "% → " + str.tostring(breakevenLockPercent) + "%" : "OFF")
+        array<string> contextCells = array.from("FVG Report", useFvgEntryPercentage ? str.tostring(entryDepthPercent) + "% depth" : "Any touch", "RR 1:" + str.tostring(rewardRiskRatio), enableBreakeven ? "BE " + str.tostring(breakevenTriggerPercent) + "/" + str.tostring(breakevenLockPercent) : "BE OFF", "Page " + str.tostring(page) + "/" + str.tostring(pages), "TF " + fvgDetectionTf, str.tostring(count) + " closed", "Chart run", "Hover details")
+        array<string> headings = array.from("Trade", "Created / TF", "Gap low / high", "Size pts / %", "Fill / depth %", "First touch\nchart bars", "Entry age\nbars / min", "Exit / price R\nP/L", "BE activated")
+        for c = 0 to 8
+            table.cell(fvgReport, c, 0, array.get(contextCells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=config + "\nMost recent 1000 closed chart-run trades retained. Export chart data for FVG Trade columns.")
+            table.cell(fvgReport, c, 1, array.get(headings, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.silver, text_size=f_labelSize(fvgReportTextSize))
+        for row = 0 to fvgReportRows - 1
+            int index = count - 1 - (page - 1) * fvgReportRows - row
+            if index >= 0
+                FvgTradeAudit a = array.get(fvgTradeHistory, index)
+                TradePlan p = a.plan
+                string details = p.orderId + "\nConfirmed " + str.format_time(p.sourceClose, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + " (" + dailyLossResetTimezone + ")\nPlanned E / SL / TP: " + f_price(p.entry) + " / " + f_price(p.stop) + " / " + f_price(p.target) + "\nActual entry: " + f_price(p.actualEntry) + " · " + str.format_time(p.entryTime, "yyyy-MM-dd HH:mm", dailyLossResetTimezone) + "\nChart bars are measured from the detection candle's confirmation (creation bar = 0).\nFirst touch is range overlap, not close-through invalidation. Price R excludes fees."
+                array<string> cells = array.from(str.tostring(a.tradeNumber) + (p.bias == 1 ? " LONG" : " SHORT"), str.format_time(p.sourceClose, "MM-dd HH:mm", dailyLossResetTimezone) + "\n" + fvgDetectionTf, f_price(p.lower) + "\n" + f_price(p.upper), str.tostring((p.upper - p.lower) / stopPointSize, "#.##") + "\n" + str.tostring(f_fvgSizePercent(p.upper, p.lower, p.bias), "#.####") + "%", f_price(p.actualEntry) + "\n" + str.tostring(f_fvgDepth(p.upper, p.lower, p.bias, p.actualEntry), "#.##") + "%", str.tostring(p.firstTouchBar - p.createdChartBar), str.tostring(f_fvgFillBars(p.createdChartBar, p.entryBar)) + " / " + str.tostring((p.entryTime - p.sourceClose) / 60000.0, "#.##"), a.result + " / " + str.tostring(a.priceR, "#.##") + "R\n" + str.tostring(a.profit, "#.##"), not na(p.breakeven) and p.breakeven.active ? "YES" : "NO")
+                for c = 0 to 8
+                    table.cell(fvgReport, c, row + 2, array.get(cells, c), width=c == 1 ? 7 : c == 2 or c == 4 ? 6 : 5, text_color=color.white, text_size=f_labelSize(fvgReportTextSize), tooltip=details)

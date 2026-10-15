@@ -1,0 +1,77 @@
+{
+  "proof": "Real local frontend/backend, authenticated fixture user and isolated PostgreSQL database. No production data or provider involved.",
+  "checks": [
+    {
+      "name": "desktop-en-light",
+      "width": 1440,
+      "height": 1100,
+      "language": "en",
+      "theme": "light",
+      "sourceRows": 1062,
+      "previewTrades": 531,
+      "persistedTrades": 531,
+      "reimportDuplicates": 531,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 5834.85,
+      "overflow": {
+        "viewport": 1440,
+        "document": 1440
+      },
+      "errors": [],
+      "workspaceCreatedInUi": true,
+      "initialWorkspaceInstrument": null,
+      "workspaceInstrumentCleared": true,
+      "fullSignalsReconciled": true
+    },
+    {
+      "name": "mobile-ro-light",
+      "width": 390,
+      "height": 844,
+      "language": "ro",
+      "theme": "light",
+      "sourceRows": 1062,
+      "previewTrades": 531,
+      "persistedTrades": 531,
+      "reimportDuplicates": 531,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 5834.85,
+      "overflow": {
+        "viewport": 390,
+        "document": 390
+      },
+      "errors": [],
+      "workspaceCreatedInUi": true,
+      "initialWorkspaceInstrument": null,
+      "workspaceInstrumentCleared": true,
+      "fullSignalsReconciled": true
+    },
+    {
+      "name": "mobile-en-dark",
+      "width": 375,
+      "height": 812,
+      "language": "en",
+      "theme": "dark",
+      "sourceRows": 1062,
+      "previewTrades": 531,
+      "persistedTrades": 531,
+      "reimportDuplicates": 531,
+      "priceCurrency": "EUR",
+      "pnlCurrency": "USD",
+      "sourceFieldsReconciled": true,
+      "netPnl": 5834.85,
+      "overflow": {
+        "viewport": 375,
+        "document": 375
+      },
+      "errors": [],
+      "workspaceCreatedInUi": true,
+      "initialWorkspaceInstrument": "GER40F",
+      "workspaceInstrumentCleared": true,
+      "fullSignalsReconciled": true
+    }
+  ]
+}
