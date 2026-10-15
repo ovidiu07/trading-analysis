@@ -1,9 +1,11 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
+// Properties require compile-time constants. 5% margin = 20:1 leverage;
+// edit Long/Short leverage (or margin %) in Properties to match your account.
 strategy("Devtrader · Five Sessions FVG Windows", shorttitle="Five Sessions FVG Windows", overlay=true, pyramiding=0,
      initial_capital=10000, currency=currency.USD, default_qty_type=strategy.fixed, default_qty_value=0.1,
      commission_type=strategy.commission.percent, commission_value=0, slippage=0,
-     margin_long=100, margin_short=100, calc_on_every_tick=false, calc_on_order_fills=false,
+     margin_long=5, margin_short=5, calc_on_every_tick=false, calc_on_order_fills=false,
      process_orders_on_close=false, use_bar_magnifier=true, max_bars_back=5000,
      max_lines_count=500, max_labels_count=500, max_boxes_count=100)
 
@@ -826,10 +828,11 @@ float entryDepthPercent = input.float(25.0, "FVG Entry Percentage", minval=0, ma
 float maxStopPoints = input.float(36.0, "Maximum SL (points / pips)", minval=0.00000001, group=G_EXEC, tooltip="Maximum planned entry-to-SL distance. Keep the structural wick stop within this cap; if it exceeds the cap by no more than the SL tolerance, place SL at the cap instead.")
 float stopTolerancePoints = input.float(9.0, "SL Excess Tolerance (points / pips)", minval=0.0, group=G_EXEC, tooltip="Allow a structural SL up to Maximum SL plus this tolerance. Example: maximum 36 and tolerance 9 accepts structural distances through 45, with the actual SL capped at 36. Zero restores strict rejection above the maximum.")
 float stopPointSize = input.float(1.0, "Price Size Of One Point / Pip", minval=0.00000001, group=G_EXEC, tooltip="1.0 for GER40/NQ price points. For forex, enter your pip size, e.g. 0.0001 for GBPUSD or 0.01 for a JPY quote. This is a price-distance conversion, not position risk sizing.")
-float riskPerTrade = input.float(100.0, "Account Risk Per Trade (account currency)", minval=0.0, group=G_EXEC, tooltip="Target money at risk per position in the account currency. Position size uses the actual planned stop distance, including any SL cap.")
-float pointValue = input.float(1.15, "Money Value Of One Point Per Contract", minval=0.00000001, group=G_EXEC, tooltip="Account-currency P&L of a 1 price-point move on 1 contract. For this GER40 CFD quoted in EUR with a USD account it is about 1.15 (EUR/USD). Set per instrument.")
-float qtyStep = input.float(0.01, "Order Size Step", minval=0.00000001, group=G_EXEC, tooltip="Size is rounded DOWN to this step so realised risk never exceeds the target.")
-float maxQty = input.float(10.0, "Maximum Order Size (0 = unlimited)", minval=0.0, group=G_EXEC, tooltip="Safety cap — a very tight stop would otherwise produce a very large size.")
+float riskPerTrade = input.float(100.0, "1R / Risk Per Trade (account currency)", minval=0.0, step=10.0, group=G_EXEC, tooltip="Editable planned loss at the original SL: 100 = approximately -$100 with the default USD account. Automatically sizes each position from its actual capped stop, symbol contract value, and TradingView currency conversion. Quantity rounding/caps can reduce risk. Fees, slippage, gaps and margin liquidation can change realised losses. Zero disables new entries. Properties Order Size is overridden by the calculated quantity.")
+bool autoPointValue = input.bool(true, "Automatic Symbol Value / Currency Conversion", group=G_EXEC, tooltip="Use syminfo.pointvalue converted from the symbol currency into the Properties account currency, using TradingView's conversion rate. Disable only to supply a manual account-currency value. Missing metadata/conversion blocks entries; there is no guessed FX fallback.")
+float pointValue = input.float(1.15, "Manual Money Value Of One Price Unit Per Contract", minval=0.00000001, group=G_EXEC, active=not autoPointValue, tooltip="Used only when automatic conversion is disabled. Account-currency P&L for a 1.0 PRICE move on one contract, independent of the points/pips distance setting. Must agree with the chart symbol's contract and currency economics for Strategy Tester P&L to match 1R.")
+float qtyStep = input.float(0.0, "Order Size Step (0 = symbol minimum)", minval=0.0, group=G_EXEC, tooltip="Zero automatically uses syminfo.mincontract. A custom step is rounded up to a multiple of that minimum; quantity is rounded DOWN so planned stop risk stays within 1R. Actual fills can differ.")
+float maxQty = input.float(0.0, "Maximum Order Size (0 = unlimited)", minval=0.0, group=G_EXEC, tooltip="Optional quantity cap. Zero lets the script target the full 1R amount; a positive cap can reduce planned risk below 1R. TradingView still enforces the leverage/margin set in Properties.")
 float rewardRiskRatio = input.float(1.5, "Reward / Risk", minval=0.01, step=0.1, group=G_EXEC)
 int maximumTradesPerWindow = input.int(0, "Maximum Filled Trades Per Window (0 = unlimited)", minval=0, group=G_EXEC, tooltip="By default, a new FVG can qualify after the previous trade closes, regardless of win/loss. No pyramiding; only one pending entry or open trade at a time.")
 bool firstTradeFromSessionFvg = input.bool(false, "First Trade From Earliest Unmitigated Session FVG", group=G_EXEC, tooltip="For the first filled trade of each direction session, use its earliest still-valid same-direction FVG, including gaps confirmed during the opening 15 minutes or before the entry window. Wait for confirmed direction and an enabled entry window. Later trades require a new FVG as usual. Mitigation follows the detector: a close beyond the far edge.")
@@ -861,6 +864,10 @@ int fvgReportRows = input.int(5, "FVG Report Rows", minval=1, maxval=15, group=G
 string fvgReportTextSize = input.string("Small", "FVG Report Text Size", options=["Tiny", "Small", "Normal"], group=G_VIS, active=showFvgTradeReport)
 bool includeFvgOrderComments = input.bool(true, "Include FVG Details In Strategy Trade Signals", group=G_VIS, tooltip="Adds gap bounds, size, confirmation time, entry mode/depth and BE configuration to the native Trades report's entry signal. Fill-time details also appear in the FVG Trade Report and chart-export series, including same-candle round trips.")
 bool logFvgTradeCsv = input.bool(false, "Log Closed FVG Trades As CSV (Pine Logs)", group=G_VIS, tooltip="Logs one FVG_TRADE_V1 CSV record per closed chart-run trade. Pine Logs retain a limited number of messages and do not expose Deep Backtesting trades. The chart report retains the most recent 1000 closed trades. Native trade signals carry gap/configuration details for Deep Backtesting too.")
+
+// One price unit per contract, in account currency. Do not divide by pip size:
+// that input only controls distance labels/caps, not the symbol's P&L multiplier.
+float accountValuePerPriceUnit = autoPointValue ? strategy.convert_to_account(syminfo.pointvalue) : pointValue
 
 if barstate.isfirst and enableBreakeven and breakevenLockPercent >= breakevenTriggerPercent
     runtime.error("BE Protected Profit must be less than Breakeven Trigger. Example: trigger 90, protected profit 30.")
@@ -935,6 +942,18 @@ f_stopValid(float entry, float structuralStop, float stop, int bias) =>
     float actualRisk = bias * (entry - stop)
     float epsilon = syminfo.mintick * 0.000001
     structuralRisk > 0 and structuralRisk <= (maxStopPoints + stopTolerancePoints) * stopPointSize + epsilon and actualRisk > 0 and actualRisk <= maxStopPoints * stopPointSize + epsilon
+
+f_orderQuantity(float riskBudget, float unitRisk, float minimumQty, float requestedStep, float maximumQty) =>
+    float result = na
+    if riskBudget > 0 and unitRisk > 0 and minimumQty > 0 and requestedStep >= 0 and maximumQty >= 0
+        float step = minimumQty * math.max(1.0, math.ceil(requestedStep / minimumQty - 0.000000001))
+        float raw = riskBudget / unitRisk
+        float capped = maximumQty > 0 ? math.min(raw, maximumQty) : raw
+        result := math.floor(capped / step) * step
+    result
+
+f_requiredLeverage(float notional, float equity) =>
+    notional > 0 and equity > 0 ? notional / equity : na
 
 // --- Trading-window occurrences ---
 type ExecutionWindow
@@ -1139,6 +1158,9 @@ type TradePlan
     string sessionName = ""
     string fvgId = ""
     float initialRiskAccount = na
+    float plannedNotionalAccount = na
+    float requiredLeverage = na
+    float plannedRewardAccount = na
 
 // A separate closed-trade ledger survives plan cleanup and same-bar round trips.
 // One entry/open position at a time means at most one closure per chart bar.
@@ -1415,20 +1437,18 @@ if barstate.isconfirmed
             float stop = f_stopPrice(entry, structuralStop, bias)
             float riskDistance = bias * (entry - stop)
             float target = math.round_to_mintick(entry + bias * riskDistance * rewardRiskRatio)
-            float riskPoints = riskDistance / stopPointSize
-            float riskPerContract = riskPoints * pointValue
-            float rawQty = riskPerContract > 0 ? riskPerTrade / riskPerContract : na
-            float steppedQty = na(rawQty) ? na : math.floor(rawQty / qtyStep) * qtyStep
-            float qty = na(steppedQty) ? na : maxQty > 0 ? math.min(steppedQty, maxQty) : steppedQty
+            float riskPerContract = riskDistance * accountValuePerPriceUnit
+            float qty = f_orderQuantity(riskPerTrade, riskPerContract, syminfo.mincontract, qtyStep, maxQty)
+            float notionalAccount = strategy.convert_to_account(math.abs(entry) * qty * syminfo.pointvalue)
             bool stopValid = f_stopValid(entry, structuralStop, stop, bias)
             bool targetValid = bias * (target - entry) > 0
-            bool quantityValid = not na(qty) and qty >= syminfo.mincontract and qty > 0
+            bool quantityValid = not na(qty) and qty >= syminfo.mincontract and qty > 0 and strategy.equity > 0
             if not stopValid
                 rejectedWideStop += 1
                 lastEvent := "Rejected structural SL " + str.tostring(bias * (entry - structuralStop) / stopPointSize, "#.##") + " pts/pips"
             else if not quantityValid
                 rejectedQuantity += 1
-                lastEvent := "Quantity below symbol minimum: " + str.tostring(qty) + " / " + str.tostring(syminfo.mincontract)
+                lastEvent := riskPerTrade == 0 ? "New entries disabled: 1R is zero" : strategy.equity <= 0 ? "No positive account equity" : na(riskPerContract) or riskPerContract <= 0 ? "Symbol value / account currency conversion unavailable" : "Quantity below symbol minimum: " + str.tostring(qty) + " / " + str.tostring(syminfo.mincontract)
             else if not targetValid
                 lastEvent := "Rejected TP: selected R:R rounds to zero reward at this tick size"
             else
@@ -1436,13 +1456,16 @@ if barstate.isconfirmed
                 string orderId = (bias == 1 ? "LONG-" : "SHORT-") + str.tostring(candidate.sourceTime) + "-" + str.tostring(selectedWindow)
                 activePlan := TradePlan.new(selectedWindow, ew.occurrenceStart, fiveSessionState.startTime, expires, bias, orderId, entry, stop, target, candidate.upper, candidate.lower, candidate.anchorTime, candidate.sourceClose, candidate.createdChartBar, firstTouchBar=candidate.firstTouchBar, confirmationSourceBar=candidate.confirmationSourceBar, submissionAge=candidateAge, submittedAt=time_close, ageFilterEnabled=enableFvgAgeFilter, maximumAge=maximumFvgAgeBars, sessionIndex=currentActiveSessionIndex, sessionName=fiveOccurrenceName, fvgId=syminfo.tickerid + ":" + fvgDetectionTf + ":" + str.tostring(candidate.sourceClose) + ":" + str.tostring(bias))
                 plannedQtyValue := qty
-                plannedRiskValue := qty * math.abs(activePlan.entry - activePlan.stop) / stopPointSize * pointValue
+                plannedRiskValue := qty * riskPerContract
                 targetRiskValue := riskPerTrade
+                activePlan.plannedNotionalAccount := notionalAccount
+                activePlan.requiredLeverage := f_requiredLeverage(notionalAccount, strategy.equity)
+                activePlan.plannedRewardAccount := qty * math.abs(target - entry) * accountValuePerPriceUnit
                 qualifiedSetups += 1
                 f_drawPlan(activePlan)
                 strategy.entry(orderId, bias == 1 ? strategy.long : strategy.short, limit=entry, qty=qty, comment=f_fvgEntryComment(activePlan, ew.tag))
                 strategy.exit(orderId + "-EXIT", from_entry=orderId, stop=stop, limit=target, comment_profit="TP", comment_loss="SL")
-                lastEvent := "Pending " + orderId
+                lastEvent := "Pending " + orderId + (activePlan.requiredLeverage > 20 ? " · needs >20:1; check Properties leverage/equity" : "")
 
 // --- Compact diagnostics and exportable audit series ---
 f_price(float value) =>
@@ -1450,17 +1473,20 @@ f_price(float value) =>
 string warning = not executionChart ? "Use standard " + executionTimeframe + "-minute candles dividing 15 minutes. Orders disabled." : not detectionCompatible ? "FVG timeframe must be >= chart and a whole multiple. Orders disabled." : not anyExecutableProfile ? "No enabled ticker/window profile matches this symbol." : not windowBoundariesAligned ? "Trading-window boundaries must align with chart bars. Orders disabled." : not fvgAgeAligned ? "Maximum FVG age must align with chart bars. Orders disabled." : ""
 string lossPause = lossLimitState.sessionPaused and lossLimitState.dailyPaused ? "PAUSED · session and daily consecutive loss limits" : lossLimitState.dailyPaused ? "PAUSED · daily consecutive loss limit" : lossLimitState.sessionPaused ? "PAUSED · session consecutive loss limit" : ""
 string strategyStatus = warning != "" ? warning : lossPause != "" ? lossPause : "READY · confirmed candles"
-var table dashboard = table.new(position.top_right, 2, 16, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
+var table dashboard = table.new(position.top_right, 2, 19, bgcolor=color.new(#131722, 10), frame_color=color.gray, frame_width=1)
 if barstate.islast or barstate.islastconfirmedhistory
-    table.clear(dashboard, 0, 0, 1, 15)
+    table.clear(dashboard, 0, 0, 1, 18)
     if showStrategyDashboard or warning != "" or lossPause != ""
         string windowName = na(selectedWindow) ? "Outside entry windows" : array.get(executionWindows, selectedWindow).tag
         string directionText = currentActiveSessionIndex == 0 ? "Outside reference sessions" : fiveSessionState.status
         float currentStop = na(activePlan) ? na : na(activePlan.breakeven) ? activePlan.stop : activePlan.breakeven.stop
         string breakevenText = not enableBreakeven ? "OFF" : (na(activePlan) or na(activePlan.breakeven) ? "Waiting" : activePlan.breakeven.active ? "ACTIVE · SL " + f_price(activePlan.breakeven.stop) : "Trigger " + f_price(activePlan.breakeven.trigger)) + " · at " + str.tostring(breakevenTriggerPercent) + "% lock " + str.tostring(breakevenLockPercent) + "%"
-        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned risk", "Session loss streak / limit", "Daily loss streak / limit", "Breakeven", "Last event")
+        array<string> keys = array.from("Status", "Session / direction", "Exact fifth high", "Opening close", "Trading window", "Order", "Entry", "SL / TP", "Max SL + tolerance / R:R", "Qualified / SL rejects", "Qty rejects / cancelled", "Planned / target 1R · " + strategy.account_currency, "Session loss streak / limit", "Daily loss streak / limit", "Breakeven", "Last event", "Qty / planned TP · " + strategy.account_currency, "Required leverage / max margin", "Properties defaults / sizing")
         array<string> vals = array.from(strategyStatus, fiveOccurrenceName + " · " + directionText, na(fiveSessionState.reference) ? "—" : f_price(fiveSessionState.reference.high), f_price(fiveSessionState.openingPrice), windowName, na(activePlan) ? "None" : activePlan.filled ? "OPEN" : "PENDING", na(activePlan) ? "—" : f_price(na(activePlan.breakeven) ? activePlan.entry : activePlan.breakeven.entry), na(activePlan) ? "—" : f_price(currentStop) + " / " + f_price(activePlan.target), str.tostring(maxStopPoints) + " + " + str.tostring(stopTolerancePoints) + " / 1:" + str.tostring(rewardRiskRatio), str.tostring(qualifiedSetups) + " / " + str.tostring(rejectedWideStop), str.tostring(rejectedQuantity) + " / " + str.tostring(pendingCancellations), na(plannedRiskValue) ? "—" : str.tostring(plannedRiskValue, "#.##") + " / " + str.tostring(riskPerTrade, "#.##"), str.tostring(lossLimitState.sessionStreak) + " / " + (maximumSessionConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumSessionConsecutiveLosses)), str.tostring(lossLimitState.dailyStreak) + " / " + (maximumDailyConsecutiveLosses == 0 ? "OFF" : str.tostring(maximumDailyConsecutiveLosses)) + " · " + dailyLossResetTimezone, breakevenText, lastEvent)
-        for i = 0 to 15
+        array.push(vals, na(activePlan) ? "—" : str.tostring(plannedQtyValue, "#.########") + " / " + str.tostring(activePlan.plannedRewardAccount, "#.##"))
+        array.push(vals, na(activePlan) or na(activePlan.requiredLeverage) ? "—" : str.tostring(activePlan.requiredLeverage, "#.##") + ":1 / " + str.tostring(100.0 / activePlan.requiredLeverage, "#.##") + "%")
+        array.push(vals, "10,000 USD · 20:1 (5%) · " + (autoPointValue ? "AUTO FX" : "MANUAL VALUE"))
+        for i = 0 to 18
             table.cell(dashboard, 0, i, array.get(keys, i), text_color=color.silver, text_size=size.tiny)
             table.cell(dashboard, 1, i, array.get(vals, i), text_color=i == 0 and (warning != "" or lossPause != "") ? color.orange : color.white, text_size=size.tiny)
 plot(fiveSessionState.bias, "Audit: Session Bias", display=display.data_window)

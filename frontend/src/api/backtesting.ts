@@ -249,6 +249,7 @@ export type BacktestingTradeBulkPayload = {
   fields: Array<keyof BacktestingTradeBulkChanges>
   changes: Partial<BacktestingTradeBulkChanges>
   deriveRFromPlannedRR: boolean
+  missingBeProtectedProfitPercent?: number
   recalculateSession: boolean
 }
 

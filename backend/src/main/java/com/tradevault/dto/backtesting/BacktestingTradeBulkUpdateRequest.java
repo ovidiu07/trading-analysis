@@ -22,6 +22,9 @@ public class BacktestingTradeBulkUpdateRequest {
     @Valid @NotNull
     private Changes changes = new Changes();
     private boolean deriveRFromPlannedRR;
+    /** User-confirmed fallback for legacy BE exits with no versioned source configuration. */
+    @DecimalMin("0") @DecimalMax(value = "100", inclusive = false) @Digits(integer = 3, fraction = 4)
+    private BigDecimal missingBeProtectedProfitPercent;
     private boolean recalculateSession;
 
     @Data

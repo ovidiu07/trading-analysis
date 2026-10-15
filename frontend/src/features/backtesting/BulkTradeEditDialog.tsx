@@ -13,10 +13,11 @@ const textFields: Array<[Field, string]> = [
 export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClose, onSaved }: {
   workspaceId: string; trades: BacktestingTrade[]; preset?: boolean; onClose: () => void; onSaved: () => Promise<void>
 }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [fields, setFields] = useState<Field[]>(preset ? ['plannedRR'] : [])
   const [values, setValues] = useState<Partial<Record<Field, string>>>({ plannedRR: '1.5' })
   const [deriveR, setDeriveR] = useState(false)
+  const [bePercent, setBePercent] = useState('')
   const [sessions, setSessions] = useState(true)
   const mutation = useMutation({ mutationFn: (payload: BacktestingTradeBulkPayload) => updateBacktestingTrades(workspaceId, payload), onSuccess: onSaved })
   const toggle = (field: Field, checked: boolean) => setFields(current => checked ? [...current, field] : current.filter(item => item !== field))
@@ -29,6 +30,14 @@ export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClo
   })
   const invalidRR = fields.includes('plannedRR') && rr != null && rr <= 0
   const missingRR = deriveR && (fields.includes('plannedRR') ? rr == null || rr <= 0 : trades.some(trade => !trade.plannedRR || trade.plannedRR <= 0))
+  const missingBeTrades = trades.filter(trade => /^(?:BE|BREAKEVEN|BREAK\s+EVEN)(?=$|\s|\|)/i.test(trade.exitSignal?.trim() || '')
+    && !trade.entrySignal?.includes(' | FVGv1 '))
+  const needsBePercent = deriveR && missingBeTrades.length > 0
+  const protection = bePercent.trim() ? Number(bePercent) : null
+  const invalidBePercent = needsBePercent && (protection == null || !Number.isFinite(protection) || protection < 0 || protection >= 100
+    || !/^\d+(?:\.\d{1,4})?$/.test(bePercent.trim()))
+  const beRatios = [...new Set(missingBeTrades.map(trade => fields.includes('plannedRR') ? rr : trade.plannedRR))]
+  const format = (value: number) => value.toLocaleString(locale, { maximumFractionDigits: 8 })
   const save = () => {
     const changes: Partial<BacktestingTradeBulkChanges> = {}
     for (const field of fields) {
@@ -37,7 +46,8 @@ export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClo
       else if (field === 'plannedRR' || field === 'riskPercent' || field === 'pnlR') changes[field] = numeric(field)
       else Object.assign(changes, { [field]: value.trim() || null })
     }
-    mutation.mutate({ tradeIds: trades.map(trade => trade.id), fields, changes, deriveRFromPlannedRR: deriveR, recalculateSession: sessions })
+    mutation.mutate({ tradeIds: trades.map(trade => trade.id), fields, changes, deriveRFromPlannedRR: deriveR, recalculateSession: sessions,
+      ...(needsBePercent && protection != null ? { missingBeProtectedProfitPercent: protection } : {}) })
   }
   const editor = (field: Field, label: string, number = false) => <Stack key={field} spacing={0.5}>
     <FormControlLabel control={<Checkbox checked={fields.includes(field)} disabled={mutation.isLoading || (field === 'pnlR' && deriveR)} onChange={event => toggle(field, event.target.checked)} />} label={t('backtesting.bulk.changeField', { field: label })} />
@@ -52,6 +62,15 @@ export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClo
       <FormControlLabel control={<Checkbox checked={deriveR} disabled={mutation.isLoading} onChange={event => { setDeriveR(event.target.checked); if (event.target.checked) setFields(current => current.filter(field => field !== 'pnlR')) }} />} label={t('backtesting.bulk.deriveR')} />
       <Typography variant="caption" color="text.secondary">{t('backtesting.bulk.deriveHelp')}</Typography>
       {missingRR && <Alert severity="warning">{t('backtesting.bulk.missingRR')}</Alert>}
+      {needsBePercent && <Stack spacing={1}>
+        <Alert severity="warning">{t('backtesting.bulk.missingBeHelp', { count: missingBeTrades.length })}</Alert>
+        <TextField fullWidth type="number" label={t('backtesting.bulk.beProtection')} value={bePercent} disabled={mutation.isLoading}
+          inputProps={{ min: 0, max: 99.9999, step: 'any' }} error={Boolean(bePercent.trim()) && invalidBePercent}
+          helperText={t('backtesting.bulk.beProtectionHelp')} onChange={event => setBePercent(event.target.value)} />
+        {!invalidBePercent && !missingRR && protection != null && <Alert severity="info">{beRatios.length === 1 && beRatios[0] != null
+          ? t('backtesting.bulk.bePreview', { rr: format(beRatios[0]), percent: format(protection), r: format(beRatios[0] * protection / 100) })
+          : t('backtesting.bulk.bePreviewMixed', { percent: format(protection) })}</Alert>}
+      </Stack>}
       {editor('pnlR', t('backtesting.trades.rMultiple'), true)}
       {invalidR && <Alert severity="warning">{t('backtesting.errors.resultMismatch')}</Alert>}
       {editor('riskPercent', t('backtesting.trades.riskPercent'), true)}
@@ -62,6 +81,6 @@ export default function BulkTradeEditDialog({ workspaceId, trades, preset, onClo
       {editor('strategyNameSnapshot', t('backtesting.bulk.strategyName'))}
       {textFields.map(([field, key]) => editor(field, t(`backtesting.trades.${key}`)))}
     </Stack></DialogContent>
-    <DialogActions><Button disabled={mutation.isLoading} onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={mutation.isLoading || trades.length === 0 || (!fields.length && !deriveR && !sessions) || invalidNumber || invalidRR || invalidR || missingRR} onClick={save}>{t(mutation.isLoading ? 'backtesting.actions.saving' : 'backtesting.bulk.apply', { count: trades.length })}</Button></DialogActions>
+    <DialogActions><Button disabled={mutation.isLoading} onClick={onClose}>{t('backtesting.actions.cancel')}</Button><Button variant="contained" disabled={mutation.isLoading || trades.length === 0 || (!fields.length && !deriveR && !sessions) || invalidNumber || invalidRR || invalidR || missingRR || invalidBePercent} onClick={save}>{t(mutation.isLoading ? 'backtesting.actions.saving' : 'backtesting.bulk.apply', { count: trades.length })}</Button></DialogActions>
   </Dialog>
 }

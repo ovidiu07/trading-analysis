@@ -1,0 +1,7 @@
+Trade number,Type,Date and time,Signal,Price EUR,Size (qty),Size (value),Net PnL USD,Return %,Commission USD,Favorable excursion USD,Favorable excursion %,Adverse excursion USD,Adverse excursion %,Cumulative PnL USD,Cumulative PnL %,Duration (bars)
+1,Exit long,2021-02-25 17:50,BE,13964.03,3.9,54447.51,14.86,0.02,0,138.13,0.21,-61.23,-0.09,14.86,0.15,9
+1,Entry long,2021-02-25 17:05,LONG GER / 2,13960.9,3.9,54447.51,14.86,0.02,0,138.13,0.21,-61.23,-0.09,14.86,0.15,9
+2,Exit long,2021-02-25 18:25,SL,13914,3,41821.8,-97.12,-0.19,0,0,0.00,-97.12,-0.19,-82.27,-0.82,0
+2,Entry long,2021-02-25 18:25,LONG GER / 2,13940.6,3,41821.8,-97.12,-0.19,0,0,0.00,-97.12,-0.19,-82.27,-0.82,0
+6,Exit long,2021-03-02 11:35,TP,14060.6,2,28001.2,144.6,0.43,0,144.6,0.43,-71.33,-0.21,-118.9,-1.19,3
+6,Entry long,2021-03-02 11:20,LONG GER / 1,14000.6,2,28001.2,144.6,0.43,0,144.6,0.43,-71.33,-0.21,-118.9,-1.19,3

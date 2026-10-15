@@ -252,6 +252,46 @@ class BacktestingReplayFlowIntegrationTest {
         assertThat(baseline.path("totalR").isNull()).isTrue();
     }
 
+    @Test void legacyBeFallbackPersistsAfterReloadAndRejectsMissingOrInvalidSettingsAtomically() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        var file = new MockMultipartFile("file", "Five_Sessions_FVG_Windows_VANTAGE_GER40FT_2026-10-15_be4c2.csv", "text/csv",
+                Objects.requireNonNull(getClass().getResourceAsStream("/backtesting/tradingview-legacy-be.csv")).readAllBytes());
+        assertThat(call(token, multipart(route + "/trades/import").file(file)).path("imported").asInt()).isEqualTo(3);
+        var before = call(token, get(route + "/trades"));
+        var cashBefore = call(token, get(route + "/analytics")).path("baseline").path("currencyMetrics");
+        List<String> ids = new java.util.ArrayList<>(); before.forEach(trade -> ids.add(trade.path("id").asText()));
+        var payload = new HashMap<String, Object>();
+        payload.put("tradeIds", ids); payload.put("fields", List.of("plannedRR"));
+        payload.put("changes", Map.of("plannedRR", 1.5)); payload.put("deriveRFromPlannedRR", true);
+        assertThat(mvc.perform(patch(route + "/trades/bulk").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(payload))).andReturn().getResponse().getStatus()).isEqualTo(400);
+        payload.put("missingBeProtectedProfitPercent", 100);
+        assertThat(mvc.perform(patch(route + "/trades/bulk").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(payload))).andReturn().getResponse().getStatus()).isEqualTo(400);
+        call(token, get(route + "/trades")).forEach(trade -> {
+            assertThat(trade.path("plannedRR").isNull()).isTrue(); assertThat(trade.path("pnlR").isNull()).isTrue();
+        });
+        payload.put("missingBeProtectedProfitPercent", 20);
+        assertThat(call(token, patch(route + "/trades/bulk").contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(payload))).size()).isEqualTo(3);
+        var reloaded = call(token, get(route + "/trades"));
+        for (int i = 0; i < reloaded.size(); i++) {
+            var trade = reloaded.get(i);
+            assertThat(trade.path("plannedRR").decimalValue()).isEqualByComparingTo("1.5");
+            String expected = switch (trade.path("exitSignal").asText()) {
+                case "BE" -> "0.3"; case "TP" -> "1.5"; case "SL" -> "-1";
+                default -> throw new AssertionError("Unexpected fixture exit reason");
+            };
+            assertThat(trade.path("pnlR").decimalValue()).isEqualByComparingTo(expected);
+            for (String field : List.of("id", "date", "entryTime", "exitDate", "exitTime", "entryPrice", "exitPrice", "quantity",
+                    "netPnl", "currency", "priceCurrency", "entrySignal", "exitSignal", "result", "importTradeNumber", "source", "tradeScope"))
+                assertThat(trade.path(field)).as(field).isEqualTo(before.get(i).path(field));
+        }
+        var baseline = call(token, get(route + "/analytics")).path("baseline");
+        assertThat(baseline.path("totalR").decimalValue()).isEqualByComparingTo("0.8");
+        assertThat(baseline.path("currencyMetrics")).isEqualTo(cashBefore);
+    }
+
     @Test void bulkUpdatePersistsOutcomeBasedRAndSessionsAndRollsBackAnInvalidSelection() throws Exception {
         String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
         call(token, multipart(route + "/trades/import").file(fixture()));

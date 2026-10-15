@@ -158,6 +158,81 @@ class BacktestingBulkEditTest {
         }
     }
 
+    @Test void legacyBeUsesUserSuppliedProtectionWithoutRewritingSourceSignalsOrCash() {
+        winner.setEntrySignal("LONG GER / 2");
+        winner.setExitSignal("BE");
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("1.5"));
+        request.setDeriveRFromPlannedRR(true); request.setMissingBeProtectedProfitPercent(new BigDecimal("20"));
+        for (var direction : BacktestingTradeDirection.values()) {
+            winner.setDirection(direction);
+            service.updateTrades(workspace.getId(), request);
+            assertThat(winner.getPnlR()).isEqualByComparingTo("0.3");
+            assertThat(loser.getPnlR()).isEqualByComparingTo("-1");
+            assertThat(winner.getEntrySignal()).isEqualTo("LONG GER / 2");
+            assertThat(winner.getExitSignal()).isEqualTo("BE");
+            assertThat(winner.getResult()).isEqualTo(BacktestingTradeResult.WIN);
+            assertThat(winner.getNetPnl()).isEqualByComparingTo("150");
+        }
+        request.getChanges().setPlannedRR(new BigDecimal("2.5"));
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPnlR()).isEqualByComparingTo("0.5");
+    }
+
+    @Test void sourceSettingsTakePriorityOverFallbackAndFullTargetWinnerKeepsFullR() {
+        winner.setEntrySignal(FVG_ENTRY); winner.setExitSignal("BE");
+        var legacy = trade(BacktestingTradeResult.WIN, "17:20", "15"); legacy.setExitSignal("BE");
+        var target = trade(BacktestingTradeResult.WIN, "17:30", "150"); target.setExitSignal("TP");
+        when(repository.findAllById(any())).thenReturn(List.of(winner, loser, legacy, target));
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("1.5"));
+        request.setTradeIds(List.of(winner.getId(), loser.getId(), legacy.getId(), target.getId()));
+        request.setDeriveRFromPlannedRR(true); request.setMissingBeProtectedProfitPercent(new BigDecimal("20"));
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPnlR()).isEqualByComparingTo("0.45");
+        assertThat(legacy.getPnlR()).isEqualByComparingTo("0.3");
+        assertThat(target.getPnlR()).isEqualByComparingTo("1.5");
+        assertThat(loser.getPnlR()).isEqualByComparingTo("-1");
+    }
+
+    @Test void fallbackCannotBypassDisabledOrMalformedExportedProtectionAndUpdateStaysAtomic() {
+        loser.setExitSignal("BE");
+        var request = request("plannedRR", "notes"); request.getChanges().setPlannedRR(new BigDecimal("1.5"));
+        request.setDeriveRFromPlannedRR(true); request.setMissingBeProtectedProfitPercent(new BigDecimal("20"));
+        for (String signal : List.of(FVG_ENTRY.replace("BE=90/30", "BE=OFF"), FVG_ENTRY.replace("BE=90/30", "BE=30/90"),
+                FVG_ENTRY.replace(" BE=90/30", ""), FVG_ENTRY + " BE=90/20")) {
+            loser.setEntrySignal(signal);
+            assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(winner.getPlannedRR()).isNull(); assertThat(winner.getPnlR()).isNull();
+            assertThat(winner.getNotes()).isEqualTo("Keep this note"); verify(repository, never()).saveAll(any());
+        }
+    }
+
+    @Test void legacyBeNeedsExplicitZeroProtectionAndPlannedRatioAloneNeverRequiresSourceSettings() {
+        winner.setExitSignal("BE"); winner.setPnlR(new BigDecimal("0.15"));
+        var request = request("plannedRR"); request.getChanges().setPlannedRR(new BigDecimal("1.5"));
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPlannedRR()).isEqualByComparingTo("1.5");
+        assertThat(winner.getPnlR()).isEqualByComparingTo("0.15");
+        request.setDeriveRFromPlannedRR(true);
+        assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).hasMessageContaining("uncheck Calculate R");
+        assertThat(winner.getPnlR()).isEqualByComparingTo("0.15");
+        request.setMissingBeProtectedProfitPercent(BigDecimal.ZERO);
+        service.updateTrades(workspace.getId(), request);
+        assertThat(winner.getPnlR()).isZero();
+    }
+
+    @Test void fallbackRequiresDerivationAndValidPercentageBeforeAnyMutation() {
+        var request = request("notes"); request.setMissingBeProtectedProfitPercent(new BigDecimal("20"));
+        assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).hasMessageContaining("requires R calculation");
+        request.setFields(Set.of("plannedRR", "notes")); request.getChanges().setPlannedRR(new BigDecimal("1.5"));
+        request.setDeriveRFromPlannedRR(true);
+        for (String percent : List.of("-1", "100", "101", "20.12345")) {
+            request.setMissingBeProtectedProfitPercent(new BigDecimal(percent));
+            assertThatThrownBy(() -> service.updateTrades(workspace.getId(), request)).hasMessageContaining("percentage");
+            assertThat(winner.getPlannedRR()).isNull(); assertThat(winner.getNotes()).isEqualTo("Keep this note");
+            verify(repository, never()).saveAll(any());
+        }
+    }
+
     @Test void v2OutcomeCountsReconcileTo67RInsteadOf109R() {
         List<BacktestingTrade> sample = new ArrayList<>();
         for (int i = 0; i < 523; i++) {

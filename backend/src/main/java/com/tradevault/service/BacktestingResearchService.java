@@ -143,6 +143,10 @@ public class BacktestingResearchService {
             throw new IllegalArgumentException("Choose at least one change");
         if (request.isDeriveRFromPlannedRR() && fields.contains("pnlR"))
             throw new IllegalArgumentException("Choose either explicit R or R from planned reward/risk");
+        BigDecimal missingBePercent = request.getMissingBeProtectedProfitPercent();
+        if (missingBePercent != null && (!request.isDeriveRFromPlannedRR() || missingBePercent.signum() < 0
+                || missingBePercent.compareTo(BigDecimal.valueOf(100)) >= 0 || missingBePercent.scale() > 4))
+            throw new IllegalArgumentException("BE protection fallback requires R calculation and a percentage from 0 to less than 100, with at most 4 decimal places");
         var values = Objects.requireNonNull(request.getChanges(), "changes are required");
         if (fields.contains("sourceTimezone") && StringUtils.hasText(values.getSourceTimezone())) java.time.ZoneId.of(values.getSourceTimezone().trim());
         Set<UUID> ids = new LinkedHashSet<>(request.getTradeIds());
@@ -163,7 +167,7 @@ public class BacktestingResearchService {
             if (fields.contains("plannedRR") && rr != null && rr.signum() <= 0) throw new IllegalArgumentException("Planned R:R must be positive");
             if (request.isDeriveRFromPlannedRR() && (rr == null || rr.signum() <= 0))
                 throw new IllegalArgumentException("Every selected trade needs a positive planned R:R");
-            if (request.isDeriveRFromPlannedRR()) derivedR.put(trade, fixedOutcomeR(trade, rr));
+            if (request.isDeriveRFromPlannedRR()) derivedR.put(trade, fixedOutcomeR(trade, rr, missingBePercent));
             if (fields.contains("pnlR")) validateRealizedR(trade.getResult(), values.getPnlR(), trade.getNetPnl() == null);
         }
         for (BacktestingTrade trade : selected) {
@@ -193,12 +197,14 @@ public class BacktestingResearchService {
     }
 
     /** User-requested fixed outcome model, not fill-price R or cash/risk reconstruction. */
-    private static BigDecimal fixedOutcomeR(BacktestingTrade trade, BigDecimal plannedRR) {
+    private static BigDecimal fixedOutcomeR(BacktestingTrade trade, BigDecimal plannedRR, BigDecimal missingBePercent) {
         String signal = trade.getExitSignal() == null ? "" : trade.getExitSignal().trim();
         if (signal.matches("(?i)^(?:BE|BREAKEVEN|BREAK\\s+EVEN)(?=$|\\s|\\|).*$")) {
-            BigDecimal protectedPercent = FvgSignalMetadata.protectedProfitPercent(trade.getEntrySignal());
+            // Exported configuration remains authoritative, including disabled or malformed settings.
+            BigDecimal protectedPercent = FvgSignalMetadata.hasPayload(trade.getEntrySignal())
+                    ? FvgSignalMetadata.protectedProfitPercent(trade.getEntrySignal()) : missingBePercent;
             if (protectedPercent == null)
-                throw new IllegalArgumentException("BE exit needs an enabled FVG protected-profit setting to calculate R; enter measured R explicitly when the source setting is unavailable");
+                throw new IllegalArgumentException("BE exit is missing an enabled protection setting. Supply the known BE protected-profit percentage for exports without settings, enter measured R explicitly, or uncheck Calculate R to save planned R:R only. No trades were changed.");
             // BE describes the amended stop, even when positive cash PnL classifies the trade as WIN.
             return plannedRR.multiply(protectedPercent).movePointLeft(2).setScale(8, RoundingMode.HALF_UP);
         }
