@@ -3,6 +3,7 @@ package com.tradevault.repository;
 import com.tradevault.domain.entity.BacktestingWorkspace;
 import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,9 @@ public interface BacktestingWorkspaceRepository extends JpaRepository<Backtestin
     List<BacktestingWorkspace> findByUser_IdAndStatusOrderByUpdatedAtDesc(UUID userId, BacktestingWorkspaceStatus status);
 
     List<BacktestingWorkspace> findByUser_IdOrderByUpdatedAtDesc(UUID userId);
+
+    @Query("select w from BacktestingWorkspace w where w.user.id = :userId and (w.strategy.id = :strategyId or w.id in (select t.workspace.id from BacktestingTrade t where t.user.id = :userId and t.strategyId = :strategyId and (t.strategySource is null or t.strategySource = 'MY'))) order by w.updatedAt desc")
+    List<BacktestingWorkspace> findForStudio(UUID userId, UUID strategyId);
 
     Optional<BacktestingWorkspace> findByIdAndUser_Id(UUID id, UUID userId);
 

@@ -166,6 +166,12 @@ public class RestExceptionHandler {
         return ResponseEntity.status(ex.getStatus()).body(response);
     }
 
+    @ExceptionHandler({org.springframework.orm.ObjectOptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLock(Exception ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiErrorResponse.builder().error("STRATEGY_CONFLICT")
+                .message("The record changed in another tab. Reload before merging your retained draft.").build());
+    }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(EntityNotFoundException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()

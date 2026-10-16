@@ -1,6 +1,7 @@
 package com.tradevault.dto.strategy;
 
 import com.tradevault.dto.asset.AssetResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Builder;
 import lombok.Value;
 
@@ -28,4 +29,7 @@ public class StrategyResponse {
     boolean archived;
     String slug;
     OffsetDateTime updatedAt;
+    OffsetDateTime createdAt;
+    Long revision;
+    JsonNode studioSummary;
 }

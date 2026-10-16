@@ -1,751 +1,364 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
-  Divider,
-  Grid,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   List,
-  ListItem,
-  ListItemText,
+  ListItemButton,
   MenuItem,
+  Paper,
   Stack,
   TextField,
   Typography
 } from '@mui/material'
-import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionRounded'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import AssetListRenderer, { type UploadQueueItem } from '../components/assets/AssetListRenderer'
-import AssetUploadDropzone from '../components/assets/AssetUploadDropzone'
-import SecureAssetImage from '../components/assets/SecureAssetImage'
-import RichTextEditor from '../components/ui/RichTextEditor'
-import RichTextContent from '../components/ui/RichTextContent'
-import EmptyState from '../components/ui/EmptyState'
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded'
+import AddRounded from '@mui/icons-material/AddRounded'
+import SearchRounded from '@mui/icons-material/SearchRounded'
+import StarRounded from '@mui/icons-material/StarRounded'
+import { listStrategies, type StrategyResponse, type StrategyListResponse } from '../api/strategies'
+import { createStudio, importStudio } from '../api/strategyStudio'
 import LoadingState from '../components/ui/LoadingState'
-import { ApiError } from '../api/client'
-import {
-  fetchAssetBlob,
-  resolveAssetUrl,
-  uploadAsset,
-  type AssetItem
-} from '../api/assets'
-import {
-  archiveStrategy,
-  createStrategy,
-  listStrategies,
-  removeStrategyAsset,
-  setStrategySnapshot,
-  updateStrategy,
-  type StrategyRequest,
-  type StrategyResponse
-} from '../api/strategies'
-import { MAX_UPLOAD_SIZE_BYTES, ALLOWED_UPLOAD_MIME_TYPES } from '../api/assets'
-import { useI18n } from '../i18n'
-import { useAccountScope } from '../features/accountScope/useAccountScope'
-import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
-import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
-
-const parseList = (value: string) => value
-  .split(/\r?\n|,/)
-  .map((item) => item.trim())
-  .filter(Boolean)
-
-const toTextAreaValue = (values?: string[] | null) => (values || []).join('\n')
-
-const toBulletsHtml = (value: string) => {
-  const rows = parseList(value)
-  if (rows.length === 0) {
-    return '<p></p>'
-  }
-  const escapedRows = rows.map((item) => item
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;'))
-  return `<ul>${escapedRows.map((item) => `<li>${item}</li>`).join('')}</ul>`
-}
-
-const extractEntryLinesFromRich = (html?: string | null) => {
-  if (!html) return []
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  const liItems = Array.from(doc.querySelectorAll('li'))
-    .map((item) => item.textContent?.trim() || '')
-    .filter(Boolean)
-  if (liItems.length > 0) {
-    return liItems
-  }
-  const paragraphs = Array.from(doc.querySelectorAll('p,h3,h4,blockquote,pre,code'))
-    .map((item) => item.textContent?.trim() || '')
-    .filter(Boolean)
-  return paragraphs
-}
-
-type StrategyDraft = {
-  name: string
-  model: string
-  entryConditionsRich: string
-  entryPreset: string
-  invalidationLogic: string
-  tpFramework: string
-  noTradeRules: string
-  sessionSuitability: string[]
-  tags: string
-}
-
-const emptyDraft: StrategyDraft = {
-  name: '',
-  model: '',
-  entryConditionsRich: '<p></p>',
-  entryPreset: '',
-  invalidationLogic: '',
-  tpFramework: '',
-  noTradeRules: '',
-  sessionSuitability: [],
-  tags: ''
-}
-
-const strategyToDraft = (item: StrategyResponse): StrategyDraft => ({
-  name: item.name || '',
-  model: item.model || '',
-  entryConditionsRich: item.entryConditionsRich || toBulletsHtml(toTextAreaValue(item.entryConditions)),
-  entryPreset: toTextAreaValue(item.entryConditions),
-  invalidationLogic: item.invalidationLogic || '',
-  tpFramework: item.tpFramework || '',
-  noTradeRules: item.noTradeRules || '',
-  sessionSuitability: item.sessionSuitability || [],
-  tags: toTextAreaValue(item.tags)
-})
-
-type PreviewModel = {
-  name: string
-  model: string
-  entryConditionsRich: string
-  invalidationLogic: string
-  tpFramework: string
-  noTradeRules?: string | null
-  sessionSuitability: string[]
-  tags: string[]
-  snapshotAsset?: AssetItem | null
-}
+import RichTextContent from '../components/ui/RichTextContent'
+import StudioEditor from '../features/strategyStudio/StudioEditor'
+import { template, type Studio, type Portable } from '../features/strategyStudio/model'
+import { useStudioText } from '../features/strategyStudio/labels'
 
 export default function StrategiesPage() {
-  const { t } = useI18n()
-  const queryClient = useQueryClient()
-  const [apiError, setApiError] = useState('')
-  const [apiSuccess, setApiSuccess] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<StrategyDraft>(emptyDraft)
-  const [uploads, setUploads] = useState<UploadQueueItem[]>([])
-  const accountScope = useAccountScope()
-
-  const strategiesQuery = useQuery({
-    queryKey: ['strategies', true],
-    queryFn: () => listStrategies({ includeArchived: true })
-  })
-
-  const createMutation = useMutation({
-    mutationFn: createStrategy,
-    onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-      setEditingId(created.id)
-      setDraft(strategyToDraft(created))
-      setApiError('')
-      setApiSuccess(t('strategies.messages.created'))
+  const s = useStudioText(),
+    client = useQueryClient(),
+    [params, setParams] = useSearchParams(),
+    [search, setSearch] = useState(''),
+    [view, setView] = useState('all'),
+    [category, setCategory] = useState(''),
+    [filterStatus, setFilterStatus] = useState(''),
+    [error, setError] = useState(''),
+    [busy, setBusy] = useState(false),
+    [mentor, setMentor] = useState<StrategyResponse | null>(null)
+  const flushRef = useRef<(() => Promise<Studio>) | null>(null)
+  const registerFlush = useCallback((fn: (() => Promise<Studio>) | null) => {
+    flushRef.current = fn
+  }, [])
+  const library = useQuery({ queryKey: ['strategies', true], queryFn: () => listStrategies({ includeArchived: true }) })
+  const strategies = useMemo(() => library.data?.myStrategies || [], [library.data]),
+    id = params.get('strategy') || ''
+  useEffect(() => {
+    if (!id && strategies.length) {
+      setParams(
+        (p) => {
+          const n = new URLSearchParams(p)
+          n.set('strategy', strategies.find((s) => !s.archived)?.id || strategies[0].id)
+          return n
+        },
+        { replace: true }
+      )
+    }
+  }, [id, strategies, setParams])
+  const onSaved = useCallback(
+    (value: Studio) => {
+      client.setQueryData(['strategies', true], (old: StrategyListResponse) =>
+        old
+          ? {
+              ...old,
+              myStrategies: old.myStrategies.some((s) => s.id === value.strategy.id)
+                ? old.myStrategies.map((s) => (s.id === value.strategy.id ? value.strategy : s))
+                : [value.strategy, ...old.myStrategies]
+            }
+          : old
+      )
+      void client.invalidateQueries({ queryKey: ['strategies'], refetchType: 'none' })
     },
-    onError: (error: unknown) => {
-      setApiError((error as Error)?.message || t('strategies.messages.createFailed'))
-    }
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: StrategyRequest }) => updateStrategy(id, payload),
-    onSuccess: async (updated) => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-      setEditingId(updated.id)
-      setDraft(strategyToDraft(updated))
-      setApiError('')
-      setApiSuccess(t('strategies.messages.updated'))
-    },
-    onError: (error: unknown) => {
-      setApiError((error as Error)?.message || t('strategies.messages.updateFailed'))
-    }
-  })
-
-  const archiveMutation = useMutation({
-    mutationFn: archiveStrategy,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-      setApiSuccess(t('strategies.messages.archived'))
-    },
-    onError: (error: unknown) => {
-      setApiError((error as Error)?.message || t('strategies.messages.archiveFailed'))
-    }
-  })
-
-  const setSnapshotMutation = useMutation({
-    mutationFn: ({ strategyId, assetId }: { strategyId: string; assetId: string }) => setStrategySnapshot(strategyId, assetId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-    },
-    onError: (error: unknown) => {
-      setApiError((error as Error)?.message || t('strategies.messages.snapshotFailed'))
-    }
-  })
-
-  const removeAssetMutation = useMutation({
-    mutationFn: ({ strategyId, assetId }: { strategyId: string; assetId: string }) => removeStrategyAsset(strategyId, assetId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-    },
-    onError: (error: unknown) => {
-      setApiError((error as Error)?.message || t('strategies.messages.removeAssetFailed'))
-    }
-  })
-
-  const myStrategies = strategiesQuery.data?.myStrategies || []
-  const mentorStrategies = strategiesQuery.data?.mentorStrategies || []
-  const editingStrategy = editingId ? myStrategies.find((item) => item.id === editingId) || null : null
-  const strategyAssets = editingStrategy?.assets || []
-
-  const previewItem = useMemo<PreviewModel | null>(() => {
-    const hasDraftContent = Boolean(
-      draft.name.trim() ||
-      draft.model.trim() ||
-      (draft.entryConditionsRich && draft.entryConditionsRich !== '<p></p>') ||
-      draft.invalidationLogic.trim() ||
-      draft.tpFramework.trim()
-    )
-    if (hasDraftContent || editingId) {
-      return {
-        name: draft.name.trim() || t('strategies.preview.untitled'),
-        model: draft.model.trim(),
-        entryConditionsRich: draft.entryConditionsRich || '<p></p>',
-        invalidationLogic: draft.invalidationLogic,
-        tpFramework: draft.tpFramework,
-        noTradeRules: draft.noTradeRules,
-        sessionSuitability: draft.sessionSuitability,
-        tags: parseList(draft.tags),
-        snapshotAsset: editingStrategy?.snapshotAsset || null
-      }
-    }
-
-    const fallback = myStrategies.find((item) => !item.archived) || mentorStrategies[0] || null
-    if (!fallback) return null
-    return {
-      name: fallback.name,
-      model: fallback.model,
-      entryConditionsRich: fallback.entryConditionsRich || toBulletsHtml(toTextAreaValue(fallback.entryConditions)),
-      invalidationLogic: fallback.invalidationLogic,
-      tpFramework: fallback.tpFramework,
-      noTradeRules: fallback.noTradeRules,
-      sessionSuitability: fallback.sessionSuitability || [],
-      tags: fallback.tags || [],
-      snapshotAsset: fallback.snapshotAsset || null
-    }
-  }, [draft, editingId, editingStrategy?.snapshotAsset, mentorStrategies, myStrategies, t])
-
-  const fillDraft = (item: StrategyResponse) => {
-    setEditingId(item.id)
-    setDraft(strategyToDraft(item))
-    setApiError('')
-    setApiSuccess('')
-  }
-
-  const toPayload = (): StrategyRequest => {
-    const entryLines = extractEntryLinesFromRich(draft.entryConditionsRich)
-    return {
-      name: draft.name.trim(),
-      model: draft.model.trim(),
-      entryConditionsRich: draft.entryConditionsRich,
-      entryConditions: entryLines.length > 0 ? entryLines : parseList(draft.entryPreset),
-      invalidationLogic: draft.invalidationLogic.trim(),
-      tpFramework: draft.tpFramework.trim(),
-      noTradeRules: draft.noTradeRules.trim() || undefined,
-      sessionSuitability: draft.sessionSuitability,
-      tags: parseList(draft.tags),
-      snapshotAssetId: editingStrategy?.snapshotAssetId || undefined,
-      assetIds: strategyAssets.map((asset) => asset.id),
-      archived: false
-    }
-  }
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setApiError('')
-    setApiSuccess('')
-    const payload = toPayload()
-
-    if (!payload.name || !payload.model || !payload.invalidationLogic || !payload.tpFramework) {
-      setApiError(t('strategies.messages.required'))
-      return
-    }
-
-    if (editingId) {
-      await updateMutation.mutateAsync({ id: editingId, payload })
-      return
-    }
-
-    await createMutation.mutateAsync(payload)
-  }
-
-  const handleUploadFiles = async (files: File[]) => {
-    if (!editingId || files.length === 0) {
-      setApiError(t('strategies.messages.saveBeforeUpload'))
-      return
-    }
-
-    const queueItems = files.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      fileName: file.name,
-      sizeBytes: file.size,
-      progress: 2
-    }))
-    setUploads((prev) => [...prev, ...queueItems])
-
-    await Promise.all(queueItems.map(async (queueItem, index) => {
-      const file = files[index]
-      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-        setUploads((prev) => prev.map((item) => item.id === queueItem.id
-          ? { ...item, progress: 0, error: t('assets.errors.tooLarge') }
-          : item))
-        return
-      }
-      if (file.type && !ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
-        setUploads((prev) => prev.map((item) => item.id === queueItem.id
-          ? { ...item, progress: 0, error: t('assets.errors.typeNotAllowed') }
-          : item))
-        return
-      }
-      try {
-        await uploadAsset({
-          file,
-          scope: 'STRATEGY',
-          strategyId: editingId,
-          onProgress: (progress) => {
-            setUploads((prev) => prev.map((item) => item.id === queueItem.id ? { ...item, progress } : item))
-          }
-        })
-        setUploads((prev) => prev.filter((item) => item.id !== queueItem.id))
-        await queryClient.invalidateQueries({ queryKey: ['strategies'] })
-      } catch (error) {
-        const message = (error as ApiError)?.message || t('strategies.messages.uploadFailed')
-        setUploads((prev) => prev.map((item) => item.id === queueItem.id ? { ...item, progress: 0, error: message } : item))
-      }
-    }))
-  }
-
-  const handleSetSnapshot = async (asset: AssetItem) => {
-    if (!editingId) {
-      setApiError(t('strategies.messages.saveBeforeUpload'))
-      return
-    }
-    await setSnapshotMutation.mutateAsync({ strategyId: editingId, assetId: asset.id })
-  }
-
-  const handleRemoveAsset = async (asset: AssetItem) => {
-    if (!editingId) {
-      setApiError(t('strategies.messages.saveBeforeUpload'))
-      return
-    }
-    await removeAssetMutation.mutateAsync({ strategyId: editingId, assetId: asset.id })
-  }
-
-  const handleCopyAssetLink = async (asset: AssetItem) => {
-    const raw = asset.url || asset.downloadUrl || asset.viewUrl
-    if (!raw) return
+    [client]
+  )
+  const select = async (nextId: string) => {
+    setError('')
     try {
-      await navigator.clipboard.writeText(resolveAssetUrl(raw))
-      setApiSuccess(t('strategies.messages.linkCopied'))
-    } catch {
-      setApiError(t('strategies.messages.copyLinkFailed'))
+      if (flushRef.current) await flushRef.current()
+      setParams((p) => {
+        const n = new URLSearchParams(p)
+        n.set('strategy', nextId)
+        return n
+      })
+    } catch (e) {
+      setError((e as Error).message)
     }
   }
-
-  const handleDownloadAsset = async (asset: AssetItem) => {
-    const downloadUrl = asset.downloadUrl || asset.url || asset.viewUrl
-    if (!downloadUrl) return
-
-    if (downloadUrl.startsWith('/api/')) {
-      try {
-        const blob = await fetchAssetBlob(downloadUrl)
-        const objectUrl = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = objectUrl
-        a.download = asset.originalFileName
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(objectUrl)
-      } catch {
-        setApiError(t('strategies.messages.downloadFailed'))
-      }
-      return
+  const onCreated = async (value: Studio) => {
+    if (flushRef.current) await flushRef.current()
+    onSaved(value)
+    setParams((p) => {
+      const n = new URLSearchParams(p)
+      n.set('strategy', value.strategy.id)
+      return n
+    })
+  }
+  const create = async (five: boolean) => {
+    setBusy(true)
+    setError('')
+    try {
+      if (flushRef.current) await flushRef.current()
+      await onCreated(await createStudio(template(five)))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
-
-    window.open(resolveAssetUrl(downloadUrl), '_blank', 'noopener,noreferrer')
   }
-
-  if (strategiesQuery.isLoading) {
-    return <LoadingState rows={10} height={26} />
+  const importFile = async (file?: File) => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      if (file.size > 4 * 1024 * 1024) throw new Error(s('Import exceeds 4 MB'))
+      const data = JSON.parse(await file.text()) as Portable
+      if (data.schemaVersion !== 1 || !data.strategy || !data.definition)
+        throw new Error(s('Unsupported or malformed strategy export'))
+      if (flushRef.current) await flushRef.current()
+      await onCreated(await importStudio(data))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
-
-  return (
-    <Stack data-testid='strategies-page' spacing={2.5} sx={{ width: '100%', maxWidth: '100%', minWidth: 0, mx: 'auto' }}>
-      <Stack spacing={0.5}>
-        <Typography variant='h5' sx={{ fontWeight: 700 }}>{t('nav.strategies')}</Typography>
-        <Typography variant='body2' color='text.secondary'>
-          {t('strategies.subtitle')}
+  const filtered = strategies
+    .filter((item) => {
+      if (view === 'archive' ? !item.archived : item.archived) return false
+      if (view === 'favorites' && !item.studioSummary?.favorite) return false
+      if (category && !item.tags.includes(category)) return false
+      if (filterStatus && (item.archived ? 'Archived' : item.studioSummary?.status || 'Draft') !== filterStatus)
+        return false
+      return `${item.name} ${item.model} ${item.studioSummary?.instrument || ''} ${item.tags.join(' ')}`
+        .toLowerCase()
+        .includes(search.toLowerCase())
+    })
+    .sort((a, b) => (view === 'recent' ? (b.updatedAt || '').localeCompare(a.updatedAt || '') : 0))
+  const libraryContent = (
+    <Stack spacing={1.5}>
+      <Typography variant="subtitle1" fontWeight={750}>
+        {s('All strategies')}{' '}
+        <Typography component="span" variant="caption" color="text.secondary">
+          {strategies.length}
         </Typography>
-      </Stack>
-
-      <Box sx={{ width: { xs: '100%', sm: 360 }, maxWidth: '100%' }}>
-        <AccountScopeSelector
-          value={accountScope.scope}
-          onChange={accountScope.setScope}
-          accounts={accountScope.accounts}
-          loading={accountScope.isLoading}
-          error={accountScope.isError}
-          onRetry={() => void accountScope.retry()}
-        />
-      </Box>
-      <AccountScopeSummary
-        scope={accountScope.scope}
-        accounts={accountScope.accounts}
-        notice={accountScope.selectionNotice}
+      </Typography>
+      <Button
+        variant="contained"
+        fullWidth
+        startIcon={<AddRounded />}
+        disabled={busy}
+        onClick={() => void create(false)}
+      >
+        {s('Create strategy')}
+      </Button>
+      <Button variant="outlined" fullWidth disabled={busy} onClick={() => void create(true)}>
+        Five Sessions Model
+      </Button>
+      <TextField
+        size="small"
+        label={s('Search strategies')}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        InputProps={{ startAdornment: <SearchRounded fontSize="small" sx={{ mr: 0.5, color: 'text.secondary' }} /> }}
       />
-
-      {apiError && <Alert severity='error'>{apiError}</Alert>}
-      {apiSuccess && <Alert severity='success' onClose={() => setApiSuccess('')}>{apiSuccess}</Alert>}
-
-      <Grid data-testid='strategies-grid' data-mobile-column-spacing='0' container rowSpacing={2} columnSpacing={{ xs: 0, lg: 2 }} sx={{ width: '100%', ml: 0 }}>
-        <Grid item xs={12} lg={7}>
-          <Card>
-            <CardContent>
-              <Stack spacing={1.5}>
-                <Typography variant='subtitle1'>{t('strategies.my.title')}</Typography>
-                {myStrategies.length === 0 ? (
-                  <EmptyState title={t('strategies.my.emptyTitle')} description={t('strategies.my.emptyBody')} />
-                ) : (
-                  <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                    {myStrategies.map((item, index) => (
-                      <ListItem
-                        data-testid='strategy-list-row'
-                        data-mobile-layout='single-column'
-                        key={item.id}
-                        disableGutters
-                        sx={{
-                          px: 1.25,
-                          py: 1,
-                          gap: 1,
-                          alignItems: { xs: 'stretch', sm: 'center' },
-                          flexDirection: { xs: 'column', sm: 'row' },
-                          borderBottom: index < myStrategies.length - 1 ? '1px solid' : 'none',
-                          borderColor: 'divider'
-                        }}
-                      >
-                        <ListItemText
-                          primary={item.name}
-                          secondary={item.model}
-                          sx={{ minWidth: 0, m: 0 }}
-                          secondaryTypographyProps={{ noWrap: true }}
-                        />
-                        {item.archived && <Chip size='small' label={t('adminContent.statuses.archived')} color='default' variant='outlined' />}
-                        <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ flexShrink: 0 }}>
-                          <Button size='small' variant='outlined' onClick={() => fillDraft(item)}>{t('common.edit')}</Button>
-                          {!item.archived && (
-                            <Button size='small' color='error' onClick={() => archiveMutation.mutate(item.id)}>{t('adminContent.actions.archive')}</Button>
-                          )}
-                        </Stack>
-                      </ListItem>
-                    ))}
-                  </List>
-                )}
-
-                <Divider />
-
-                {!editingId && !creating && <Button variant='contained' onClick={() => setCreating(true)}>{t('strategies.form.createAction')}</Button>}
-                {(editingId || creating) && <>
-                <Typography variant='subtitle1'>{editingId ? t('strategies.form.edit') : t('strategies.form.create')}</Typography>
-                <Box component='form' onSubmit={submit}>
-                  <Grid container spacing={1.25}>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label={t('strategies.form.name')}
-                        value={draft.name}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-                        fullWidth
-                        size='small'
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label={t('strategies.form.model')}
-                        value={draft.model}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, model: event.target.value }))}
-                        fullWidth
-                        size='small'
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography variant='body2' sx={{ mb: 0.75 }}>{t('strategies.form.entryConditions')}</Typography>
-                      <RichTextEditor
-                        value={draft.entryConditionsRich}
-                        onChange={(value) => setDraft((prev) => ({ ...prev, entryConditionsRich: value }))}
-                        placeholder={t('strategies.form.entryConditionsPlaceholder')}
-                        compactToolbar
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Stack spacing={0.75}>
-                        <TextField
-                          label={t('strategies.form.entryPreset')}
-                          value={draft.entryPreset}
-                          onChange={(event) => setDraft((prev) => ({ ...prev, entryPreset: event.target.value }))}
-                          multiline
-                          minRows={2}
-                          size='small'
-                          helperText={t('strategies.form.entryPresetHint')}
-                        />
-                        <Button
-                          size='small'
-                          variant='outlined'
-                          sx={{ alignSelf: 'flex-start' }}
-                          onClick={() => setDraft((prev) => ({
-                            ...prev,
-                            entryConditionsRich: toBulletsHtml(prev.entryPreset || toTextAreaValue(extractEntryLinesFromRich(prev.entryConditionsRich)))
-                          }))}
-                        >
-                          {t('strategies.form.convertPreset')}
-                        </Button>
-                      </Stack>
-                    </Grid>
-
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label={t('strategies.form.invalidation')}
-                        value={draft.invalidationLogic}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, invalidationLogic: event.target.value }))}
-                        fullWidth
-                        size='small'
-                        multiline
-                        minRows={3}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label={t('strategies.form.tpFramework')}
-                        value={draft.tpFramework}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, tpFramework: event.target.value }))}
-                        fullWidth
-                        size='small'
-                        multiline
-                        minRows={3}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label={t('strategies.form.noTradeRules')}
-                        value={draft.noTradeRules}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, noTradeRules: event.target.value }))}
-                        fullWidth
-                        size='small'
-                        multiline
-                        minRows={3}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        select
-                        SelectProps={{ multiple: true }}
-                        label={t('strategies.form.sessionSuitability')}
-                        value={draft.sessionSuitability}
-                        onChange={(event) => {
-                          const value = event.target.value
-                          setDraft((prev) => ({
-                            ...prev,
-                            sessionSuitability: typeof value === 'string' ? value.split(',') : value
-                          }))
-                        }}
-                        fullWidth
-                        size='small'
-                      >
-                        <MenuItem value='Asia'>{t('trades.form.sessions.ASIA')}</MenuItem>
-                        <MenuItem value='London'>{t('trades.form.sessions.LONDON')}</MenuItem>
-                        <MenuItem value='NY'>{t('trades.form.sessions.NY')}</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <TextField
-                        label={t('strategies.form.tags')}
-                        value={draft.tags}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, tags: event.target.value }))}
-                        fullWidth
-                        size='small'
-                        helperText={t('strategies.form.tagsHint')}
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                        <Button
-                          type='submit'
-                          variant='contained'
-                          disabled={createMutation.isLoading || updateMutation.isLoading}
-                          sx={{ width: { xs: '100%', sm: 'auto' } }}
-                        >
-                          {editingId ? t('common.save') : t('strategies.form.createAction')}
-                        </Button>
-                        {editingId && (
-                          <Button
-                            variant='outlined'
-                            sx={{ width: { xs: '100%', sm: 'auto' } }}
-                            onClick={() => {
-                              setEditingId(null)
-                              setDraft(emptyDraft)
-                              setUploads([])
-                            }}
-                          >
-                            {t('common.cancel')}
-                          </Button>
-                        )}
-                      </Stack>
-                    </Grid>
-                  </Grid>
-                </Box>
-                </>}
-
-                <Divider />
-
-                <Typography variant='subtitle1'>{t('strategies.assets.title')}</Typography>
-                {!editingId ? (
-                  <Alert severity='info'>{t('strategies.assets.saveFirst')}</Alert>
-                ) : (
-                  <Stack spacing={1.25}>
-                    <AssetUploadDropzone
-                      title={t('strategies.assets.dropTitle')}
-                      hint={t('strategies.assets.dropHint')}
-                      buttonLabel={t('strategies.assets.selectFiles')}
-                      onFilesSelected={handleUploadFiles}
-                      multiple
-                    />
-                    <AssetListRenderer
-                      assets={strategyAssets}
-                      uploads={uploads}
-                      emptyText={t('strategies.assets.empty')}
-                      onCopyLink={handleCopyAssetLink}
-                      onSetSnapshot={handleSetSnapshot}
-                      snapshotAssetId={editingStrategy?.snapshotAssetId}
-                      setSnapshotLabel={t('strategies.assets.setSnapshot')}
-                      snapshotSelectedLabel={t('strategies.assets.snapshotSelected')}
-                      onRemove={handleRemoveAsset}
-                      onDownload={handleDownloadAsset}
-                      copyLabel={t('adminEditor.assets.copyLink')}
-                      removeLabel={t('adminEditor.assets.remove')}
-                      downloadLabel={t('adminEditor.assets.download')}
-                    />
-                  </Stack>
-                )}
+      <TextField size="small" select label={s('Selection')} value={view} onChange={(e) => setView(e.target.value)}>
+        {[
+          ['all', 'All strategies'],
+          ['favorites', 'Favorites'],
+          ['recent', 'Recently edited'],
+          ['archive', 'Archive']
+        ].map(([value, label]) => (
+          <MenuItem key={value} value={value}>
+            {s(label)}
+          </MenuItem>
+        ))}
+      </TextField>
+      <Stack direction="row" gap={1}>
+        <TextField
+          size="small"
+          select
+          fullWidth
+          label={s('Categories')}
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          <MenuItem value="">{s('All')}</MenuItem>
+          {[...new Set(strategies.flatMap((x) => x.tags))].filter(Boolean).map((c) => (
+            <MenuItem key={c} value={c}>
+              {c}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          size="small"
+          select
+          fullWidth
+          label={s('Status')}
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+        >
+          <MenuItem value="">{s('All')}</MenuItem>
+          {['Draft', 'Development', 'Backtesting', 'Validated', 'Live', 'Archived'].map((x) => (
+            <MenuItem key={x} value={x}>
+              {s(x)}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Stack>
+      <List
+        disablePadding
+        aria-label={s('All strategies')}
+        sx={{ maxHeight: { xs: 280, md: 'calc(100vh - 490px)' }, overflowY: 'auto', minHeight: 100 }}
+      >
+        {filtered.map((item) => (
+          <ListItemButton
+            key={item.id}
+            selected={id === item.id}
+            onClick={() => void select(item.id)}
+            sx={{ alignItems: 'flex-start', px: 1.25, py: 1.5, borderRadius: 1, my: 0.5 }}
+          >
+            <Box sx={{ minWidth: 0, width: '100%' }}>
+              <Stack direction="row" gap={0.5} alignItems="center">
+                <Typography fontWeight={650} variant="body2" sx={{ overflowWrap: 'anywhere', flex: 1 }}>
+                  {item.name}
+                </Typography>
+                {item.studioSummary?.favorite && <StarRounded fontSize="small" color="warning" />}
               </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} lg={5}>
-          <Stack spacing={2}>
-            <Card>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Stack direction='row' spacing={1} alignItems='center'>
-                    <AutoAwesomeMotionRoundedIcon color='primary' fontSize='small' />
-                    <Typography variant='subtitle1'>{t('strategies.preview.title')}</Typography>
-                  </Stack>
-                  {!previewItem ? (
-                    <EmptyState title={t('strategies.preview.emptyTitle')} description={t('strategies.preview.emptyBody')} />
-                  ) : (
-                    <Stack spacing={1}>
-                      {previewItem.snapshotAsset?.image && (
-                        <SecureAssetImage
-                          url={previewItem.snapshotAsset.viewUrl || previewItem.snapshotAsset.url}
-                          alt={previewItem.snapshotAsset.originalFileName || previewItem.name}
-                          sx={{
-                            width: '100%',
-                            maxHeight: 220,
-                            objectFit: 'cover',
-                            borderRadius: 1.5,
-                            border: '1px solid',
-                            borderColor: 'divider'
-                          }}
-                          fallback={(
-                            <Box
-                              sx={{
-                                width: '100%',
-                                minHeight: 120,
-                                borderRadius: 1.5,
-                                border: '1px solid',
-                                borderColor: 'divider',
-                                bgcolor: 'background.default'
-                              }}
-                            />
-                          )}
-                        />
-                      )}
-                      <Typography variant='h6' sx={{ fontSize: 18 }}>{previewItem.name}</Typography>
-                      <Typography variant='body2' color='text.secondary'>{previewItem.model}</Typography>
-
-                      <RichTextContent html={previewItem.entryConditionsRich} />
-
-                      <Typography variant='body2'><strong>{t('strategies.preview.invalidation')}:</strong> {previewItem.invalidationLogic}</Typography>
-                      <Typography variant='body2'><strong>{t('strategies.preview.targets')}:</strong> {previewItem.tpFramework}</Typography>
-                      {previewItem.noTradeRules && (
-                        <Typography variant='body2'><strong>{t('strategies.preview.noTradeRules')}:</strong> {previewItem.noTradeRules}</Typography>
-                      )}
-
-                      {previewItem.sessionSuitability.length > 0 && (
-                        <Stack direction='row' spacing={0.75} flexWrap='wrap' useFlexGap>
-                          {previewItem.sessionSuitability.map((item) => (
-                            <Chip key={item} size='small' label={item} variant='outlined' />
-                          ))}
-                        </Stack>
-                      )}
-                      {previewItem.tags.length > 0 && (
-                        <Stack direction='row' spacing={0.75} flexWrap='wrap' useFlexGap>
-                          {previewItem.tags.map((tag) => (
-                            <Chip key={tag} size='small' label={tag} />
-                          ))}
-                        </Stack>
-                      )}
-                    </Stack>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent>
-                <Stack spacing={1.25}>
-                  <Typography variant='subtitle1'>{t('strategies.mentor.title')}</Typography>
-                  {mentorStrategies.length === 0 ? (
-                    <EmptyState title={t('strategies.mentor.emptyTitle')} description={t('strategies.mentor.emptyBody')} />
-                  ) : (
-                    <Stack spacing={1}>
-                      {mentorStrategies.slice(0, 8).map((item) => (
-                        <Box key={item.id} sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant='body2' sx={{ fontWeight: 600 }}>{item.name}</Typography>
-                          <Typography variant='caption' color='text.secondary'>{item.model}</Typography>
-                        </Box>
-                      ))}
-                    </Stack>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Stack>
-        </Grid>
-      </Grid>
+              <Typography variant="caption" color="text.secondary">
+                {item.studioSummary?.instrument || item.model}
+              </Typography>
+              <Box sx={{ mt: 0.75 }}>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={s(item.archived ? 'Archived' : item.studioSummary?.status || 'Draft')}
+                />
+              </Box>
+            </Box>
+          </ListItemButton>
+        ))}
+      </List>
+      {!filtered.length && (
+        <Typography variant="body2" color="text.secondary">
+          {s('No strategies match')}
+        </Typography>
+      )}
+      <Button component="label" disabled={busy}>
+        {s('Import JSON')}
+        <input
+          hidden
+          type="file"
+          accept="application/json,.json"
+          onChange={(e) => {
+            void importFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
+      </Button>
+      {Boolean(library.data?.mentorStrategies.length) && (
+        <Accordion disableGutters elevation={0}>
+          <AccordionSummary expandIcon={<ExpandMoreRounded />}>{s('Mentor strategies')}</AccordionSummary>
+          <AccordionDetails sx={{ p: 0 }}>
+            {library.data?.mentorStrategies.map((item) => (
+              <Button
+                key={item.id}
+                onClick={() => setMentor(item)}
+                sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
+              >
+                {item.name}
+              </Button>
+            ))}
+          </AccordionDetails>
+        </Accordion>
+      )}
+    </Stack>
+  )
+  return (
+    <Stack spacing={2} data-testid="strategies-page" sx={{ minWidth: 0, width: '100%' }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+        <Box>
+          <Typography variant="h5" fontWeight={800}>
+            {s('Strategy Studio')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {s('Define your edge. Document the process. Build the evidence.')}
+          </Typography>
+        </Box>
+      </Stack>
+      {error && (
+        <Alert severity="error" onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
+      {library.isError && (
+        <Alert severity="error" action={<Button onClick={() => void library.refetch()}>{s('Retry')}</Button>}>
+          {s('Could not load strategies.')}
+        </Alert>
+      )}
+      {library.isLoading ? (
+        <LoadingState rows={5} height={90} />
+      ) : (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: 'minmax(0,1fr)', md: '250px minmax(0,1fr)' },
+            gap: 2,
+            alignItems: 'start',
+            minWidth: 0
+          }}
+          data-testid="strategies-grid"
+        >
+          <Paper
+            variant="outlined"
+            sx={{ p: 1.5, position: { md: 'sticky' }, top: { md: 88 }, display: { xs: 'none', md: 'block' } }}
+          >
+            {libraryContent}
+          </Paper>
+          <Accordion sx={{ display: { xs: 'block', md: 'none' }, minWidth: 0 }} defaultExpanded={!id}>
+            <AccordionSummary expandIcon={<ExpandMoreRounded />}>
+              <Typography fontWeight={650}>
+                {s('All strategies')} · {strategies.length}
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>{libraryContent}</AccordionDetails>
+          </Accordion>
+          {id ? (
+            <StudioEditor key={id} id={id} onSaved={onSaved} onCreated={onCreated} registerFlush={registerFlush} />
+          ) : (
+            <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+              <Typography variant="h6">{s('Choose a strategy to begin')}</Typography>
+              <Typography color="text.secondary" sx={{ mt: 1, mb: 2 }}>
+                {s('Start blank or use the editable Five Sessions research template.')}
+              </Typography>
+              <Button variant="contained" disabled={busy} onClick={() => void create(false)}>
+                {s('Create strategy')}
+              </Button>
+            </Paper>
+          )}
+        </Box>
+      )}
+      <Dialog open={Boolean(mentor)} onClose={() => setMentor(null)} fullWidth maxWidth="md">
+        <DialogTitle>{mentor?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {mentor?.model}
+          </Typography>
+          <RichTextContent html={mentor?.entryConditionsRich} />
+          <Typography sx={{ mt: 2 }}>{mentor?.invalidationLogic}</Typography>
+          <Typography>{mentor?.tpFramework}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMentor(null)}>{s('Close')}</Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }

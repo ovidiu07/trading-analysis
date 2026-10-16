@@ -40,7 +40,7 @@ export function rowsToCsv(rows: Row[], headers = [...new Set(rows.flatMap(row =>
 const tradeFields = {
   id: 'Trade ID', workspaceId: 'Workspace ID', liveTradeId: 'Linked live trade ID',
   date: 'Entry date', weekday: 'Weekday', entryTime: 'Entry time', instrument: 'Instrument', direction: 'Direction',
-  session: 'Session', setupName: 'Setup', strategyId: 'Strategy ID', strategySource: 'Strategy source', strategyNameSnapshot: 'Strategy',
+  session: 'Session', setupName: 'Setup', strategyId: 'Strategy ID', strategyVersionId: 'Strategy version ID', researchSample: 'Research sample', strategySource: 'Strategy source', strategyNameSnapshot: 'Strategy',
   gapPresent: 'Gap present', gapType: 'Gap type', gapTimeframe: 'Gap timeframe', gapCreatedAt: 'Gap created time', gapMitigatedAt: 'Gap mitigated time',
   gapHigh: 'Gap high', gapLow: 'Gap low', gapMidpoint: 'Gap midpoint', gapSizePoints: 'Gap size (points)', gapSizePercent: 'Gap size (%)',
   gapEntryPositionPercent: 'Gap entry position (%)', gapFillStatus: 'Gap fill status', gapRelationToLiquidity: 'Gap liquidity relation', gapConfluenceNotes: 'Gap confluence notes',

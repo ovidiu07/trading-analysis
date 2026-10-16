@@ -20,6 +20,9 @@ export type StrategyResponse = {
   assets?: AssetItem[]
   archived: boolean
   slug?: string | null
+  createdAt?: string | null
+  revision?: number
+  studioSummary?: { status?: string; favorite?: boolean; instrument?: string; description?: string } | null
   updatedAt?: string | null
 }
 

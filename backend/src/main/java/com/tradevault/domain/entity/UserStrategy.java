@@ -1,5 +1,9 @@
 package com.tradevault.domain.entity;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.Version;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -70,6 +74,15 @@ public class UserStrategy {
     @Builder.Default
     @Column(name = "archived", nullable = false)
     private boolean archived = false;
+
+    @Version
+    @Builder.Default
+    @Column(name = "revision", nullable = false)
+    private Long revision = 0L;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "studio_json", columnDefinition = "jsonb")
+    private JsonNode studioJson;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

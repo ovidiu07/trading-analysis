@@ -46,7 +46,8 @@ public class StrategyService {
     private static final String SOURCE_MENTOR = "MENTOR";
     private static final String EMPTY_ENTRY_RICH = "<p></p>";
     private static final Safelist ENTRY_RICH_SAFE_LIST = Safelist.none()
-            .addTags("p", "br", "b", "strong", "i", "em", "u", "ul", "ol", "li", "h3", "h4", "blockquote", "pre", "code");
+            .addTags("p", "br", "b", "strong", "i", "em", "u", "ul", "ol", "li", "h1", "h2", "h3", "h4", "mark", "a", "blockquote", "pre", "code")
+            .addAttributes("a", "href", "title").addProtocols("a", "href", "http", "https", "mailto");
 
     private final UserStrategyRepository userStrategyRepository;
     private final StrategyAssetRepository strategyAssetRepository;
@@ -83,6 +84,15 @@ public class StrategyService {
 
     @Transactional
     public StrategyResponse createMyStrategy(StrategyRequest request) {
+        return createMyStrategy(request, true);
+    }
+
+    @Transactional
+    public StrategyResponse createMyStrategyDraft(StrategyRequest request) {
+        return createMyStrategy(request, false);
+    }
+
+    private StrategyResponse createMyStrategy(StrategyRequest request, boolean checkpoint) {
         User user = currentUserService.getCurrentUser();
         String entryConditionsRich = normalizeEntryConditionsRich(request.getEntryConditionsRich(), request.getEntryConditions());
         List<String> entryConditionsList = extractEntryConditions(entryConditionsRich, request.getEntryConditions());
@@ -107,14 +117,23 @@ public class StrategyService {
             saved.setSnapshotAssetId(validateSnapshotAsset(saved.getId(), request.getSnapshotAssetId(), user));
             saved = userStrategyRepository.save(saved);
         }
-        createStrategyVersion(saved, user);
+        if (checkpoint) createStrategyVersion(saved, user);
         return toMyResponse(saved, assetService.listByStrategy(saved.getId()));
     }
 
     @Transactional
     public StrategyResponse updateMyStrategy(UUID strategyId, StrategyRequest request) {
+        return updateMyStrategy(strategyId, request, true);
+    }
+
+    @Transactional
+    public StrategyResponse updateMyStrategyDraft(UUID strategyId, StrategyRequest request) {
+        return updateMyStrategy(strategyId, request, false);
+    }
+
+    private StrategyResponse updateMyStrategy(UUID strategyId, StrategyRequest request, boolean checkpoint) {
         User user = currentUserService.getCurrentUser();
-        UserStrategy strategy = userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())
+        UserStrategy strategy = userStrategyRepository.lockOwned(strategyId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
         UUID previousSnapshotAssetId = strategy.getSnapshotAssetId();
         String entryConditionsRich = normalizeEntryConditionsRich(request.getEntryConditionsRich(), request.getEntryConditions());
@@ -142,7 +161,7 @@ public class StrategyService {
         }
 
         UserStrategy saved = userStrategyRepository.save(strategy);
-        createStrategyVersion(saved, user);
+        if (checkpoint) createStrategyVersion(saved, user);
         return toMyResponse(saved, assetService.listByStrategy(saved.getId()));
     }
 
@@ -215,7 +234,7 @@ public class StrategyService {
                 .orElseThrow(() -> new EntityNotFoundException("Mentor strategy not found"));
     }
 
-    private StrategyResponse toMyResponse(UserStrategy item, List<AssetResponse> assets) {
+    StrategyResponse toMyResponse(UserStrategy item, List<AssetResponse> assets) {
         List<String> entryConditions = readList(item.getEntryConditionsJson());
         if (entryConditions.isEmpty()) {
             entryConditions = extractEntryConditions(item.getEntryConditionsRich(), null);
@@ -243,6 +262,9 @@ public class StrategyService {
                 .assets(assets == null ? List.of() : assets)
                 .archived(item.isArchived())
                 .updatedAt(item.getUpdatedAt())
+                .createdAt(item.getCreatedAt())
+                .revision(item.getRevision())
+                .studioSummary((item.getStudioJson() == null || item.getStudioJson().isNull()) ? null : item.getStudioJson().path("metadata"))
                 .build();
     }
 
@@ -336,7 +358,7 @@ public class StrategyService {
         return "";
     }
 
-    private void createStrategyVersion(UserStrategy strategy, User user) {
+    StrategyVersion createStrategyVersion(UserStrategy strategy, User user) {
         int nextVersion = strategyVersionRepository.findFirstByStrategy_IdOrderByVersionNumberDesc(strategy.getId())
                 .map(item -> item.getVersionNumber() + 1)
                 .orElse(1);
@@ -354,13 +376,17 @@ public class StrategyService {
             snapshot.put("snapshotAssetId", strategy.getSnapshotAssetId().toString());
         }
 
+        snapshot.set("studio", strategy.getStudioJson());
+        snapshot.put("archived", strategy.isArchived());
+        snapshot.set("assetIds", objectMapper.valueToTree(strategyAssetRepository.findByStrategy_IdOrderBySortOrderAscCreatedAtAsc(strategy.getId())
+                .stream().map(link -> link.getAsset().getId()).toList()));
         StrategyVersion version = StrategyVersion.builder()
                 .strategy(strategy)
                 .user(user)
                 .versionNumber(nextVersion)
                 .snapshotJson(snapshot)
                 .build();
-        strategyVersionRepository.save(version);
+        return strategyVersionRepository.save(version);
     }
 
     private List<String> normalizeList(Collection<String> values) {

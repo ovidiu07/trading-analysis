@@ -31,6 +31,8 @@ public class BacktestingTradeResponse {
     String session;
     String setupName;
     UUID strategyId;
+    UUID strategyVersionId;
+    String researchSample;
     String strategySource;
     String strategyNameSnapshot;
     boolean gapPresent;

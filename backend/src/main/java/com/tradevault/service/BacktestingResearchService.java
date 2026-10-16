@@ -192,7 +192,10 @@ public class BacktestingResearchService {
                 case "riskPercent" -> trade.setRiskPercent(values.getRiskPercent());
                 case "pnlR" -> trade.setPnlR(values.getPnlR());
                 case "setupName" -> trade.setSetupName(normalizeText(values.getSetupName()));
-                case "strategyId" -> trade.setStrategyId(values.getStrategyId());
+                case "strategyId" -> {
+                    if (!Objects.equals(trade.getStrategyId(), values.getStrategyId())) trade.setStrategyVersionId(null);
+                    trade.setStrategyId(values.getStrategyId());
+                }
                 case "strategySource" -> trade.setStrategySource(normalizeStrategySource(values.getStrategySource()));
                 case "strategyNameSnapshot" -> trade.setStrategyNameSnapshot(normalizeText(values.getStrategyNameSnapshot()));
                 case "contextTimeframe" -> trade.setContextTimeframe(normalizeText(values.getContextTimeframe()));
@@ -652,6 +655,7 @@ public class BacktestingResearchService {
             trade.setSourceTimezone(normalizeText(request.getSourceTimezone()));
         }
         trade.setSetupName(normalizeText(request.getSetupName()));
+        if (!Objects.equals(trade.getStrategyId(), request.getStrategyId())) trade.setStrategyVersionId(null);
         trade.setStrategyId(request.getStrategyId());
         trade.setStrategySource(normalizeStrategySource(request.getStrategySource()));
         trade.setStrategyNameSnapshot(normalizeText(request.getStrategyNameSnapshot()));
@@ -737,6 +741,8 @@ public class BacktestingResearchService {
                 .session(trade.getSession())
                 .setupName(trade.getSetupName())
                 .strategyId(trade.getStrategyId())
+                .strategyVersionId(trade.getStrategyVersionId())
+                .researchSample(trade.getResearchSample())
                 .strategySource(trade.getStrategySource())
                 .strategyNameSnapshot(trade.getStrategyNameSnapshot())
                 .gapPresent(trade.isGapPresent())

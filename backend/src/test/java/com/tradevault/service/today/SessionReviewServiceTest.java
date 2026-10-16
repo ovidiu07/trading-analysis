@@ -67,7 +67,7 @@ class SessionReviewServiceTest {
     CurrentUserService users = mock(CurrentUserService.class);
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
     ObjectMapper mapper = new ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-    SessionReviewService service = new SessionReviewService(users, accounts, trades, strategies, jdbc, mapper);
+    SessionReviewService service = new SessionReviewService(users, accounts, trades, strategies, org.mockito.Mockito.mock(com.tradevault.repository.StrategyVersionRepository.class), jdbc, mapper);
     UUID userId = UUID.randomUUID(), accountId = UUID.randomUUID();
     LocalDate date = LocalDate.of(2026, 9, 6);
     @BeforeEach void setup() {

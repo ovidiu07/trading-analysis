@@ -1,148 +1,269 @@
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '../i18n'
 import StrategiesPage from './StrategiesPage'
-
-const strategiesApiMock = vi.hoisted(() => ({
-  listStrategies: vi.fn(),
-  createStrategy: vi.fn(),
-  updateStrategy: vi.fn(),
-  archiveStrategy: vi.fn(),
-  removeStrategyAsset: vi.fn(),
-  setStrategySnapshot: vi.fn()
+import * as api from '../api/strategyStudio'
+import { listStrategies } from '../api/strategies'
+import { uploadAsset } from '../api/assets'
+import { template, type Studio } from '../features/strategyStudio/model'
+vi.mock('../api/assets', async () => ({ ...(await vi.importActual('../api/assets')), uploadAsset: vi.fn() }))
+vi.mock('../api/strategies', () => ({ listStrategies: vi.fn() }))
+vi.mock('../api/strategyStudio', () => ({
+  getStudio: vi.fn(),
+  saveStudio: vi.fn(),
+  createStudio: vi.fn(),
+  duplicateStudio: vi.fn(),
+  exportStudio: vi.fn(),
+  importStudio: vi.fn(),
+  getStrategyEvidence: vi.fn(),
+  listVersions: vi.fn(),
+  listExecutions: vi.fn(),
+  saveExecution: vi.fn(),
+  getVersion: vi.fn(),
+  createCheckpoint: vi.fn(),
+  restoreVersion: vi.fn()
 }))
-
-vi.mock('../api/strategies', () => strategiesApiMock)
-
-const renderStrategiesPage = () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false }
+vi.mock('../api/session', () => ({ listChecklistTemplates: vi.fn().mockResolvedValue([]) }))
+vi.mock('../api/backtesting', () => ({
+  listBacktestingWorkspaces: vi.fn().mockResolvedValue({ workspaces: [] }),
+  listBacktestingTrades: vi.fn().mockResolvedValue([])
+}))
+const user = {
+  click: (...args: Parameters<typeof userEvent.click>) =>
+    act(async () => {
+      await userEvent.click(...args)
+    }),
+  clear: (...args: Parameters<typeof userEvent.clear>) =>
+    act(async () => {
+      await userEvent.clear(...args)
+    }),
+  type: (...args: Parameters<typeof userEvent.type>) =>
+    act(async () => {
+      await userEvent.type(...args)
+    })
+}
+const fixture = (): Studio => {
+  const data = template(true)
+  return {
+    revision: 2,
+    definition: data.definition,
+    strategy: {
+      ...data.strategy,
+      id: 'strategy-1',
+      source: 'MY',
+      archived: false,
+      entryConditions: ['Confirm structure shift'],
+      entryConditionsRich: '<h3>Entry checklist</h3><ul><li>Confirm structure shift</li></ul>',
+      assets: []
     }
-  })
-
-  return render(
-    <MemoryRouter initialEntries={['/strategies']}>
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider>
-          <StrategiesPage />
-        </I18nProvider>
-      </QueryClientProvider>
-    </MemoryRouter>
+  }
+}
+let stored: Studio
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const router = createMemoryRouter(
+    [
+      { path: '/strategies', element: <StrategiesPage /> },
+      { path: '/elsewhere', element: <div>Other page</div> }
+    ],
+    { initialEntries: ['/strategies?strategy=strategy-1'] }
   )
+  render(
+    <QueryClientProvider client={client}>
+      <I18nProvider>
+        <RouterProvider router={router} />
+      </I18nProvider>
+    </QueryClientProvider>
+  )
+  return router
 }
-
-const setViewport = (width: number, height: number) => {
-  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
-  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height })
-  window.matchMedia = vi.fn().mockImplementation((query: string) => {
-    const min = query.match(/min-width:\s*(\d+(?:\.\d+)?)px/)
-    const max = query.match(/max-width:\s*(\d+(?:\.\d+)?)px/)
-    const matches = (!min || width >= Number(min[1])) && (!max || width <= Number(max[1]))
-    return {
-      matches,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn()
+beforeEach(() => {
+  stored = fixture()
+  sessionStorage.clear()
+  localStorage.setItem('app.language', 'en')
+  vi.mocked(listStrategies).mockResolvedValue({ myStrategies: [stored.strategy], mentorStrategies: [] })
+  vi.mocked(api.getStudio).mockImplementation(async () => structuredClone(stored))
+  vi.mocked(api.saveStudio).mockImplementation(async (_id, body) => {
+    stored = {
+      ...stored,
+      revision: stored.revision + 1,
+      strategy: { ...stored.strategy, ...body.strategy },
+      definition: body.definition
     }
-  }) as unknown as typeof window.matchMedia
-}
-
-const strategyFixture = {
-  id: 'strat-1',
-  source: 'MY',
-  name: 'London Sweep Responsive Audit Strategy',
-  model: 'Sweep + market structure shift',
-  entryConditionsRich: '<ul><li>Wait for liquidity sweep</li><li>Confirm structure shift</li></ul>',
-  entryConditions: ['Wait for liquidity sweep', 'Confirm structure shift'],
-  invalidationLogic: 'Close below sweep origin',
-  tpFramework: 'Partial at 1R',
-  noTradeRules: 'Skip high-impact news',
-  sessionSuitability: ['LONDON'],
-  tags: ['BOS'],
-  assets: [],
-  archived: false
-}
-
-describe('StrategiesPage', () => {
-  beforeEach(() => {
-    strategiesApiMock.createStrategy.mockResolvedValue({})
-    strategiesApiMock.updateStrategy.mockResolvedValue({})
-    strategiesApiMock.archiveStrategy.mockResolvedValue({})
-    strategiesApiMock.removeStrategyAsset.mockResolvedValue({})
-    strategiesApiMock.setStrategySnapshot.mockResolvedValue({})
+    return structuredClone(stored)
   })
-
-  it('renders rich entry conditions in preview from stored strategy content', async () => {
-    strategiesApiMock.listStrategies.mockResolvedValue({
-      myStrategies: [
-        {
-          id: 'strat-1',
-          source: 'MY',
-          name: 'London Sweep',
-          model: 'Sweep + MSS',
-          entryConditionsRich: '<h3>Entry checklist</h3><ul><li>Break BOS on 5m</li><li><strong>Wait</strong> for retest candle</li></ul>',
-          entryConditions: ['Break BOS on 5m', 'Wait for retest candle'],
-          invalidationLogic: 'Close below sweep origin',
-          tpFramework: 'Partial at 1R',
-          noTradeRules: 'Skip high-impact news',
-          sessionSuitability: ['LONDON'],
-          tags: ['BOS'],
-          assets: [],
-          archived: false
-        }
-      ],
-      mentorStrategies: []
+  vi.mocked(api.getStrategyEvidence).mockResolvedValue({ trades: [], workspaces: [] })
+  vi.mocked(api.listVersions).mockResolvedValue([])
+  vi.mocked(api.listExecutions).mockResolvedValue([])
+  vi.mocked(api.createStudio).mockImplementation(async (body) => ({
+    ...stored,
+    definition: body.definition,
+    strategy: { ...stored.strategy, ...body.strategy, id: 'strategy-2' }
+  }))
+  vi.mocked(api.saveExecution).mockResolvedValue({
+    id: 'execution',
+    template: stored.definition.checklists[0],
+    answers: {},
+    createdAt: '2026-10-16T10:00:00Z'
+  })
+  window.matchMedia = vi.fn().mockImplementation((query) => ({
+    matches: false,
+    media: query,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn()
+  }))
+})
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+describe('native Strategy Studio route', () => {
+  it('opens the stored strategy with all seven sections and actual empty research state', async () => {
+    renderPage()
+    expect(await screen.findByRole('heading', { name: 'Five Sessions Model' })).toBeInTheDocument()
+    for (const label of [
+      'Overview',
+      'Notebook',
+      'Parameters',
+      'Setup & Rules',
+      'Checklists',
+      'Backtesting & Evidence',
+      'Version History'
+    ])
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument()
+    expect(await screen.findByText('No research trades yet')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Entry philosophy' }))
+    expect(screen.getByRole('textbox', { name: 'Entry philosophy' })).toHaveTextContent('Entry checklist')
+    expect(screen.getByText('Confirm structure shift', { selector: 'li' })).toBeInTheDocument()
+  })
+  it('autosaves metadata edits and saves before route navigation', async () => {
+    const router = renderPage()
+    const name = await screen.findByLabelText('Strategy name')
+    await user.clear(name)
+    await user.type(name, 'Updated research')
+    await act(async () => {
+      await router.navigate('/elsewhere')
     })
-
-    renderStrategiesPage()
-
-    expect(await screen.findByText('Preview')).toBeInTheDocument()
-    expect((await screen.findAllByText('London Sweep')).length).toBeGreaterThan(0)
-    expect(await screen.findByText(/Entry checklist/i)).toBeInTheDocument()
-    expect(await screen.findByText(/Break BOS on 5m/i)).toBeInTheDocument()
-    expect((await screen.findAllByText((_, node) => node?.textContent?.includes('Wait for retest candle') ?? false)).length).toBeGreaterThan(0)
+    await waitFor(() => expect(screen.getByText('Other page')).toBeInTheDocument())
+    expect(stored.strategy.name).toBe('Updated research')
+    expect(api.saveStudio).toHaveBeenCalled()
   })
-
-  it.each([
-    { width: 320, height: 568 },
-    { width: 360, height: 800 },
-    { width: 390, height: 844 },
-    { width: 430, height: 932 }
-  ])('keeps the strategy editor centered and single-column at $width x $height', async ({ width, height }) => {
-    setViewport(width, height)
-    strategiesApiMock.listStrategies.mockResolvedValue({
-      myStrategies: [strategyFixture],
-      mentorStrategies: []
+  it('inserts a persistent notebook table and preserves work across tabs', async () => {
+    renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Notebook' }))
+    await user.click(screen.getAllByRole('button', { name: 'Add block' })[0])
+    await user.click(screen.getByRole('menuitem', { name: 'Table', exact: true }))
+    expect(screen.getByLabelText('Table 1, 1')).toHaveValue('Column 1')
+    await user.clear(screen.getByLabelText('Table 1, 1'))
+    await user.type(screen.getByLabelText('Table 1, 1'), 'FVG sample')
+    await user.click(screen.getByRole('tab', { name: 'Parameters' }))
+    await user.click(screen.getByRole('tab', { name: 'Notebook' }))
+    expect(screen.getByLabelText('Table 1, 1')).toHaveValue('FVG sample')
+    await waitFor(
+      () =>
+        expect(stored.definition.notebook.some((b) => b.type === 'TABLE' && b.rows?.[0][0] === 'FVG sample')).toBe(
+          true
+        ),
+      { timeout: 2500 }
+    )
+  })
+  it('creates named parameter presets with real values', async () => {
+    renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Parameters' }))
+    await user.type(screen.getByLabelText('Preset name'), 'Conservative')
+    await user.click(screen.getByRole('button', { name: 'Save preset' }))
+    expect(screen.getByDisplayValue('Conservative')).toBeInTheDocument()
+    await waitFor(() => expect(stored.definition.presets[0]?.name).toBe('Conservative'), { timeout: 2500 })
+    expect(Object.keys(stored.definition.presets[0].values)).toHaveLength(stored.definition.parameters.length)
+  }, 15000)
+  it('exposes nested rules as documentation without claiming engine execution', async () => {
+    renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Setup & Rules' }))
+    expect(screen.getByText(/existing backtest engine does not execute/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Add rule' }))
+    expect(screen.getAllByDisplayValue('New rule')).toHaveLength(1)
+    await waitFor(() => expect(stored.definition.rules).toHaveLength(4), { timeout: 2500 })
+  })
+  it('runs checklist templates and requires mandatory items', async () => {
+    renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Checklists' }))
+    await user.click(screen.getByRole('button', { name: 'Run checklist' }))
+    expect(await screen.findByRole('button', { name: 'Save execution' })).toBeDisabled()
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    expect(screen.getByRole('button', { name: 'Save execution' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Save execution' }))
+    await waitFor(() => expect(api.saveExecution).toHaveBeenCalled())
+    expect(vi.mocked(api.saveExecution).mock.calls[0][1].answers).toHaveProperty(
+      stored.definition.checklists[0].items[0].id,
+      true
+    )
+  })
+  it('creates a configured native Five Sessions strategy', async () => {
+    renderPage()
+    await screen.findByLabelText('Strategy name')
+    const buttons = screen.getAllByRole('button', { name: 'Five Sessions Model', exact: true })
+    await user.click(buttons[0])
+    await waitFor(() => expect(api.createStudio).toHaveBeenCalled())
+    const data = vi.mocked(api.createStudio).mock.calls[0][0]
+    expect(data.definition.metadata.timezone).toBe('Europe/Bucharest')
+    expect(data.definition.parameters.find((p) => p.name === 'Minimum FVG size')?.value).toBe(0.05)
+  })
+  it('waits for a pending image upload before saving and navigating away', async () => {
+    const router = renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Notebook' }))
+    let finish: (value: Awaited<ReturnType<typeof uploadAsset>>) => void
+    vi.mocked(uploadAsset).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    const file = new File(['local fixture'], 'chart.png', { type: 'image/png' })
+    const input = screen.getByRole('button', { name: 'Upload image' }).querySelector('input')!
+    await act(async () => {
+      await userEvent.upload(input, file)
     })
-
-    renderStrategiesPage()
-
-    expect((await screen.findAllByText('London Sweep Responsive Audit Strategy')).length).toBeGreaterThan(0)
-    const page = screen.getByTestId('strategies-page')
-    const grid = screen.getByTestId('strategies-grid')
-    const strategyRow = screen.getByTestId('strategy-list-row')
-    expect(screen.queryByTestId('rich-text-toolbar')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Create strategy', exact: true }))
-    const toolbar = screen.getByTestId('rich-text-toolbar')
-
-    expect(page).toHaveStyle({ width: '100%', maxWidth: '100%' })
-    expect(Number.parseFloat(window.getComputedStyle(grid).marginLeft) || 0).toBe(0)
-    expect(grid).toHaveAttribute('data-mobile-column-spacing', '0')
-    expect(strategyRow).toHaveAttribute('data-mobile-layout', 'single-column')
-    expect(toolbar).toHaveAttribute('data-mobile-wrap', 'true')
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Archive' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Create strategy' })).toBeVisible()
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
+    await act(async () => {
+      void router.navigate('/elsewhere')
+    })
+    expect(screen.queryByText('Other page')).not.toBeInTheDocument()
+    await act(async () => {
+      finish!({
+        id: 'image-1',
+        scope: 'STRATEGY',
+        image: true,
+        originalFileName: 'chart.png',
+        viewUrl: '/api/assets/image-1/view'
+      })
+    })
+    await waitFor(() => expect(screen.getByText('Other page')).toBeInTheDocument())
+    expect(stored.definition.notebook.some((block) => block.type === 'IMAGE' && block.assetId === 'image-1')).toBe(true)
   })
+  it('keeps category editing focused and saves it before blur or navigation', async () => {
+    const router = renderPage()
+    await screen.findByLabelText('Strategy name')
+    await user.click(screen.getByRole('tab', { name: 'Parameters' }))
+    await user.click(screen.getAllByRole('button', { name: 'Advanced details' })[0])
+    const category = await screen.findByLabelText('Category', { exact: true })
+    await user.clear(category)
+    await user.type(category, 'ICT')
+    expect(category).toHaveValue('ICT')
+    expect(category).toHaveFocus()
+    await act(async () => {
+      await router.navigate('/elsewhere')
+    })
+    await waitFor(() => expect(screen.getByText('Other page')).toBeInTheDocument())
+    expect(stored.definition.parameters[0].category).toBe('ICT')
+  }, 15000)
 })

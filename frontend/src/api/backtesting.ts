@@ -199,6 +199,8 @@ export type BacktestingTrade = BacktestingIctMetadata & {
   session?: string | null
   setupName?: string | null
   strategyId?: string | null
+  strategyVersionId?: string | null
+  researchSample?: string | null
   strategySource?: 'MY' | 'MENTOR' | null
   strategyNameSnapshot?: string | null
   gapPresent?: boolean

@@ -26,6 +26,7 @@ public class SessionReviewService {
     private final AccountRepository accounts;
     private final TradeRepository trades;
     private final UserStrategyRepository strategies;
+    private final com.tradevault.repository.StrategyVersionRepository strategyVersions;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
@@ -162,8 +163,9 @@ public class SessionReviewService {
                 var snapshot = data.putObject("strategyContext");
                 snapshot.put("name", strategy.getName());
                 snapshot.put("strategyId", strategy.getId().toString());
-                var versions = jdbc.queryForList("SELECT id FROM strategy_versions WHERE strategy_id=? AND user_id=? ORDER BY version_number DESC LIMIT 1", UUID.class, strategy.getId(), user.getId());
-                if (!versions.isEmpty()) snapshot.put("versionId", versions.get(0).toString());
+                strategyVersions.findMatchingCurrentCheckpoint(strategy.getId(), user.getId()).ifPresent(version -> snapshot.put("versionId", version.getId().toString()));
+                snapshot.put("strategyRevision", strategy.getRevision());
+                snapshot.set("studioDefinition", strategy.getStudioJson());
                 snapshot.put("entry", strategy.getEntryConditionsRich());
                 snapshot.put("invalidation", strategy.getInvalidationLogic());
                 snapshot.put("noTrade", strategy.getNoTradeRules());

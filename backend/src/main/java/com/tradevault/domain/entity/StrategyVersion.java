@@ -50,6 +50,12 @@ public class StrategyVersion {
     @Column(name = "snapshot_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode snapshotJson;
 
+    @Column(name = "name", length = 120)
+    private String name;
+
+    @Column(name = "change_description", columnDefinition = "TEXT")
+    private String changeDescription;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

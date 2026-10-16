@@ -16,13 +16,17 @@ type RichTextEditorProps = {
   readOnly?: boolean
   placeholder?: string
   compactToolbar?: boolean
+  allowHighlight?: boolean
+  hideToolbar?: boolean
+  minHeight?: number
+  ariaLabel?: string
 }
 
 const sanitizeHtml = (html: string) => {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const allowedTags = new Set([
     'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE',
-    'PRE', 'CODE', 'H1', 'H2', 'H3', 'H4', 'HR', 'A', 'SPAN', 'DIV', 'LABEL', 'INPUT'
+    'PRE', 'CODE', 'MARK', 'H1', 'H2', 'H3', 'H4', 'HR', 'A', 'SPAN', 'DIV', 'LABEL', 'INPUT'
   ])
   const allowedAttrs: Record<string, string[]> = {
     A: ['href', 'target', 'rel'],
@@ -50,7 +54,7 @@ const sanitizeHtml = (html: string) => {
     })
     if (el.tagName === 'A') {
       const href = el.getAttribute('href') || ''
-      if (href.trim().toLowerCase().startsWith('javascript:')) {
+      if (!/^(https?:|mailto:)/i.test(href.trim())) {
         el.removeAttribute('href')
       }
       el.setAttribute('rel', 'noopener noreferrer')
@@ -65,7 +69,11 @@ export default function RichTextEditor({
   onChange,
   readOnly = false,
   placeholder,
-  compactToolbar = false
+  compactToolbar = false,
+  allowHighlight = false,
+  hideToolbar = false,
+  minHeight = 260,
+  ariaLabel
 }: RichTextEditorProps) {
   const { t } = useI18n()
   const editorRef = useRef<HTMLDivElement | null>(null)
@@ -123,7 +131,7 @@ export default function RichTextEditor({
 
   return (
     <Stack spacing={1}>
-      {!readOnly && (
+      {!readOnly && !hideToolbar && (
         <Box
           sx={{
             position: 'sticky',
@@ -137,6 +145,7 @@ export default function RichTextEditor({
           }}
         >
           <Stack
+            onMouseDown={event => event.preventDefault()}
             data-testid="rich-text-toolbar"
             data-mobile-wrap={compactToolbar ? 'true' : undefined}
             direction="row"
@@ -169,6 +178,7 @@ export default function RichTextEditor({
                 <FormatItalicIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+            {allowHighlight && <Tooltip title={t('editor.highlight')}><IconButton size="small" aria-label={t('editor.highlight')} onClick={() => exec('insertHTML', `<mark>${window.getSelection()?.toString().replace(/[&<>]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;'}[c])) || ''}</mark>`)}><Typography variant="caption">▰</Typography></IconButton></Tooltip>}
             <Divider flexItem orientation="vertical" />
             <Tooltip title={t('editor.bulletList')}>
               <IconButton size="small" onClick={() => exec('insertUnorderedList')} sx={compactButtonSx}>
@@ -225,16 +235,27 @@ export default function RichTextEditor({
       )}
       <Box
         ref={editorRef}
+        role="textbox"
+        aria-label={ariaLabel || placeholder || t('editor.placeholder')}
+        aria-multiline="true"
         contentEditable={!readOnly}
         suppressContentEditableWarning
         onInput={handleInput}
+        onClick={event => {
+          const input = event.target as HTMLInputElement
+          if (input.tagName === 'INPUT' && input.type === 'checkbox') {
+            if (input.checked) input.setAttribute('checked', '')
+            else input.removeAttribute('checked')
+            handleInput()
+          }
+        }}
         data-placeholder={placeholder || t('editor.placeholder')}
         sx={{
           border: '1px solid',
           borderColor: 'divider',
           borderRadius: 2,
           p: 2,
-          minHeight: 260,
+          minHeight,
           backgroundColor: readOnly ? 'background.default' : 'background.paper',
           '& h1': {
             fontSize: '1.6rem',

@@ -82,6 +82,12 @@ public class BacktestingTrade {
     @Column(name = "strategy_id")
     private UUID strategyId;
 
+    @Column(name = "strategy_version_id")
+    private UUID strategyVersionId;
+
+    @Column(name = "research_sample", length = 16)
+    private String researchSample;
+
     @Column(name = "strategy_source", length = 16)
     private String strategySource;
 

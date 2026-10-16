@@ -2710,6 +2710,7 @@
     }
   },
   "editor": {
+    "highlight": "Highlight",
     "bold": "Bold",
     "italic": "Italic",
     "underline": "Underline",

@@ -82,7 +82,7 @@ public class ContextSnapshotService {
 
         UUID strategyVersionId = strategyId == null
                 ? null
-                : strategyVersionRepository.findFirstByStrategy_IdOrderByVersionNumberDesc(strategyId)
+                : strategyVersionRepository.findMatchingCurrentCheckpoint(strategyId, user.getId())
                 .map(item -> item.getId())
                 .orElse(null);
 

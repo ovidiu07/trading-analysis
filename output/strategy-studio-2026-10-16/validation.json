@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-16",
+  "branch": "redesign-upgraded-improved",
+  "frontend": {
+    "passed": 503,
+    "skipped": 10,
+    "files": 90,
+    "finalExportTestsPassed": 11
+  },
+  "backend": {
+    "passed": 112,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "postgresIntegrationCases": 19
+  },
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 15
+  },
+  "productionBuild": "passed",
+  "migration": {
+    "version": 79,
+    "appliedTo": "isolated local PostgreSQL QA database"
+  },
+  "browser": [
+    "1440x1000 desktop",
+    "390x844 notebook",
+    "320x800 parameters",
+    "persisted reload",
+    "named preset comparison",
+    "append-only checkpoint restore",
+    "real two-tab HTTP 409 conflict review"
+  ],
+  "storage": "upload authorization and persistence tested with substituted object storage; no real S3 upload",
+  "productionDataChanged": false,
+  "deployed": false
+}

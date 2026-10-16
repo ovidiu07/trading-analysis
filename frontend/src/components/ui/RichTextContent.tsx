@@ -9,10 +9,10 @@ type RichTextContentProps = {
 const sanitizeRichHtml = (rawHtml: string) => {
   const doc = new DOMParser().parseFromString(rawHtml || '', 'text/html')
   const allowedTags = new Set([
-    'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'CODE', 'H3', 'H4', 'IMG'
+    'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'CODE', 'MARK', 'A', 'INPUT', 'LABEL', 'SPAN', 'H1', 'H2', 'H3', 'H4', 'IMG'
   ])
   const allowedAttrs: Record<string, string[]> = {
-    IMG: ['src', 'alt', 'loading']
+    IMG: ['src', 'alt', 'loading'], A: ['href', 'title'], INPUT: ['type', 'checked', 'disabled']
   }
 
   Array.from(doc.body.querySelectorAll('*')).forEach((element) => {
@@ -31,6 +31,12 @@ const sanitizeRichHtml = (rawHtml: string) => {
         element.removeAttribute(attr.name)
       }
     })
+    if (element.tagName === 'INPUT') {element.setAttribute('type', 'checkbox'); element.setAttribute('disabled', '')}
+    if (element.tagName === 'A') {
+      if (!/^(https?:|mailto:)/i.test(element.getAttribute('href') || '')) element.removeAttribute('href')
+      element.setAttribute('rel', 'noopener noreferrer')
+      element.setAttribute('target', '_blank')
+    }
     if (element.tagName === 'IMG') {
       const src = (element.getAttribute('src') || '').trim().toLowerCase()
       if (src.startsWith('javascript:')) {
