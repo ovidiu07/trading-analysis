@@ -31,6 +31,7 @@ import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
 import com.tradevault.service.backtesting.ReplayCsvParser;
 import com.tradevault.service.backtesting.FvgSignalMetadata;
+import com.tradevault.service.backtesting.IctMetadata;
 import com.tradevault.service.backtesting.BacktestingSessionClassifier;
 import com.tradevault.dto.backtesting.BacktestingCurrencyMetricResponse;
 import jakarta.persistence.EntityNotFoundException;
@@ -124,8 +125,23 @@ public class BacktestingResearchService {
                 .filter(item -> item.getUser().getId().equals(user.getId()))
                 .orElseThrow(() -> new EntityNotFoundException("Backtesting trade not found"));
         applyTradeRequest(trade, request, trade.getSource());
+        trade.setIctMetadataEdited(true);
         trade.getWorkspace().setUpdatedAt(OffsetDateTime.now());
         return toTradeResponse(tradeRepository.save(trade), screenshotCount(trade.getId()));
+    }
+
+    /** Metadata-only route cannot modify execution, accounting, source identity or live journal rows. */
+    @Transactional
+    public BacktestingTradeResponse updateIctMetadata(UUID tradeId, Map<String, Object> fields) {
+        User user = currentUserService.getCurrentUser();
+        BacktestingTrade trade = tradeRepository.findById(tradeId).orElse(null);
+        if (trade == null) return evidenceSyncService.updateIctMetadata(tradeId, user.getId(), fields);
+        if (!trade.getUser().getId().equals(user.getId())) throw new EntityNotFoundException("Backtesting trade not found");
+        IctMetadata.apply(trade, fields);
+        trade.setIctMetadataEdited(true);
+        trade.setGapPresent(trade.isGapPresent() || IctMetadata.hasFvg(trade));
+        trade.getWorkspace().setUpdatedAt(OffsetDateTime.now());
+        return toTradeResponse(tradeRepository.save(trade), screenshotCount(tradeId));
     }
 
     /** One transaction: every selected ID must belong to this user's workspace. */
@@ -285,6 +301,8 @@ public class BacktestingResearchService {
                     records.add(record);
                 }
                 rowCount = records.size();
+                if (parser.getHeaderNames().stream().anyMatch(header -> header.equalsIgnoreCase("gap size pips")))
+                    warnings.add("Gap size pips is not imported as instrument price points. Supply an explicit Gap size points or FVG Size (Points) column after instrument-specific conversion.");
                 if (ReplayCsvParser.supports(parser.getHeaderNames())) {
                     format = ReplayCsvParser.FORMAT;
                     String symbol = StringUtils.hasText(instrument) ? instrument : ReplayCsvParser.symbolFromFilename(file.getOriginalFilename());
@@ -304,6 +322,10 @@ public class BacktestingResearchService {
                             if (!record.isConsistent()) throw new IllegalArgumentException("column count does not match header");
                             BacktestingTrade trade = BacktestingTrade.builder().workspace(workspace).user(user).build();
                             applyTradeRequest(trade, requestFromCsv(record.toMap()), BacktestingTradeSource.IMPORT);
+                            trade.setImportTradeNumber(value(record.toMap(), "source trade id", "trade id", "source trade number", "trade number", "importtradenumber"));
+                            if (trade.getImportTradeNumber() != null && trade.getImportTradeNumber().length() > 64) throw new IllegalArgumentException("source trade identifier exceeds 64 characters");
+                            trade.setImportFingerprint(genericImportFingerprint(trade));
+                            trade.setImportFileName(file.getOriginalFilename());
                             candidates.add(trade);
                         } catch (RuntimeException ex) { errors.add("Row " + (record.getRecordNumber() + 1) + ": " + ex.getMessage()); }
                     }
@@ -312,8 +334,9 @@ public class BacktestingResearchService {
         } catch (Exception ex) { throw new IllegalArgumentException("Could not import CSV: " + ex.getMessage(), ex); }
         Map<String, BacktestingTrade> existing = tradeRepository
                 .findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId()).stream()
-                .filter(t -> t.getImportFingerprint() != null)
-                .collect(Collectors.toMap(BacktestingTrade::getImportFingerprint, Function.identity(), (a, b) -> a));
+                .filter(t -> t.getImportFingerprint() != null || t.getSource() == BacktestingTradeSource.IMPORT && t.getImportFormat() == null)
+                .collect(Collectors.toMap(t -> t.getImportFingerprint() != null ? t.getImportFingerprint()
+                        : genericImportFingerprint(t), Function.identity(), (a, b) -> a));
         List<BacktestingTrade> imported = new ArrayList<>();
         Map<BacktestingTrade, BacktestingTrade> metadataUpdates = new LinkedHashMap<>();
         for (BacktestingTrade trade : candidates) {
@@ -321,7 +344,7 @@ public class BacktestingResearchService {
             trade.setUser(user);
             String key = trade.getImportFingerprint();
             if (key != null && existing.containsKey(key)) {
-                if (existing.get(key).getNetPnl().compareTo(trade.getNetPnl()) != 0)
+                if (!Objects.equals(existing.get(key).getNetPnl(), trade.getNetPnl()) && (existing.get(key).getNetPnl() == null || trade.getNetPnl() == null || existing.get(key).getNetPnl().compareTo(trade.getNetPnl()) != 0))
                     errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different net PnL; review it before reimporting");
                 else if (existing.get(key).getPriceCurrency() != null && !Objects.equals(existing.get(key).getPriceCurrency(), trade.getPriceCurrency()))
                     errors.add("Trade " + trade.getImportTradeNumber() + " at " + trade.getDate() + " " + trade.getEntryTime() + ": existing execution has different price currency; review it before reimporting");
@@ -619,6 +642,7 @@ public class BacktestingResearchService {
         if (request.getGapHigh() != null && request.getGapLow() != null && request.getGapHigh().compareTo(request.getGapLow()) < 0) {
             throw new IllegalArgumentException("gapHigh must be greater than or equal to gapLow");
         }
+        IctMetadata.apply(trade, IctMetadata.values(request));
         trade.setDate(Objects.requireNonNull(request.getDate(), "date is required"));
         trade.setEntryTime(Objects.requireNonNull(request.getEntryTime(), "entryTime is required"));
         trade.setInstrument(requireText(request.getInstrument(), "instrument").toUpperCase(Locale.ROOT));
@@ -627,38 +651,38 @@ public class BacktestingResearchService {
             if (StringUtils.hasText(request.getSourceTimezone())) java.time.ZoneId.of(request.getSourceTimezone().trim());
             trade.setSourceTimezone(normalizeText(request.getSourceTimezone()));
         }
-        trade.setSession(BacktestingSessionClassifier.classify(trade.getDate(), trade.getEntryTime(), trade.getSourceTimezone()));
         trade.setSetupName(normalizeText(request.getSetupName()));
         trade.setStrategyId(request.getStrategyId());
         trade.setStrategySource(normalizeStrategySource(request.getStrategySource()));
         trade.setStrategyNameSnapshot(normalizeText(request.getStrategyNameSnapshot()));
-        trade.setGapPresent(request.isGapPresent());
-        trade.setGapType(request.isGapPresent() ? request.getGapType() : null);
-        trade.setGapTimeframe(request.isGapPresent() ? normalizeText(request.getGapTimeframe()) : null);
-        trade.setGapCreatedAt(request.isGapPresent() ? request.getGapCreatedAt() : null);
-        trade.setGapMitigatedAt(request.isGapPresent() ? request.getGapMitigatedAt() : null);
-        trade.setGapHigh(request.isGapPresent() ? request.getGapHigh() : null);
-        trade.setGapLow(request.isGapPresent() ? request.getGapLow() : null);
-        trade.setGapMidpoint(request.isGapPresent() ? request.getGapMidpoint() : null);
-        trade.setGapSizePoints(request.isGapPresent() ? request.getGapSizePoints() : null);
-        trade.setGapSizePercent(request.isGapPresent() ? request.getGapSizePercent() : null);
-        trade.setGapEntryPositionPercent(request.isGapPresent() ? request.getGapEntryPositionPercent() : null);
-        trade.setGapFillStatus(request.isGapPresent() ? request.getGapFillStatus() : null);
-        trade.setGapRelationToLiquidity(request.isGapPresent() ? request.getGapRelationToLiquidity() : null);
-        trade.setGapConfluenceNotes(request.isGapPresent() ? normalizeText(request.getGapConfluenceNotes()) : null);
+        trade.setGapPresent(request.isGapPresent() || IctMetadata.hasFvg(trade));
+        trade.setGapCreatedAt(trade.isGapPresent() ? request.getGapCreatedAt() : null);
+        trade.setGapMitigatedAt(trade.isGapPresent() ? request.getGapMitigatedAt() : null);
+        trade.setGapHigh(trade.isGapPresent() ? request.getGapHigh() : null);
+        trade.setGapLow(trade.isGapPresent() ? request.getGapLow() : null);
+        trade.setGapMidpoint(trade.isGapPresent() ? request.getGapMidpoint() : null);
+        trade.setGapEntryPositionPercent(trade.isGapPresent() ? request.getGapEntryPositionPercent() : null);
+        trade.setGapRelationToLiquidity(trade.isGapPresent() ? request.getGapRelationToLiquidity() : null);
+        trade.setGapConfluenceNotes(trade.isGapPresent() ? normalizeText(request.getGapConfluenceNotes()) : null);
         trade.setRiskPercent(request.getRiskPercent());
         trade.setPlannedRR(request.getPlannedRR());
         trade.setResult(Objects.requireNonNull(request.getResult(), "result is required"));
         validateRealizedR(trade.getResult(), request.getPnlR(), trade.getNetPnl() == null);
         trade.setPnlR(request.getPnlR());
-        trade.setContextTimeframe(normalizeText(request.getContextTimeframe()));
         trade.setExecutionTimeframe(normalizeText(request.getExecutionTimeframe()));
-        trade.setEntryTimeframe(normalizeText(request.getEntryTimeframe()));
         trade.setTagsJson(writeList(normalizeList(request.getTags())));
         trade.setNotes(normalizeText(request.getNotes()));
         trade.setSource(trade.getImportFormat() != null ? BacktestingTradeSource.IMPORT : request.getSource() == null || request.getSource() == BacktestingTradeSource.LIVE
                 ? fallbackSource : request.getSource());
         trade.setTradeScope(trade.getImportFormat() != null ? BacktestingTradeScope.REPLAY : request.getTradeScope() == null ? BacktestingTradeScope.BACKTEST : request.getTradeScope());
+    }
+
+    private static String genericImportFingerprint(BacktestingTrade trade) {
+        String sourceId = trade.getImportTradeNumber();
+        String identity = StringUtils.hasText(sourceId) ? "id|" + sourceId : String.join("|",
+                trade.getInstrument(), trade.getDate().toString(), trade.getEntryTime().toString(), trade.getDirection().name(),
+                trade.getResult().name(), trade.getPnlR() == null ? "" : trade.getPnlR().stripTrailingZeros().toPlainString());
+        return ReplayCsvParser.fingerprint("TRADEJAUDIT_CSV|" + identity);
     }
 
     private BacktestingTradeRequest requestFromCsv(Map<String, String> values) {
@@ -680,7 +704,7 @@ public class BacktestingResearchService {
         request.setGapHigh(parseDecimal(value(values, "gap high", "gaphigh")));
         request.setGapLow(parseDecimal(value(values, "gap low", "gaplow")));
         request.setGapMidpoint(parseDecimal(value(values, "gap midpoint", "gapmidpoint", "gap ce")));
-        request.setGapSizePoints(parseDecimal(value(values, "gap size points", "gapsizepoints", "gap size pips")));
+        request.setGapSizePoints(parseDecimal(value(values, "gap size points", "gapsizepoints")));
         request.setGapSizePercent(parseDecimal(value(values, "gap size percent", "gapsizepercent", "gap size %")));
         request.setGapEntryPositionPercent(parseDecimal(value(values, "gap entry position percent", "gapentrypositionpercent", "entry in gap %")));
         request.setGapFillStatus(parseEnum(value(values, "gap fill status", "gapfillstatus"), BacktestingGapFillStatus.class));
@@ -695,6 +719,7 @@ public class BacktestingResearchService {
         request.setEntryTimeframe(value(values, "entry tf", "entry timeframe"));
         request.setTags(splitTags(value(values, "tags", "tag")));
         request.setNotes(value(values, "notes", "note"));
+        IctMetadata.apply(request, IctMetadata.csv(values));
         request.setSource(BacktestingTradeSource.IMPORT);
         request.setTradeScope(BacktestingTradeScope.BACKTEST);
         return request;
@@ -728,6 +753,23 @@ public class BacktestingResearchService {
                 .gapFillStatus(trade.getGapFillStatus())
                 .gapRelationToLiquidity(trade.getGapRelationToLiquidity())
                 .gapConfluenceNotes(trade.getGapConfluenceNotes())
+                .setupType(trade.getSetupType())
+                .setupQuality(trade.getSetupQuality())
+                .entryConfirmation(trade.getEntryConfirmation())
+                .htfTrend(trade.getHtfTrend())
+                .marketStructure(trade.getMarketStructure())
+                .priceLocation(trade.getPriceLocation())
+                .marketCondition(trade.getMarketCondition())
+                .liquidityType(trade.getLiquidityType())
+                .liquiditySide(trade.getLiquiditySide())
+                .sweepLevel(trade.getSweepLevel())
+                .sweepConfirmation(trade.getSweepConfirmation())
+                .structureConfirmation(trade.getStructureConfirmation())
+                .displacement(trade.getDisplacement())
+                .fvgAge(trade.getFvgAge())
+                .fvgRetest(trade.getFvgRetest())
+                .fvgEntryLocation(trade.getFvgEntryLocation())
+                .fvgSequence(trade.getFvgSequence())
                 .riskPercent(trade.getRiskPercent())
                 .plannedRR(trade.getPlannedRR())
                 .result(trade.getResult())
@@ -836,7 +878,7 @@ public class BacktestingResearchService {
                 case "gapTimeframe" -> value.equalsIgnoreCase(fallback(trade.getGapTimeframe(), "No gap"));
                 case "gapFillStatus" -> value.equalsIgnoreCase(trade.getGapFillStatus() == null ? "Unspecified" : trade.getGapFillStatus().name());
                 case "source" -> value.equalsIgnoreCase(trade.getSource().name());
-                default -> true;
+                default -> !IctMetadata.isField(key) || value.equalsIgnoreCase(Objects.toString(IctMetadata.values(trade).get(key), ""));
             };
             if (!matched) return false;
         }

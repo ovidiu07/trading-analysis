@@ -34,6 +34,11 @@ describe('backtesting money and R metrics', () => {
     expect(computeResearchMetrics(filtered).currencyMetrics!.EUR.netPnl).toBe(-1152.2)
     expect(computeResearchMetrics([{ ...trades[0], includedInAnalytics: false }]).trades).toBe(0)
   })
+  it('filters structured metadata without altering financial values or other trades', () => {
+    const enriched = [{ ...trades[0], setupType: 'REVERSAL', htfTrend: 'BEARISH', liquidityType: 'EXTERNAL', sweepLevel: 'PDL' }, { ...trades[1], setupType: 'CONTINUATION' }]
+    expect(filterResearchTrades(enriched, { ...emptyResearchFilters, setupType: 'REVERSAL', htfTrend: 'BEARISH', liquidityType: 'EXTERNAL', sweepLevel: 'PDL' })).toEqual([enriched[0]])
+    expect(filterResearchTrades(enriched, emptyResearchFilters)).toHaveLength(2)
+  })
   it('preserves R analytics for existing manual evidence and handles no-loss profit factor', () => {
     const m = computeResearchMetrics([{ ...trades[0], pnlR: 2, result: 'WIN', netPnl: null }, { ...trades[1], pnlR: -1, result: 'LOSS', netPnl: null }])
     expect(m.totalR).toBe(1); expect(m.expectancy).toBe(0.5); expect(m.profitFactor).toBe(2)

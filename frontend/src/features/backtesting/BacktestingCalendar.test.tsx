@@ -32,8 +32,19 @@ describe('BacktestingCalendar', () => {
     expect(within(dialog).getAllByText('2R')).toHaveLength(2)
     expect(within(dialog).getAllByText('$200.00')).toHaveLength(2)
     expect(within(dialog).queryByText('LIVE-ONLY')).not.toBeInTheDocument()
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Replay details' }))
-    expect(screen.getByRole('dialog', { name: 'Replay details' })).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Trade details' }))
+    expect(screen.getByRole('dialog', { name: 'Trade details' })).toBeInTheDocument()
+  })
+
+  it('opens metadata details and editing for a historical manual trade', async () => {
+    const edit = vi.fn()
+    render(<I18nProvider><BacktestingCalendar workspaceId="workspace" trades={rows} onEdit={edit} /></I18nProvider>)
+    await userEvent.click(screen.getByRole('button', { name: /View backtested trades for 2026-02-02/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Trade details' }))
+    const details = screen.getByRole('dialog', { name: 'Trade details' })
+    expect(within(details).getByText('Strategy & Market Context')).toBeInTheDocument()
+    await userEvent.click(within(details).getByRole('button', { name: 'Edit' }))
+    expect(edit).toHaveBeenCalledWith(rows[1])
   })
 
   it('switches between R and cash, drills into a week, and navigates months', async () => {

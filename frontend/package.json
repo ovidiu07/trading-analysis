@@ -10,7 +10,8 @@
     "i18n:audit:strict": "node scripts/audit-i18n.mjs --strict",
     "build": "npm run seo:generate && tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "ict:sync": "node scripts/sync-ict-fields.mjs"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",

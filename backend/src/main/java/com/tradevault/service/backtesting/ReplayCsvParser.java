@@ -146,6 +146,16 @@ public final class ReplayCsvParser {
                 .importFingerprint(fingerprint).sourceTimezone(timezone == null || timezone.isBlank() ? null : timezone)
                 .tagsJson("[]").build();
         FvgSignalMetadata.apply(trade);
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>(IctMetadata.csv(entry.row().toMap()));
+        IctMetadata.csv(exit.row().toMap()).forEach((key, value) -> {
+            Object prior = metadata.get(key);
+            boolean same = prior instanceof BigDecimal a && value instanceof BigDecimal b ? a.compareTo(b) == 0 : Objects.equals(prior, value);
+            if (metadata.containsKey(key) && !same)
+                throw new IllegalArgumentException("entry/exit metadata disagree for " + key);
+            metadata.put(key, value);
+        });
+        IctMetadata.apply(trade, metadata);
+        trade.setGapPresent(trade.isGapPresent() || IctMetadata.hasFvg(trade));
         return trade;
     }
 
@@ -157,7 +167,7 @@ public final class ReplayCsvParser {
     }
 
     private static String canonical(BigDecimal value) { return value.stripTrailingZeros().toPlainString(); }
-    private static String fingerprint(String value) {
+    public static String fingerprint(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch (Exception ex) { throw new IllegalStateException(ex); }
     }

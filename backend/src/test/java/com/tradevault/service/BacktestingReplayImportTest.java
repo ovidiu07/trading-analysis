@@ -49,6 +49,31 @@ class BacktestingReplayImportTest {
                 + "1,Exit short,2024-10-08 18:50," + exitSignal + ",19230.5,2.7,-94.82\n";
     }
 
+    @Test void nativeReplayExplicitMetadataUsesCanonicalFieldsAndRejectsConflictingRows() throws Exception {
+        String base = fvgCsv("SHORT GER / 2", "SL", "19198.5");
+        String[] rows = base.split("\n");
+        String csv = rows[0] + ",Setup Type,HTF Trend,FVG Size (%),FVG Age at Entry\n"
+                + rows[1] + ",Reversal,Bearish,0.07,2\n" + rows[2] + ",REVERSAL,BEARISH,0.0700,2\n";
+        var parsed = parse(csv);
+        assertThat(parsed.errors()).isEmpty();
+        assertThat(parsed.trades().getFirst().getSetupType()).isEqualTo("REVERSAL");
+        assertThat(parsed.trades().getFirst().getHtfTrend()).isEqualTo("BEARISH");
+        assertThat(parsed.trades().getFirst().getGapSizePercent()).isEqualByComparingTo("0.07");
+        assertThat(parsed.trades().getFirst().getFvgAge()).isEqualTo(2);
+        var conflict = parse(csv.replace(rows[2] + ",REVERSAL", rows[2] + ",Continuation"));
+        assertThat(conflict.trades()).isEmpty();
+        assertThat(conflict.errors()).anyMatch(error -> error.contains("metadata disagree"));
+    }
+
+    @Test void anExplicitlyClearedFvgCannotBeRefilledByLaterSourceEnrichment() throws Exception {
+        var original = parse(fvgCsv("SHORT GER / 2", "SL", "19198.5")).trades().getFirst();
+        var incoming = parse(fvgCsv(FVG_ENTRY, "SL", "19198.5")).trades().getFirst();
+        assertThat(FvgSignalMetadata.canEnrich(original, incoming)).isTrue();
+        original.setIctMetadataEdited(true);
+        assertThat(FvgSignalMetadata.canEnrich(original, incoming)).isFalse();
+        assertThat(original.getGapSizePercent()).isNull();
+    }
+
     @Test void preservesLongEntryAndExitSignalsAndParsesOnlyTheFvgSection() throws Exception {
         String entry = FVG_ENTRY + " | FVGAGEv1 id=PEPPERSTONE:GER40F:5:1728397200000:-1 srcBar=851 orderAge=0 ageOn=1 maxAge=3 session=3 sessionName=New_York submitted=1728397200000 sl=19230.5";
         String exit = "SL | audit=" + "x".repeat(1000);

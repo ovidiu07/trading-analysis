@@ -133,6 +133,43 @@ public class BacktestingTrade {
     @Column(name = "gap_confluence_notes", columnDefinition = "TEXT")
     private String gapConfluenceNotes;
 
+    @Column(name = "setup_type", length = 40)
+    private String setupType;
+    @Column(name = "setup_quality", length = 40)
+    private String setupQuality;
+    @Column(name = "entry_confirmation", length = 40)
+    private String entryConfirmation;
+    @Column(name = "htf_trend", length = 40)
+    private String htfTrend;
+    @Column(name = "market_structure", length = 40)
+    private String marketStructure;
+    @Column(name = "price_location", length = 40)
+    private String priceLocation;
+    @Column(name = "market_condition", length = 40)
+    private String marketCondition;
+    @Column(name = "liquidity_type", length = 40)
+    private String liquidityType;
+    @Column(name = "liquidity_side", length = 40)
+    private String liquiditySide;
+    @Column(name = "sweep_level", length = 40)
+    private String sweepLevel;
+    @Column(name = "sweep_confirmation", length = 40)
+    private String sweepConfirmation;
+    @Column(name = "structure_confirmation", length = 40)
+    private String structureConfirmation;
+    @Column(name = "displacement", length = 40)
+    private String displacement;
+    @Column(name = "fvg_age")
+    private Integer fvgAge;
+    @Column(name = "fvg_retest", length = 40)
+    private String fvgRetest;
+    @Column(name = "fvg_entry_location", length = 40)
+    private String fvgEntryLocation;
+    @Column(name = "fvg_sequence", length = 40)
+    private String fvgSequence;
+    @Column(name = "ict_metadata_edited", nullable = false)
+    private boolean ictMetadataEdited;
+
     @Column(name = "risk_percent", precision = 10, scale = 4)
     private BigDecimal riskPercent;
 

@@ -21,7 +21,7 @@ import { computeResearchMetrics } from './research'
 import { AnalysisBasis, formatBasis, formatMoney } from './ResearchPerformance'
 import ReplayTradeDetails from './ReplayTradeDetails'
 
-export default function BacktestingCalendar({ workspaceId, trades }: { workspaceId: string; trades: BacktestingTrade[] }) {
+export default function BacktestingCalendar({ workspaceId, trades, onEdit }: { workspaceId: string; trades: BacktestingTrade[]; onEdit?: (trade: BacktestingTrade) => void }) {
   const { t, locale } = useI18n()
   const theme = useTheme()
   const compact = useMediaQuery('(max-width:560px)')
@@ -199,12 +199,12 @@ export default function BacktestingCalendar({ workspaceId, trades }: { workspace
             {(trade.setupName || trade.strategyNameSnapshot) && <Typography variant="body2" color="text.secondary">{trade.strategyNameSnapshot || trade.setupName}</Typography>}
             {trade.plannedRR != null && <Typography variant="body2" color="text.secondary">{t('backtesting.trades.plannedRR')}: 1:{trade.plannedRR}</Typography>}
             {trade.notes && <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{trade.notes}</Typography>}
-            {trade.importFormat && <Button size="small" onClick={() => setDetail(trade)} sx={{ alignSelf: 'flex-start' }}>{t('backtesting.replay.details')}</Button>}
+            {<Button size="small" onClick={() => setDetail(trade)} sx={{ alignSelf: 'flex-start' }}>{t('backtesting.replay.details')}</Button>}
           </Stack>
         </Box>)}
       </Stack>}</DialogContent>
       <DialogActions><Button onClick={() => setSelection(null)}>{t('backtesting.replay.done')}</Button></DialogActions>
     </Dialog>
-    {detail && <ReplayTradeDetails trade={detail} onClose={() => setDetail(null)} />}
+    {detail && <ReplayTradeDetails trade={detail} onClose={() => setDetail(null)} onEdit={onEdit ? () => { onEdit(detail); setDetail(null); setSelection(null) } : undefined} />}
   </Stack>
 }

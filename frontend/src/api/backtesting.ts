@@ -167,7 +167,27 @@ export type BacktestingScreenshotPayload = {
   backtestingTradeId?: string | null
 }
 
-export type BacktestingTrade = {
+export type BacktestingIctMetadata = {
+  setupType?: string | null
+  setupQuality?: string | null
+  entryConfirmation?: string | null
+  htfTrend?: string | null
+  marketStructure?: string | null
+  priceLocation?: string | null
+  marketCondition?: string | null
+  liquidityType?: string | null
+  liquiditySide?: string | null
+  sweepLevel?: string | null
+  sweepConfirmation?: string | null
+  structureConfirmation?: string | null
+  displacement?: string | null
+  fvgAge?: number | null
+  fvgRetest?: string | null
+  fvgEntryLocation?: string | null
+  fvgSequence?: string | null
+}
+
+export type BacktestingTrade = BacktestingIctMetadata & {
   id: string
   workspaceId: string
   liveTradeId?: string | null
@@ -556,3 +576,6 @@ export async function deleteBacktestingScreenshot(id: string) {
 export async function detachBacktestingScreenshotTrade(id: string) {
   return apiPost<BacktestingScreenshot>(`/backtesting/screenshots/${encodeURIComponent(id)}/detach-trade`, {})
 }
+
+export const updateBacktestingIctMetadata = (id: string, fields: Record<string, unknown>) =>
+  apiPatch<BacktestingTrade>(`/backtesting/trades/${id}/ict-metadata`, fields)

@@ -110,7 +110,7 @@ public final class FvgSignalMetadata {
 
     /** A repeat export may add source facts, but must not replace existing research annotations. */
     public static boolean canEnrich(BacktestingTrade existing, BacktestingTrade incoming) {
-        return existing.getSource() == BacktestingTradeSource.IMPORT && existing.getTradeScope() == BacktestingTradeScope.REPLAY
+        return !existing.isIctMetadataEdited() && existing.getSource() == BacktestingTradeSource.IMPORT && existing.getTradeScope() == BacktestingTradeScope.REPLAY
                 && ReplayCsvParser.FORMAT.equals(existing.getImportFormat())
                 && incoming.isGapPresent() && hasPayload(incoming.getEntrySignal()) && !hasPayload(existing.getEntrySignal())
                 && !existing.isGapPresent() && existing.getGapType() == null && existing.getGapTimeframe() == null

@@ -1,0 +1,1315 @@
+[
+  {
+    "key": "setupType",
+    "label": {
+      "en": "Setup Type",
+      "ro": "Tip de setup"
+    },
+    "group": "setup",
+    "options": [
+      {
+        "value": "REVERSAL",
+        "label": {
+          "en": "Reversal",
+          "ro": "Inversare"
+        },
+        "aliases": []
+      },
+      {
+        "value": "CONTINUATION",
+        "label": {
+          "en": "Continuation",
+          "ro": "Continuare"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "entryTimeframe",
+    "label": {
+      "en": "Entry Timeframe",
+      "ro": "Interval de intrare"
+    },
+    "group": "setup",
+    "options": [
+      {
+        "value": "1m",
+        "label": {
+          "en": "1M",
+          "ro": "1M"
+        },
+        "aliases": [
+          "M1",
+          "1",
+          "1 min",
+          "1 minute",
+          "1 minutes"
+        ]
+      },
+      {
+        "value": "3m",
+        "label": {
+          "en": "3M",
+          "ro": "3M"
+        },
+        "aliases": [
+          "M3",
+          "3",
+          "3 min",
+          "3 minute",
+          "3 minutes"
+        ]
+      },
+      {
+        "value": "5m",
+        "label": {
+          "en": "5M",
+          "ro": "5M"
+        },
+        "aliases": [
+          "M5",
+          "5",
+          "5 min",
+          "5 minute",
+          "5 minutes"
+        ]
+      },
+      {
+        "value": "15m",
+        "label": {
+          "en": "15M",
+          "ro": "15M"
+        },
+        "aliases": [
+          "M15",
+          "15",
+          "15 min",
+          "15 minute",
+          "15 minutes"
+        ]
+      },
+      {
+        "value": "30m",
+        "label": {
+          "en": "30M",
+          "ro": "30M"
+        },
+        "aliases": [
+          "M30",
+          "30",
+          "30 min",
+          "30 minute",
+          "30 minutes"
+        ]
+      },
+      {
+        "value": "1h",
+        "label": {
+          "en": "1H",
+          "ro": "1H"
+        },
+        "aliases": [
+          "H1",
+          "60",
+          "1 hour",
+          "1 hours"
+        ]
+      },
+      {
+        "value": "4h",
+        "label": {
+          "en": "4H",
+          "ro": "4H"
+        },
+        "aliases": [
+          "H4",
+          "240",
+          "4 hour",
+          "4 hours"
+        ]
+      },
+      {
+        "value": "1D",
+        "label": {
+          "en": "Daily",
+          "ro": "Zilnic"
+        },
+        "aliases": [
+          "D1",
+          "D",
+          "Day",
+          "1440"
+        ]
+      },
+      {
+        "value": "1W",
+        "label": {
+          "en": "Weekly",
+          "ro": "Săptămânal"
+        },
+        "aliases": [
+          "W1",
+          "W",
+          "Week",
+          "10080"
+        ]
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "session",
+    "label": {
+      "en": "Session",
+      "ro": "Sesiune"
+    },
+    "group": "setup",
+    "options": [
+      {
+        "value": "Asia",
+        "label": {
+          "en": "Asia",
+          "ro": "Asia"
+        },
+        "aliases": []
+      },
+      {
+        "value": "London",
+        "label": {
+          "en": "London",
+          "ro": "Londra"
+        },
+        "aliases": []
+      },
+      {
+        "value": "New York",
+        "label": {
+          "en": "New York",
+          "ro": "New York"
+        },
+        "aliases": []
+      },
+      {
+        "value": "Overlap",
+        "label": {
+          "en": "Overlap",
+          "ro": "Suprapunere"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "setupQuality",
+    "label": {
+      "en": "Setup Quality",
+      "ro": "Calitatea setupului"
+    },
+    "group": "setup",
+    "options": [
+      {
+        "value": "A+",
+        "label": {
+          "en": "A+",
+          "ro": "A+"
+        },
+        "aliases": []
+      },
+      {
+        "value": "A",
+        "label": {
+          "en": "A",
+          "ro": "A"
+        },
+        "aliases": []
+      },
+      {
+        "value": "B",
+        "label": {
+          "en": "B",
+          "ro": "B"
+        },
+        "aliases": []
+      },
+      {
+        "value": "C",
+        "label": {
+          "en": "C",
+          "ro": "C"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "entryConfirmation",
+    "label": {
+      "en": "Entry Confirmation",
+      "ro": "Confirmarea intrării"
+    },
+    "group": "setup",
+    "options": [
+      {
+        "value": "MSS_FVG",
+        "label": {
+          "en": "MSS + FVG",
+          "ro": "MSS + FVG"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BOS_FVG",
+        "label": {
+          "en": "BOS + FVG",
+          "ro": "BOS + FVG"
+        },
+        "aliases": []
+      },
+      {
+        "value": "FVG_ONLY",
+        "label": {
+          "en": "FVG Only",
+          "ro": "Doar FVG"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "contextTimeframe",
+    "label": {
+      "en": "HTF Timeframe",
+      "ro": "Interval HTF"
+    },
+    "group": "htf",
+    "options": [
+      {
+        "value": "1m",
+        "label": {
+          "en": "1M",
+          "ro": "1M"
+        },
+        "aliases": [
+          "M1",
+          "1",
+          "1 min",
+          "1 minute",
+          "1 minutes"
+        ]
+      },
+      {
+        "value": "3m",
+        "label": {
+          "en": "3M",
+          "ro": "3M"
+        },
+        "aliases": [
+          "M3",
+          "3",
+          "3 min",
+          "3 minute",
+          "3 minutes"
+        ]
+      },
+      {
+        "value": "5m",
+        "label": {
+          "en": "5M",
+          "ro": "5M"
+        },
+        "aliases": [
+          "M5",
+          "5",
+          "5 min",
+          "5 minute",
+          "5 minutes"
+        ]
+      },
+      {
+        "value": "15m",
+        "label": {
+          "en": "15M",
+          "ro": "15M"
+        },
+        "aliases": [
+          "M15",
+          "15",
+          "15 min",
+          "15 minute",
+          "15 minutes"
+        ]
+      },
+      {
+        "value": "30m",
+        "label": {
+          "en": "30M",
+          "ro": "30M"
+        },
+        "aliases": [
+          "M30",
+          "30",
+          "30 min",
+          "30 minute",
+          "30 minutes"
+        ]
+      },
+      {
+        "value": "1h",
+        "label": {
+          "en": "1H",
+          "ro": "1H"
+        },
+        "aliases": [
+          "H1",
+          "60",
+          "1 hour",
+          "1 hours"
+        ]
+      },
+      {
+        "value": "4h",
+        "label": {
+          "en": "4H",
+          "ro": "4H"
+        },
+        "aliases": [
+          "H4",
+          "240",
+          "4 hour",
+          "4 hours"
+        ]
+      },
+      {
+        "value": "1D",
+        "label": {
+          "en": "Daily",
+          "ro": "Zilnic"
+        },
+        "aliases": [
+          "D1",
+          "D",
+          "Day",
+          "1440"
+        ]
+      },
+      {
+        "value": "1W",
+        "label": {
+          "en": "Weekly",
+          "ro": "Săptămânal"
+        },
+        "aliases": [
+          "W1",
+          "W",
+          "Week",
+          "10080"
+        ]
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "htfTrend",
+    "label": {
+      "en": "HTF Trend",
+      "ro": "Tendință HTF"
+    },
+    "group": "htf",
+    "options": [
+      {
+        "value": "BULLISH",
+        "label": {
+          "en": "Bullish",
+          "ro": "Ascendentă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BEARISH",
+        "label": {
+          "en": "Bearish",
+          "ro": "Descendentă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "RANGING",
+        "label": {
+          "en": "Ranging",
+          "ro": "Laterală"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "marketStructure",
+    "label": {
+      "en": "Market Structure",
+      "ro": "Structura pieței"
+    },
+    "group": "htf",
+    "options": [
+      {
+        "value": "HH_HL",
+        "label": {
+          "en": "HH/HL",
+          "ro": "HH/HL"
+        },
+        "aliases": []
+      },
+      {
+        "value": "LH_LL",
+        "label": {
+          "en": "LH/LL",
+          "ro": "LH/LL"
+        },
+        "aliases": []
+      },
+      {
+        "value": "RANGE",
+        "label": {
+          "en": "Range",
+          "ro": "Interval lateral"
+        },
+        "aliases": []
+      },
+      {
+        "value": "TRANSITION",
+        "label": {
+          "en": "Transition",
+          "ro": "Tranziție"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "priceLocation",
+    "label": {
+      "en": "Price Location",
+      "ro": "Poziția prețului"
+    },
+    "group": "htf",
+    "options": [
+      {
+        "value": "PREMIUM",
+        "label": {
+          "en": "Premium",
+          "ro": "Premium"
+        },
+        "aliases": []
+      },
+      {
+        "value": "DISCOUNT",
+        "label": {
+          "en": "Discount",
+          "ro": "Discount"
+        },
+        "aliases": []
+      },
+      {
+        "value": "EQUILIBRIUM",
+        "label": {
+          "en": "Equilibrium",
+          "ro": "Echilibru"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "marketCondition",
+    "label": {
+      "en": "Market Condition",
+      "ro": "Condiția pieței"
+    },
+    "group": "htf",
+    "options": [
+      {
+        "value": "TRENDING",
+        "label": {
+          "en": "Trending",
+          "ro": "În tendință"
+        },
+        "aliases": []
+      },
+      {
+        "value": "RANGING",
+        "label": {
+          "en": "Ranging",
+          "ro": "Laterală"
+        },
+        "aliases": []
+      },
+      {
+        "value": "CHOPPY",
+        "label": {
+          "en": "Choppy",
+          "ro": "Neregulată"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "liquidityType",
+    "label": {
+      "en": "Liquidity Type",
+      "ro": "Tip de lichiditate"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "EXTERNAL",
+        "label": {
+          "en": "External",
+          "ro": "Externă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "INTERNAL",
+        "label": {
+          "en": "Internal",
+          "ro": "Internă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BOTH",
+        "label": {
+          "en": "Both",
+          "ro": "Ambele"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "liquiditySide",
+    "label": {
+      "en": "Liquidity Side",
+      "ro": "Partea lichidității"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "BSL",
+        "label": {
+          "en": "BSL",
+          "ro": "BSL"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SSL",
+        "label": {
+          "en": "SSL",
+          "ro": "SSL"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "sweepLevel",
+    "label": {
+      "en": "Sweep Level",
+      "ro": "Nivel de sweep"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "PDH",
+        "label": {
+          "en": "PDH",
+          "ro": "PDH"
+        },
+        "aliases": []
+      },
+      {
+        "value": "PDL",
+        "label": {
+          "en": "PDL",
+          "ro": "PDL"
+        },
+        "aliases": []
+      },
+      {
+        "value": "ASIA_HIGH",
+        "label": {
+          "en": "Asia High",
+          "ro": "Asia High"
+        },
+        "aliases": []
+      },
+      {
+        "value": "ASIA_LOW",
+        "label": {
+          "en": "Asia Low",
+          "ro": "Asia Low"
+        },
+        "aliases": []
+      },
+      {
+        "value": "LONDON_HIGH",
+        "label": {
+          "en": "London High",
+          "ro": "London High"
+        },
+        "aliases": []
+      },
+      {
+        "value": "LONDON_LOW",
+        "label": {
+          "en": "London Low",
+          "ro": "London Low"
+        },
+        "aliases": []
+      },
+      {
+        "value": "NY_HIGH",
+        "label": {
+          "en": "NY High",
+          "ro": "NY High"
+        },
+        "aliases": []
+      },
+      {
+        "value": "NY_LOW",
+        "label": {
+          "en": "NY Low",
+          "ro": "NY Low"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SESSION_HIGH",
+        "label": {
+          "en": "Session High",
+          "ro": "Session High"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SESSION_LOW",
+        "label": {
+          "en": "Session Low",
+          "ro": "Session Low"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SWING_HIGH",
+        "label": {
+          "en": "Swing High",
+          "ro": "Swing High"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SWING_LOW",
+        "label": {
+          "en": "Swing Low",
+          "ro": "Swing Low"
+        },
+        "aliases": []
+      },
+      {
+        "value": "EQH",
+        "label": {
+          "en": "EQH",
+          "ro": "EQH"
+        },
+        "aliases": []
+      },
+      {
+        "value": "EQL",
+        "label": {
+          "en": "EQL",
+          "ro": "EQL"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "sweepConfirmation",
+    "label": {
+      "en": "Sweep Confirmation",
+      "ro": "Confirmarea sweepului"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "WICK_SWEEP",
+        "label": {
+          "en": "Wick Sweep",
+          "ro": "Sweep cu fitil"
+        },
+        "aliases": []
+      },
+      {
+        "value": "CLOSE_RECLAIM",
+        "label": {
+          "en": "Close Beyond + Reclaim",
+          "ro": "Închidere dincolo + revenire"
+        },
+        "aliases": []
+      },
+      {
+        "value": "NO_SWEEP",
+        "label": {
+          "en": "No Sweep",
+          "ro": "Fără sweep"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "structureConfirmation",
+    "label": {
+      "en": "Structure Confirmation",
+      "ro": "Confirmarea structurii"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "MSS",
+        "label": {
+          "en": "MSS",
+          "ro": "MSS"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BOS",
+        "label": {
+          "en": "BOS",
+          "ro": "BOS"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BOTH",
+        "label": {
+          "en": "Both",
+          "ro": "Ambele"
+        },
+        "aliases": []
+      },
+      {
+        "value": "NONE",
+        "label": {
+          "en": "None",
+          "ro": "Niciuna"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "displacement",
+    "label": {
+      "en": "Displacement",
+      "ro": "Deplasare"
+    },
+    "group": "liquidity",
+    "options": [
+      {
+        "value": "STRONG",
+        "label": {
+          "en": "Strong",
+          "ro": "Puternică"
+        },
+        "aliases": []
+      },
+      {
+        "value": "MODERATE",
+        "label": {
+          "en": "Moderate",
+          "ro": "Moderată"
+        },
+        "aliases": []
+      },
+      {
+        "value": "WEAK",
+        "label": {
+          "en": "Weak",
+          "ro": "Slabă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "NONE",
+        "label": {
+          "en": "None",
+          "ro": "Niciuna"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "gapType",
+    "label": {
+      "en": "FVG Direction",
+      "ro": "Direcția FVG"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "BULLISH",
+        "label": {
+          "en": "Bullish",
+          "ro": "Ascendentă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BEARISH",
+        "label": {
+          "en": "Bearish",
+          "ro": "Descendentă"
+        },
+        "aliases": []
+      },
+      {
+        "value": "UNKNOWN",
+        "label": {
+          "en": "Unknown (legacy)",
+          "ro": "Necunoscută (istoric)"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "gapTimeframe",
+    "label": {
+      "en": "FVG Timeframe",
+      "ro": "Interval FVG"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "1m",
+        "label": {
+          "en": "1M",
+          "ro": "1M"
+        },
+        "aliases": [
+          "M1",
+          "1",
+          "1 min",
+          "1 minute",
+          "1 minutes"
+        ]
+      },
+      {
+        "value": "3m",
+        "label": {
+          "en": "3M",
+          "ro": "3M"
+        },
+        "aliases": [
+          "M3",
+          "3",
+          "3 min",
+          "3 minute",
+          "3 minutes"
+        ]
+      },
+      {
+        "value": "5m",
+        "label": {
+          "en": "5M",
+          "ro": "5M"
+        },
+        "aliases": [
+          "M5",
+          "5",
+          "5 min",
+          "5 minute",
+          "5 minutes"
+        ]
+      },
+      {
+        "value": "15m",
+        "label": {
+          "en": "15M",
+          "ro": "15M"
+        },
+        "aliases": [
+          "M15",
+          "15",
+          "15 min",
+          "15 minute",
+          "15 minutes"
+        ]
+      },
+      {
+        "value": "30m",
+        "label": {
+          "en": "30M",
+          "ro": "30M"
+        },
+        "aliases": [
+          "M30",
+          "30",
+          "30 min",
+          "30 minute",
+          "30 minutes"
+        ]
+      },
+      {
+        "value": "1h",
+        "label": {
+          "en": "1H",
+          "ro": "1H"
+        },
+        "aliases": [
+          "H1",
+          "60",
+          "1 hour",
+          "1 hours"
+        ]
+      },
+      {
+        "value": "4h",
+        "label": {
+          "en": "4H",
+          "ro": "4H"
+        },
+        "aliases": [
+          "H4",
+          "240",
+          "4 hour",
+          "4 hours"
+        ]
+      },
+      {
+        "value": "1D",
+        "label": {
+          "en": "Daily",
+          "ro": "Zilnic"
+        },
+        "aliases": [
+          "D1",
+          "D",
+          "Day",
+          "1440"
+        ]
+      },
+      {
+        "value": "1W",
+        "label": {
+          "en": "Weekly",
+          "ro": "Săptămânal"
+        },
+        "aliases": [
+          "W1",
+          "W",
+          "Week",
+          "10080"
+        ]
+      }
+    ],
+    "quick": true,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "gapSizePercent",
+    "label": {
+      "en": "FVG Size (%)",
+      "ro": "Dimensiune FVG (%)"
+    },
+    "group": "fvg",
+    "options": [],
+    "quick": true,
+    "kind": "number",
+    "scale": 6,
+    "integerDigits": 6
+  },
+  {
+    "key": "gapSizePoints",
+    "label": {
+      "en": "FVG Size (Points)",
+      "ro": "Dimensiune FVG (puncte)"
+    },
+    "group": "fvg",
+    "options": [],
+    "quick": false,
+    "kind": "number",
+    "scale": 8,
+    "integerDigits": 12
+  },
+  {
+    "key": "fvgAge",
+    "label": {
+      "en": "FVG Age at Entry",
+      "ro": "Vârsta FVG la intrare"
+    },
+    "group": "fvg",
+    "options": [],
+    "quick": true,
+    "kind": "integer",
+    "scale": 0,
+    "integerDigits": 10
+  },
+  {
+    "key": "fvgRetest",
+    "label": {
+      "en": "FVG Retest",
+      "ro": "Retestare FVG"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "FIRST_TOUCH",
+        "label": {
+          "en": "First Touch",
+          "ro": "Prima atingere"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SECOND_TOUCH",
+        "label": {
+          "en": "Second Touch",
+          "ro": "A doua atingere"
+        },
+        "aliases": []
+      },
+      {
+        "value": "THIRD_PLUS",
+        "label": {
+          "en": "Third+",
+          "ro": "A treia sau ulterior"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "fvgEntryLocation",
+    "label": {
+      "en": "FVG Entry Location",
+      "ro": "Poziția intrării în FVG"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "UPPER_25",
+        "label": {
+          "en": "Upper 25%",
+          "ro": "25% superior"
+        },
+        "aliases": []
+      },
+      {
+        "value": "MIDDLE_50",
+        "label": {
+          "en": "Middle 50%",
+          "ro": "50% central"
+        },
+        "aliases": []
+      },
+      {
+        "value": "LOWER_25",
+        "label": {
+          "en": "Lower 25%",
+          "ro": "25% inferior"
+        },
+        "aliases": []
+      },
+      {
+        "value": "BOUNDARY",
+        "label": {
+          "en": "Boundary",
+          "ro": "Limită"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "gapFillStatus",
+    "label": {
+      "en": "FVG Status at Entry",
+      "ro": "Starea FVG la intrare"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "UNFILLED",
+        "label": {
+          "en": "Fresh",
+          "ro": "Proaspăt"
+        },
+        "aliases": []
+      },
+      {
+        "value": "PARTIALLY_FILLED",
+        "label": {
+          "en": "Partially Mitigated",
+          "ro": "Parțial mitigat"
+        },
+        "aliases": []
+      },
+      {
+        "value": "FILLED",
+        "label": {
+          "en": "Fully Mitigated",
+          "ro": "Complet mitigat"
+        },
+        "aliases": []
+      },
+      {
+        "value": "REJECTED_FROM_GAP",
+        "label": {
+          "en": "Rejected from gap (legacy)",
+          "ro": "Respins din gap (istoric)"
+        },
+        "aliases": []
+      },
+      {
+        "value": "RELIQUIDATED_GAP",
+        "label": {
+          "en": "Reliquidated gap (legacy)",
+          "ro": "Gap relichidat (istoric)"
+        },
+        "aliases": []
+      },
+      {
+        "value": "UNKNOWN",
+        "label": {
+          "en": "Unknown (legacy)",
+          "ro": "Necunoscut (istoric)"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  },
+  {
+    "key": "fvgSequence",
+    "label": {
+      "en": "FVG Sequence",
+      "ro": "Secvență FVG"
+    },
+    "group": "fvg",
+    "options": [
+      {
+        "value": "FIRST",
+        "label": {
+          "en": "First After Displacement",
+          "ro": "Primul după deplasare"
+        },
+        "aliases": []
+      },
+      {
+        "value": "SECOND",
+        "label": {
+          "en": "Second After Displacement",
+          "ro": "Al doilea după deplasare"
+        },
+        "aliases": []
+      },
+      {
+        "value": "THIRD_PLUS",
+        "label": {
+          "en": "Third+ After Displacement",
+          "ro": "Al treilea sau ulterior după deplasare"
+        },
+        "aliases": []
+      }
+    ],
+    "quick": false,
+    "kind": "select",
+    "scale": 0,
+    "integerDigits": 0
+  }
+]

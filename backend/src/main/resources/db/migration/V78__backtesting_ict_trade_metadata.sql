@@ -1,0 +1,21 @@
+-- Nullable entry-time annotations; existing categorical and FVG columns are reused.
+ALTER TABLE backtesting_trades
+    ADD COLUMN setup_type VARCHAR(40),
+    ADD COLUMN setup_quality VARCHAR(40),
+    ADD COLUMN entry_confirmation VARCHAR(40),
+    ADD COLUMN htf_trend VARCHAR(40),
+    ADD COLUMN market_structure VARCHAR(40),
+    ADD COLUMN price_location VARCHAR(40),
+    ADD COLUMN market_condition VARCHAR(40),
+    ADD COLUMN liquidity_type VARCHAR(40),
+    ADD COLUMN liquidity_side VARCHAR(40),
+    ADD COLUMN sweep_level VARCHAR(40),
+    ADD COLUMN sweep_confirmation VARCHAR(40),
+    ADD COLUMN structure_confirmation VARCHAR(40),
+    ADD COLUMN displacement VARCHAR(40),
+    ADD COLUMN fvg_age INTEGER,
+    ADD COLUMN fvg_retest VARCHAR(40),
+    ADD COLUMN fvg_entry_location VARCHAR(40),
+    ADD COLUMN fvg_sequence VARCHAR(40),
+    ADD COLUMN ict_metadata_edited BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD CONSTRAINT chk_backtesting_fvg_age CHECK (fvg_age IS NULL OR fvg_age >= 0);

@@ -106,21 +106,15 @@ describe('bulk backtesting edits', () => {
     expect(screen.getByText(/each trade’s planned R:R × 20%/)).toBeInTheDocument()
     expect(screen.queryByText(/1.5R × 20% = 0.3R/)).not.toBeInTheDocument()
   })
-  it('updates the read-only session when entry date, time or source timezone changes', async () => {
+  it('keeps an explicitly selected session when entry date, time or timezone changes', async () => {
     render(<I18nProvider><ManualTradeDialog open workspace={{ id: 'workspace', symbol: 'GER40' } as BacktestingWorkspace} trade={null} strategies={[]} saving={false} onClose={vi.fn()} onSave={vi.fn()} /></I18nProvider>)
+    const session = screen.getByRole('combobox', { name: 'Session' })
+    await userEvent.click(session)
+    await userEvent.click(screen.getByRole('option', { name: 'Asia' }))
     await userEvent.click(screen.getByRole('button', { name: 'Show optional fields' }))
     fireEvent.change(screen.getByLabelText(/^Date/), { target: { value: '2025-10-24' } })
-    const time = screen.getByLabelText('Entry time')
-    const session = screen.getByLabelText('Session')
-    expect(session).toHaveAttribute('readonly')
-    for (const [value, expected] of [['10:30', 'London'], ['16:25', 'London'], ['16:26', ''], ['16:30', 'New York'], ['23:00', 'New York'], ['23:01', '']]) {
-      fireEvent.change(time, { target: { value } })
-      expect(session).toHaveValue(expected)
-    }
+    fireEvent.change(screen.getByLabelText('Entry time'), { target: { value: '16:30' } })
     fireEvent.change(screen.getByLabelText('Export timezone (optional)'), { target: { value: 'UTC' } })
-    fireEvent.change(time, { target: { value: '07:30' } })
-    expect(session).toHaveValue('London')
-    fireEvent.change(screen.getByLabelText(/^Date/), { target: { value: '2025-10-28' } })
-    expect(session).toHaveValue('')
+    expect(session).toHaveValue('Asia')
   })
 })

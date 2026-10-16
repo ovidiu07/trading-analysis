@@ -316,4 +316,67 @@ class BacktestingReplayFlowIntegrationTest {
         assertThat(mvc.perform(patch(route + "/trades/bulk").header("Authorization", "Bearer " + other).contentType(MediaType.APPLICATION_JSON).content(payload)).andReturn().getResponse().getStatus()).isIn(403, 404);
         assertThat(mvc.perform(patch(route + "/trades/bulk").contentType(MediaType.APPLICATION_JSON).content(payload)).andReturn().getResponse().getStatus()).isEqualTo(401);
     }
+
+    @Test void ictMetadataPersistsPerTradeThroughReloadClearAndReimportWithFinancialDataUnchanged() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        var imported = call(token, multipart(route + "/trades/import").file(fixture()));
+        var original = imported.path("trades").get(0);
+        String tradeId = original.path("id").asText();
+        Map<String,Object> metadata = new java.util.LinkedHashMap<>();
+        for (var field : com.tradevault.service.backtesting.IctMetadata.FIELDS)
+            metadata.put(field.key(), field.kind().equals("select") ? field.options().getFirst().value()
+                    : field.kind().equals("integer") ? 2 : new BigDecimal("0.07"));
+        metadata.put("setupType", "REVERSAL"); metadata.put("htfTrend", "BEARISH");
+        metadata.put("liquidityType", "EXTERNAL"); metadata.put("sweepLevel", "PDL");
+        String endpoint = "/api/backtesting/trades/" + tradeId + "/ict-metadata";
+        var enriched = call(token, patch(endpoint).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(metadata)));
+        for (String financial : List.of("entryPrice", "exitPrice", "quantity", "netPnl", "commission", "date", "entryTime", "exitDate", "exitTime", "direction", "result", "pnlR", "entrySignal", "exitSignal", "importFingerprint", "sourceTimezone"))
+            if (original.path(financial).isNumber()) assertThat(enriched.path(financial).decimalValue()).as(financial).isEqualByComparingTo(original.path(financial).decimalValue());
+            else assertThat(enriched.path(financial)).as(financial).isEqualTo(original.path(financial));
+        var repeat = call(token, multipart(route + "/trades/import").file(fixture()));
+        assertThat(repeat.path("duplicates").asInt()).isEqualTo(25); assertThat(repeat.path("imported").asInt()).isZero();
+        var saved = call(token, get(route + "/trades"));
+        JsonNode restored = java.util.stream.StreamSupport.stream(saved.spliterator(), false).filter(t -> t.path("id").asText().equals(tradeId)).findFirst().orElseThrow();
+        for (String key : metadata.keySet()) assertThat(restored.path(key)).as(key).isEqualTo(enriched.path(key));
+        assertThat(restored.path("gapSizePercent").decimalValue()).isEqualByComparingTo("0.07");
+        assertThat(saved.get(1).path("setupType").isNull()).isTrue();
+        var forbidden = mvc.perform(patch(endpoint).header("Authorization", "Bearer " + actor()).contentType(MediaType.APPLICATION_JSON).content("{\"htfTrend\":\"BULLISH\"}")).andReturn().getResponse();
+        assertThat(forbidden.getStatus()).isEqualTo(404);
+        for (String invalid : List.of("{\"fvgAge\":-1}", "{\"fvgAge\":1.5}", "{\"gapSizePoints\":-1}", "{\"gapSizePercent\":-1}", "{\"setupType\":\"fictional\"}", "{\"netPnl\":100}")) {
+            var response = mvc.perform(patch(endpoint).header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON).content(invalid)).andReturn().getResponse();
+            assertThat(response.getStatus()).as(invalid).isEqualTo(400);
+        }
+        metadata.replaceAll((key, value) -> null);
+        call(token, patch(endpoint).contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(metadata)));
+        call(token, multipart(route + "/trades/import").file(fixture()));
+        var cleared = call(token, get(route + "/trades"));
+        JsonNode empty = java.util.stream.StreamSupport.stream(cleared.spliterator(), false).filter(t -> t.path("id").asText().equals(tradeId)).findFirst().orElseThrow();
+        metadata.keySet().forEach(key -> assertThat(empty.path(key).isNull()).as(key).isTrue());
+    }
+
+    @Test void completePartialAndLegacyManualTradesAndExplicitCsvColumnsPersist() throws Exception {
+        String token = actor(), id = workspace(token), route = "/api/backtesting/workspaces/" + id;
+        String base = "{\"date\":\"2025-10-24\",\"entryTime\":\"10:30:00\",\"instrument\":\"GER40\",\"direction\":\"LONG\",\"result\":\"WIN\",\"pnlR\":2}";
+        Map<String,Object> complete = mapper.readValue(base, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        for (var field : com.tradevault.service.backtesting.IctMetadata.FIELDS)
+            complete.put(field.key(), field.kind().equals("select") ? field.options().getFirst().value() : field.kind().equals("integer") ? 0 : new BigDecimal("0.07"));
+        var created = call(token, post(route + "/trades").contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(complete)));
+        assertThat(created.path("gapPresent").asBoolean()).isTrue();
+        assertThat(created.path("fvgAge").asInt()).isZero();
+        var historical = call(token, post(route + "/trades").contentType(MediaType.APPLICATION_JSON).content(base));
+        assertThat(historical.path("htfTrend").isNull()).isTrue();
+        String endpoint = "/api/backtesting/trades/" + historical.path("id").asText() + "/ict-metadata";
+        call(token, patch(endpoint).contentType(MediaType.APPLICATION_JSON).content("{\"setupType\":\"CONTINUATION\"}"));
+        String csv = "Date,Time,Instrument,Direction,Result,P&L(R),Setup Type,HTF Trend,Liquidity Type,Sweep Level,FVG Size (%),FVG Age at Entry\n2025-10-25,11:30,GER40,SHORT,WIN,2,Reversal,Bearish,External,PDL,0.07,2\n";
+        var file = new MockMultipartFile("file", "explicit.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8));
+        var imported = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(imported.path("invalid").asInt()).isZero(); assertThat(imported.path("imported").asInt()).isEqualTo(1);
+        var trade = imported.path("trades").get(0); assertThat(trade.path("htfTrend").asText()).isEqualTo("BEARISH");
+        call(token, patch("/api/backtesting/trades/" + trade.path("id").asText() + "/ict-metadata").contentType(MediaType.APPLICATION_JSON).content("{\"setupType\":\"CONTINUATION\",\"htfTrend\":null}"));
+        var repeat = call(token, multipart(route + "/trades/import").file(file));
+        assertThat(repeat.path("duplicates").asInt()).isEqualTo(1); assertThat(repeat.path("imported").asInt()).isZero();
+        assertThat(jdbc.queryForObject("select setup_type from tradevault.backtesting_trades where id=?", String.class, UUID.fromString(trade.path("id").asText()))).isEqualTo("CONTINUATION");
+        assertThat(jdbc.queryForObject("select htf_trend from tradevault.backtesting_trades where id=?", String.class, UUID.fromString(trade.path("id").asText()))).isNull();
+        assertThat(call(token, get(route + "/trades")).size()).isEqualTo(3);
+    }
 }

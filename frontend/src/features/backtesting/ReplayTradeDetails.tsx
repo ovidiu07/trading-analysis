@@ -1,9 +1,11 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import type { BacktestingTrade } from '../../api/backtesting'
 import { useI18n } from '../../i18n'
+import IctMetadataDetails from './IctMetadataDetails'
 import { formatMoney } from './ResearchPerformance'
 
-export default function ReplayTradeDetails({ trade, onClose }: { trade: BacktestingTrade; onClose: () => void }) {
+export default function ReplayTradeDetails({ trade, onClose, onEdit }: { trade: BacktestingTrade; onClose: () => void; onEdit?: () => void }) {
   const { t, locale } = useI18n()
   const money = (value: number | null | undefined) => formatMoney(value, trade.currency, locale)
   const rows: Array<[string, unknown]> = [
@@ -17,5 +19,5 @@ export default function ReplayTradeDetails({ trade, onClose }: { trade: Backtest
     ['reportedCumulativePnl', money(trade.reportedCumulativePnl)], ['reportedCumulativePercent', trade.reportedCumulativePercent == null ? null : `${trade.reportedCumulativePercent}%`],
     ['file', trade.importFileName], ['tradeNumber', trade.importTradeNumber], ['scope', trade.tradeScope]
   ]
-  return <Dialog open onClose={onClose} fullWidth maxWidth="sm" aria-labelledby="replay-trade-title"><DialogTitle id="replay-trade-title">{t('backtesting.replay.details')}</DialogTitle><DialogContent dividers><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{t('backtesting.replay.detailCaveats')}</Typography><Table size="small"><TableBody>{rows.map(([key, value]) => <TableRow key={key}><TableCell component="th" scope="row">{t(`backtesting.replay.${key}`)}</TableCell><TableCell sx={{ overflowWrap: 'anywhere' }}>{String(value ?? '—')}</TableCell></TableRow>)}</TableBody></Table></DialogContent><DialogActions><Button onClick={onClose}>{t('backtesting.replay.done')}</Button></DialogActions></Dialog>
+  return <Dialog open onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: theme => ({ bgcolor: alpha(theme.palette.background.paper, 1) }) }} aria-labelledby="replay-trade-title"><DialogTitle id="replay-trade-title">{t('backtesting.replay.details')}</DialogTitle><DialogContent dividers>{trade.importFormat && <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{t('backtesting.replay.detailCaveats')}</Typography>}<Table size="small"><TableBody>{rows.filter(([key, value]) => trade.importFormat || ['instrument', 'entry', 'timezone', 'scope'].includes(key) || (value != null && value !== '' && value !== '—')).map(([key, value]) => <TableRow key={key}><TableCell component="th" scope="row">{t(`backtesting.replay.${key}`)}</TableCell><TableCell sx={{ overflowWrap: 'anywhere' }}>{String(value ?? '—')}</TableCell></TableRow>)}</TableBody></Table><IctMetadataDetails trade={trade} /></DialogContent><DialogActions>{onEdit && <Button onClick={onEdit}>{t('backtesting.actions.edit')}</Button>}<Button onClick={onClose}>{t('backtesting.replay.done')}</Button></DialogActions></Dialog>
 }

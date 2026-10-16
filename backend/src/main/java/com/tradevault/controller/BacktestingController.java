@@ -141,6 +141,12 @@ public class BacktestingController {
         return researchService.updateTrade(tradeId, request);
     }
 
+    @PatchMapping("/trades/{tradeId}/ict-metadata")
+    public BacktestingTradeResponse updateIctMetadata(@PathVariable UUID tradeId,
+                                                      @RequestBody java.util.Map<String, Object> fields) {
+        return researchService.updateIctMetadata(tradeId, fields);
+    }
+
     @PatchMapping("/workspaces/{workspaceId}/trades/bulk")
     public List<BacktestingTradeResponse> updateTrades(@PathVariable UUID workspaceId,
             @Valid @RequestBody BacktestingTradeBulkUpdateRequest request) {

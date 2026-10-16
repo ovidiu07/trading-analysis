@@ -8,6 +8,10 @@ export type ResearchFilters = {
   result: string
   session: string
   direction: string
+  setupType?: string
+  htfTrend?: string
+  liquidityType?: string
+  sweepLevel?: string
   classificationStatus: string
 }
 
@@ -31,12 +35,14 @@ export const filterResearchTrades = (trades: BacktestingTrade[], filters: Resear
     if (filters.result && trade.result !== filters.result) return false
     if (filters.session && (trade.session || '').toLowerCase() !== filters.session.toLowerCase()) return false
     if (filters.direction && trade.direction !== filters.direction) return false
+    for (const key of ['setupType', 'htfTrend', 'liquidityType', 'sweepLevel'] as const) if (filters[key] && trade[key] !== filters[key]) return false
     if (filters.classificationStatus && (trade.classificationStatus || 'COMPLETE') !== filters.classificationStatus) return false
     if (search && ![
       trade.instrument,
       trade.setupName,
       trade.strategyNameSnapshot,
       trade.notes,
+      trade.setupType, trade.htfTrend, trade.liquidityType, trade.sweepLevel,
       ...(trade.tags || [])
     ].some((value) => (value || '').toLowerCase().includes(search))) return false
     return true

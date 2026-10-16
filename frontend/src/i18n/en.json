@@ -3940,6 +3940,35 @@
     }
   },
   "backtesting": {
+    "ict": {
+      "timezoneHelp": "The source clock timezone; session recalculation is an explicit bulk action.",
+      "editTitle": "Edit trade",
+      "title": "Strategy & Market Context",
+      "groups": {
+        "setup": "Setup Classification",
+        "htf": "Higher-Timeframe Context",
+        "liquidity": "Liquidity Information",
+        "fvg": "Fair Value Gap Information"
+      },
+      "copy": "Copy Context from Previous Trade",
+      "copied": "Context copied from {{date}} {{time}}. Review before saving.",
+      "entrySnapshot": "Optional context recorded for this trade at entry. Copying context requires an explicit action.",
+      "alignment": "Direction vs HTF",
+      "WITH_TREND": "With Trend",
+      "AGAINST_TREND": "Against Trend",
+      "NEUTRAL": "Neutral",
+      "unspecified": "Not specified",
+      "more": "More {{group}} fields",
+      "bars": "bars",
+      "points": "points",
+      "invalidNumber": "Enter a non-negative number within the supported precision; age must be a whole number.",
+      "ageHelp": "Completed FVG-timeframe bars since confirmation; no additional completed bars = 0.",
+      "percentHelp": "0.07 means 0.07%.",
+      "locationHelp": "Location uses price from low to high for both bullish and bearish gaps: Lower 25% (0,25), Middle 50% [25,75], Upper 25% (75,100). Boundary means exactly the low or high edge (0% or 100%).",
+      "open": "Open options",
+      "close": "Close options",
+      "clear": "Clear"
+    },
     "export": {
       "action": "Export data",
       "title": "Export backtesting data",
@@ -4077,7 +4106,7 @@
       "breakdowns": "Performance breakdowns",
       "groupBy": "Group trades by",
       "unspecified": "Unspecified",
-      "details": "Replay details",
+      "details": "Trade details",
       "priceCurrency": "Price currency",
       "entryPrice": "Entry price",
       "exitPrice": "Exit price",

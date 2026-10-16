@@ -53,6 +53,23 @@ public class BacktestingTradeRequest {
     private BacktestingGapFillStatus gapFillStatus;
     private BacktestingGapLiquidityRelation gapRelationToLiquidity;
     private String gapConfluenceNotes;
+    private String setupType;
+    private String setupQuality;
+    private String entryConfirmation;
+    private String htfTrend;
+    private String marketStructure;
+    private String priceLocation;
+    private String marketCondition;
+    private String liquidityType;
+    private String liquiditySide;
+    private String sweepLevel;
+    private String sweepConfirmation;
+    private String structureConfirmation;
+    private String displacement;
+    private BigDecimal fvgAge;
+    private String fvgRetest;
+    private String fvgEntryLocation;
+    private String fvgSequence;
     private BigDecimal riskPercent;
     private BigDecimal plannedRR;
     @NotNull

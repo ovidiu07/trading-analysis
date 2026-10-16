@@ -67,6 +67,32 @@ class LiveTradeEvidenceSyncServiceTest {
     }
 
     @Test
+    void ictAnnotationsAreIndependentOfLiveExecutionAndSurviveCanonicalRefresh() throws Exception {
+        Trade trade = closedTrade();
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "NQ", "New York AM", "5 minutes");
+        when(evidenceRepository.findByLiveTradeIdAndUser_Id(trade.getId(), user.getId())).thenReturn(Optional.empty());
+        when(workspaceRepository.findByUser_IdAndStatusAndStrategy_IdOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE, strategy.getId())).thenReturn(List.of(workspace));
+        BacktestEvidenceLink link = service.synchronize(trade);
+        link.setTimeframe("5 minutes");
+        link.setId(UUID.randomUUID()); link.setResearchClassificationJson("{\"marketRegime\":\"trend\"}");
+        when(evidenceRepository.findById(link.getId())).thenReturn(Optional.of(link));
+        var enriched = service.updateIctMetadata(link.getId(), user.getId(), java.util.Map.of("setupType", "REVERSAL", "htfTrend", "BEARISH", "contextTimeframe", "5 minutes", "gapSizePercent", 0.07));
+        assertThat(enriched.getSetupType()).isEqualTo("REVERSAL");
+        assertThat(enriched.getGapSizePercent()).isEqualByComparingTo("0.07");
+        assertThat(new ObjectMapper().readTree(link.getResearchClassificationJson()).path("marketRegime").asText()).isEqualTo("trend");
+        assertThat(enriched.getPnlR()).isEqualByComparingTo("1.5");
+        assertThat(link.getRealizedR()).isEqualByComparingTo("1.5");
+        link.setTimeframe("1m");
+        assertThat(service.toTradeResponse(link).getContextTimeframe()).isEqualTo("5 minutes");
+        assertThat(service.toTradeResponse(link).getHtfTrend()).isEqualTo("BEARISH");
+        service.updateIctMetadata(link.getId(), user.getId(), java.util.Collections.singletonMap("htfTrend", null));
+        assertThat(service.toTradeResponse(link).getHtfTrend()).isNull();
+        assertThatThrownBy(() -> service.updateIctMetadata(link.getId(), UUID.randomUUID(), java.util.Map.of("setupType", "CONTINUATION"))).isInstanceOf(jakarta.persistence.EntityNotFoundException.class);
+
+    }
+
+    @Test
     void exactMatchSynchronizesClosedTradeAndIncludesItInAnalytics() {
         Trade trade = closedTrade();
         BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "NQ", "New York AM", "5 minutes");

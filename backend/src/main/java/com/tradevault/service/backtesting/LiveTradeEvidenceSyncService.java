@@ -259,7 +259,19 @@ public class LiveTradeEvidenceSyncService {
             link.setClassificationStatus(request.getClassificationStatus());
         }
         if (request.getResearchClassification() != null) {
-            link.setResearchClassificationJson(writeMap(request.getResearchClassification()));
+            Map<String, Object> classification = new java.util.LinkedHashMap<>(request.getResearchClassification());
+            if (classification.containsKey("ict")) {
+                if (!(classification.get("ict") instanceof Map<?, ?> raw)) throw new IllegalArgumentException("ict must be an object");
+                Map<String, Object> patch = new java.util.LinkedHashMap<>();
+                raw.forEach((key, value) -> patch.put(key.toString(), value));
+                BacktestingTrade snapshot = materialize(link);
+                IctMetadata.apply(snapshot, patch);
+                Map<String, Object> normalized = new java.util.LinkedHashMap<>();
+                Map<String, Object> validated = IctMetadata.values(snapshot);
+                patch.keySet().forEach(key -> normalized.put(key, validated.get(key)));
+                classification.put("ict", normalized);
+            }
+            link.setResearchClassificationJson(writeMap(classification));
         }
         if (StringUtils.hasText(request.getExcludedReason())) {
             link.setExcludedReason("USER_EXCLUDED");
@@ -350,7 +362,7 @@ public class LiveTradeEvidenceSyncService {
         LocalDate date = link.getTradeDate() != null ? link.getTradeDate()
                 : link.getClosedAt() != null ? link.getClosedAt().toLocalDate() : LocalDate.now();
         String weekday = weekday(date);
-        return BacktestingTrade.builder()
+        BacktestingTrade materialized = BacktestingTrade.builder()
                 .id(link.getId())
                 .workspace(link.getWorkspace())
                 .user(link.getUser())
@@ -377,6 +389,32 @@ public class LiveTradeEvidenceSyncService {
                 .createdAt(link.getCreatedAt())
                 .updatedAt(link.getUpdatedAt())
                 .build();
+        Object ict = readMap(link.getResearchClassificationJson()).get("ict");
+        if (ict instanceof Map<?, ?> map) {
+            Map<String, Object> patch = new java.util.LinkedHashMap<>();
+            map.forEach((key, value) -> patch.put(key.toString(), value));
+            IctMetadata.restore(materialized, patch);
+            materialized.setGapPresent(IctMetadata.hasFvg(materialized));
+        }
+        return materialized;
+    }
+
+    @Transactional
+    public BacktestingTradeResponse updateIctMetadata(UUID id, UUID userId, Map<String, Object> fields) {
+        BacktestEvidenceLink link = evidenceRepository.findById(id)
+                .filter(item -> item.getUser().getId().equals(userId) && item.getWorkspace() != null)
+                .orElseThrow(() -> new EntityNotFoundException("Backtesting trade not found"));
+        BacktestingTrade materialized = materialize(link);
+        IctMetadata.apply(materialized, fields);
+        Map<String, Object> classification = new java.util.LinkedHashMap<>(readMap(link.getResearchClassificationJson()));
+        Map<String, Object> ict = new java.util.LinkedHashMap<>();
+        if (classification.get("ict") instanceof Map<?, ?> prior) prior.forEach((key, value) -> ict.put(key.toString(), value));
+        Map<String, Object> validated = IctMetadata.values(materialized);
+        fields.keySet().forEach(key -> ict.put(key, validated.get(key)));
+        classification.put("ict", ict);
+        link.setResearchClassificationJson(writeMap(classification));
+        link.getWorkspace().setUpdatedAt(OffsetDateTime.now());
+        return toTradeResponse(evidenceRepository.save(link));
     }
 
     public BacktestingTradeResponse toTradeResponse(BacktestEvidenceLink link) {
@@ -395,6 +433,29 @@ public class LiveTradeEvidenceSyncService {
                 .strategyId(trade.getStrategyId())
                 .strategySource(trade.getStrategySource())
                 .strategyNameSnapshot(trade.getStrategyNameSnapshot())
+                .setupType(trade.getSetupType())
+                .setupQuality(trade.getSetupQuality())
+                .entryConfirmation(trade.getEntryConfirmation())
+                .htfTrend(trade.getHtfTrend())
+                .marketStructure(trade.getMarketStructure())
+                .priceLocation(trade.getPriceLocation())
+                .marketCondition(trade.getMarketCondition())
+                .liquidityType(trade.getLiquidityType())
+                .liquiditySide(trade.getLiquiditySide())
+                .sweepLevel(trade.getSweepLevel())
+                .sweepConfirmation(trade.getSweepConfirmation())
+                .structureConfirmation(trade.getStructureConfirmation())
+                .displacement(trade.getDisplacement())
+                .gapType(trade.getGapType())
+                .gapTimeframe(trade.getGapTimeframe())
+                .gapSizePercent(trade.getGapSizePercent())
+                .gapSizePoints(trade.getGapSizePoints())
+                .fvgAge(trade.getFvgAge())
+                .fvgRetest(trade.getFvgRetest())
+                .fvgEntryLocation(trade.getFvgEntryLocation())
+                .gapFillStatus(trade.getGapFillStatus())
+                .fvgSequence(trade.getFvgSequence())
+                .gapPresent(trade.isGapPresent())
                 .riskPercent(trade.getRiskPercent())
                 .result(trade.getResult())
                 .pnlR(trade.getPnlR())

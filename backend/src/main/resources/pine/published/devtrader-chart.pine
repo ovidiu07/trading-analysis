@@ -203,6 +203,10 @@ fvgShowDashboard = input.bool(false, "Show FVG Dashboard", group=G_FVG)
 fvgDashboardLocation = input.string("Bottom Left", "Dashboard Location", options=["Top Right", "Bottom Right", "Bottom Left"], group=G_FVG)
 fvgDashboardTextSize = input.string("Small", "Dashboard Text Size", options=["Tiny", "Small", "Normal"], group=G_FVG)
 
+// Display-only dimensions inside static FVG boxes.
+fvgShowDimensions = input.bool(false, "Show FVG Dimensions", group=G_FVG, tooltip="Shows the original gap height in pips and percent as tiny text inside each static FVG box. Disable Dynamic to use box annotations. Percent = gap height / absolute lower boundary × 100.")
+fvgDimensionPipSize = input.float(0.0, "FVG Pip Size (0 = Auto)", minval=0.0, group=G_FVG, tooltip="Price units per displayed pip. Auto uses 0.0001 for Forex, 0.01 for JPY quotes, 0.00001 for JPY base pairs, and 1.0 price unit for other instruments (one index point). Set a positive value to match your broker's convention. Display only.")
+
 // Display-only reference inside static FVG boxes; never used by detection or mitigation.
 fvgShowPercentageLine = input.bool(false, "Show FVG Percentage Line", group=G_FVG)
 fvgLinePercentage = input.float(25.0, "FVG Line Percentage", minval=0.0, maxval=100.0, step=0.1, group=G_FVG, tooltip="Measured into the gap from the retest edge: bullish top toward bottom, bearish bottom toward top. 0% = near edge, 50% = midpoint, 100% = far edge. Applies to static FVG boxes; Dynamic mode uses fills instead of boxes.")
@@ -977,6 +981,21 @@ var array<line> fvgPercentageLines = array.new_line(0)
 var array<line> fvgUnmitigatedLines = array.new_line(0)
 var array<line> fvgMitigationLines = array.new_line(0)
 
+f_fvgDimensionPipSize() =>
+    float autoPipSize = syminfo.type == "forex" ? (syminfo.currency == "JPY" ? 0.01 : syminfo.basecurrency == "JPY" ? 0.00001 : 0.0001) : 1.0
+    fvgDimensionPipSize > 0.0 ? fvgDimensionPipSize : autoPipSize
+
+f_fvgDimensionText(fvg_record rec) =>
+    string dimensionText = ""
+    if fvgShowDimensions
+        float gapHeight = rec.max - rec.min
+        float gapPips = gapHeight / f_fvgDimensionPipSize()
+        // The immutable lower boundary matches the detection threshold's denominator.
+        float gapPercent = rec.min != 0.0 ? gapHeight / math.abs(rec.min) * 100.0 : na
+        string percentText = na(gapPercent) ? "n/a" : str.tostring(gapPercent, "0.####") + "%"
+        dimensionText := str.tostring(gapPips, "0.##") + " pips · " + percentText
+    dimensionText
+
 f_fvgCreateBox(fvg_record rec) =>
     color zoneColor = rec.isBull ? fvgBullColor : fvgBearColor
     if fvgUseTimeBasedObjects
@@ -1188,6 +1207,21 @@ if barstate.islast
             float activeLevel = rec.isBull ? rec.min : rec.max
             color activeColor = rec.isBull ? fvgBullColor : fvgBearColor
             array.push(fvgUnmitigatedLines, f_fvgCreateLevelLine(rec, activeLevel, activeColor, false))
+
+    // Annotate only surviving boxes on the latest bar, not every historical gap.
+    if enableLuxFvgEngine and fvgShowDimensions and not fvgDynamicMode
+        int dimensionCount = math.min(array.size(fvgStaticBoxes), array.size(fvgActiveRecords))
+        if dimensionCount > 0
+            color dimensionColor = color.new(f_themeTextColor(), 20)
+            for i = 0 to dimensionCount - 1
+                box zoneBox = array.get(fvgStaticBoxes, i)
+                fvg_record rec = array.get(fvgActiveRecords, i)
+                box.set_text(zoneBox, f_fvgDimensionText(rec))
+                box.set_text_size(zoneBox, size.tiny)
+                box.set_text_color(zoneBox, dimensionColor)
+                box.set_text_halign(zoneBox, text.align_right)
+                box.set_text_valign(zoneBox, text.align_center)
+                box.set_text_wrap(zoneBox, text.wrap_auto)
 
 // --- State Maintenance: Advanced Liquidity Engine ---
 var liq_pools = array.new<liq_pool>(0)

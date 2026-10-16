@@ -16,7 +16,7 @@ It is designed as an analysis and decision-support tool. It does not place order
 - **Session context:** tracks Asia, London, and New York windows, with optional developing session highs and lows.
 - **Higher-timeframe context:** combines two configurable higher timeframes to provide directional context and inject confirmed HTF liquidity into the active chart.
 - **Important market levels:** optionally displays the previous day, week, and month highs/lows, previous close, daily open, and New York midnight open.
-- **Fair Value Gaps:** detects bullish and bearish FVGs on the chart timeframe or a configurable higher timeframe, tracks mitigation, and supports static or dynamic rendering. An optional percentage line inside each static box marks an editable depth from the retest edge.
+- **Fair Value Gaps:** detects bullish and bearish FVGs on the chart timeframe or a configurable higher timeframe, tracks mitigation, and supports static or dynamic rendering. Optional tiny text inside each static box shows its size in pips and percent. An optional percentage line marks an editable depth from the retest edge.
 - **Adaptive rendering:** offers full, compact, and right-side-only level layouts, together with label-clutter controls for cleaner charts.
 - **Trader Dashboard:** summarizes current bias, nearby liquidity, the active event, structure state, session timing, and a plain-language contextual read.
 
@@ -47,6 +47,34 @@ No single label should be used in isolation. A sweep is an event, not automatica
 - Configure the session times for the exchange, instrument, and timezone you trade.
 - Use the rendering and clutter settings to control how much historical and right-side chart information is displayed.
 
+## FVG dimensions
+
+Under **Fair Value Gaps**, enable **Show FVG Dimensions** to display a compact
+annotation such as **12.5 pips · 0.0568%** inside each bullish or bearish static
+FVG box. The option is **disabled by default**. Text is tiny, right-aligned,
+vertically centered, and uses the existing chart-theme text color with a subtle
+fade. It wraps within narrow boxes; very small boxes may clip the text.
+
+The values describe the original gap, so they stay fixed as price moves:
+
+- **Pips** = (upper boundary − lower boundary) / pip size.
+- **Percent** = (upper boundary − lower boundary) / absolute lower boundary × 100,
+  matching the detection threshold for positive prices. A zero lower boundary
+  displays `n/a` for the percentage.
+
+**FVG Pip Size (0 = Auto)** selects the price units represented by one displayed
+pip. Auto uses 0.0001 for Forex, 0.01 for JPY quotes, 0.00001 for JPY base pairs,
+and 1.0 price unit for other instruments, so an index uses one point per pip.
+Set a positive value to match a different broker convention, such as 0.1 or 0.01.
+This is a display convention; it does not change the symbol's tick size.
+
+Both time-based and bar-index boxes support the annotation. The text belongs to
+the box and disappears with it on mitigation or record trimming, without adding
+label objects. Formatting runs only for surviving active boxes on the latest
+bar. Dynamic mode uses fills instead of boxes, so set **Dynamic** off
+to show dimensions. The option has no effect on detection, mitigation, alerts,
+or the optional percentage line.
+
 ## FVG percentage line
 
 Under **Fair Value Gaps**, enable **Show FVG Percentage Line** to draw a horizontal
@@ -72,6 +100,7 @@ Input defaults match the active **Devtrader Chart Analysis** indicator on the
 **Devtrader-BlackV1** TradingView desktop layout. The complete 123-input code
 preset (117 existing inputs plus six new percentage-line inputs) is recorded in
 `devtrader-chart-defaults-2026-10-13.json`.
+This historical snapshot predates the two FVG dimension inputs described above.
 
 The configured session input values are Asia **00:00–09:00**, London
 **10:00–16:00**, and New York **16:30–23:00**. The existing code interprets these

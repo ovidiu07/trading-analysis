@@ -3939,6 +3939,35 @@
     }
   },
   "backtesting": {
+    "ict": {
+      "timezoneHelp": "Fusul orar al sursei; recalcularea sesiunii este o acțiune explicită de editare în masă.",
+      "editTitle": "Editează tranzacția",
+      "title": "Strategie și context de piață",
+      "groups": {
+        "setup": "Clasificarea setupului",
+        "htf": "Context pe interval superior",
+        "liquidity": "Informații despre lichiditate",
+        "fvg": "Informații Fair Value Gap"
+      },
+      "copy": "Copiază contextul tranzacției anterioare",
+      "copied": "Context copiat din {{date}} {{time}}. Verifică înainte de salvare.",
+      "entrySnapshot": "Context opțional pentru această tranzacție, la momentul intrării. Copierea contextului necesită o acțiune explicită.",
+      "alignment": "Direcție față de HTF",
+      "WITH_TREND": "Cu tendința",
+      "AGAINST_TREND": "Împotriva tendinței",
+      "NEUTRAL": "Neutru",
+      "unspecified": "Nespecificat",
+      "more": "Mai multe câmpuri: {{group}}",
+      "bars": "lumânări",
+      "points": "puncte",
+      "invalidNumber": "Introdu un număr nenegativ cu precizia acceptată; vârsta trebuie să fie un număr întreg.",
+      "ageHelp": "Lumânări încheiate pe intervalul FVG de la confirmare; fără alte lumânări încheiate = 0.",
+      "percentHelp": "0.07 înseamnă 0.07%.",
+      "locationHelp": "Poziția folosește prețul de la minim la maxim pentru ambele direcții: 25% inferior (0,25), 50% central [25,75], 25% superior (75,100). Limită înseamnă exact marginea de jos sau de sus (0% sau 100%).",
+      "open": "Deschide opțiunile",
+      "close": "Închide opțiunile",
+      "clear": "Șterge"
+    },
     "export": {
       "action": "Exportă datele",
       "title": "Exportă datele de backtesting",
@@ -4076,7 +4105,7 @@
       "breakdowns": "Defalcarea performanței",
       "groupBy": "Grupează tranzacțiile după",
       "unspecified": "Nespecificat",
-      "details": "Detalii Replay",
+      "details": "Detalii tranzacție",
       "priceCurrency": "Moneda prețului",
       "entryPrice": "Prețul intrării",
       "exitPrice": "Prețul ieșirii",
