@@ -119,6 +119,49 @@ class AssetServiceTest {
     }
 
     @Test
+    void exportLinkSignsOnlyTheAuthorizedObjectForSevenDays() {
+        UUID id = UUID.randomUUID();
+        Asset asset = Asset.builder().id(id).scope(AssetScope.TRADE).s3Key("private/chart.png").build();
+        when(assetRepository.findById(id)).thenReturn(Optional.of(asset));
+        when(objectStorageService.presignGetObjectUrl("private/chart.png", java.time.Duration.ofDays(7)))
+                .thenReturn("https://storage.test/chart?signature=example");
+        var result = assetService.exportLink(id);
+        assertEquals(id, result.assetId());
+        assertTrue(result.expiresAt().isAfter(OffsetDateTime.now().plusDays(6)));
+        assertTrue(result.url().startsWith("https://storage.test/"));
+        verify(objectStorageService).presignGetObjectUrl("private/chart.png", java.time.Duration.ofDays(7));
+    }
+
+    @Test
+    void exportRejectsAnotherUsersAssetBeforeSigningOrReadingStorage() {
+        UUID id = UUID.randomUUID();
+        User requester = User.builder().id(UUID.randomUUID()).role(Role.USER).build();
+        User owner = User.builder().id(UUID.randomUUID()).role(Role.USER).build();
+        when(currentUserService.getCurrentUser()).thenReturn(requester);
+        when(assetRepository.findById(id)).thenReturn(Optional.of(Asset.builder().id(id)
+                .scope(AssetScope.TRADE).ownerUser(owner).s3Key("private/other.png").build()));
+        assertThrows(jakarta.persistence.EntityNotFoundException.class, () -> assetService.exportLink(id));
+        assertThrows(jakarta.persistence.EntityNotFoundException.class, () -> assetService.exportContent(id));
+        verifyNoInteractions(objectStorageService);
+    }
+
+    @Test
+    void exportContentStreamsOriginalBytesWithoutRedirecting() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(assetRepository.findById(id)).thenReturn(Optional.of(Asset.builder().id(id)
+                .scope(AssetScope.TRADE).s3Key("chart").originalFileName("chart.png").build()));
+        byte[] bytes = { 1, 2, 3 };
+        when(objectStorageService.getObject("chart")).thenReturn(new ObjectStorageService.StoredObject(
+                new java.io.ByteArrayInputStream(bytes), "image/png", 3L));
+        var response = assetService.exportContent(id);
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("private, no-store", response.getHeaders().getCacheControl());
+        try (var stream = ((org.springframework.core.io.InputStreamResource) response.getBody()).getInputStream()) {
+            org.junit.jupiter.api.Assertions.assertArrayEquals(bytes, stream.readAllBytes());
+        }
+    }
+
+    @Test
     void rejectsFileAboveConfiguredLimit() {
         byte[] content = new byte[(int) (uploadProperties.getMaxFileSizeBytes() + 1)];
         MockMultipartFile file = new MockMultipartFile("file", "oversize.png", "image/png", content);

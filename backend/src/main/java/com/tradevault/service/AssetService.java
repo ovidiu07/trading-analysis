@@ -411,6 +411,39 @@ public class AssetService {
         return builder.body(new InputStreamResource(storedObject.stream()));
     }
 
+    /** Export links are bearer URLs; authorization is checked before signing each asset. */
+    public record ExportLink(UUID assetId, String url, OffsetDateTime expiresAt) {}
+
+    @Transactional(readOnly = true)
+    public ExportLink exportLink(UUID assetId) {
+        Asset asset = assetRepository.findById(assetId)
+                .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+        assertCanRead(asset, currentUserService.getCurrentUser());
+        Duration lifetime = Duration.ofDays(7);
+        OffsetDateTime expiresAt = OffsetDateTime.now().plus(lifetime);
+        String url = objectStorageService.presignGetObjectUrl(asset.getS3Key(), lifetime);
+        if (url == null || !url.startsWith("https://")) {
+            throw new IllegalStateException("Export requires an HTTPS image storage endpoint");
+        }
+        return new ExportLink(assetId, url, expiresAt);
+    }
+
+    /** Stream directly so archive downloads do not depend on bucket CORS or signed URL lifetime. */
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> exportContent(UUID assetId) {
+        Asset asset = assetRepository.findById(assetId)
+                .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+        assertCanRead(asset, currentUserService.getCurrentUser());
+        ObjectStorageService.StoredObject stored = objectStorageService.getObject(asset.getS3Key());
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .contentType(parseMediaType(stored.contentType()))
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(asset.getOriginalFileName()).build().toString());
+        if (stored.contentLength() != null && stored.contentLength() >= 0) response.contentLength(stored.contentLength());
+        return response.body(new InputStreamResource(stored.stream()));
+    }
+
     private NotebookNote resolveNotebookNoteForWrite(UUID noteId, User currentUser) {
         if (isAdmin(currentUser)) {
             return notebookNoteRepository.findById(noteId)

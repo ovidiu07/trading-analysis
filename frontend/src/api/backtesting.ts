@@ -581,3 +581,16 @@ export async function detachBacktestingScreenshotTrade(id: string) {
 
 export const updateBacktestingIctMetadata = (id: string, fields: Record<string, unknown>) =>
   apiPatch<BacktestingTrade>(`/backtesting/trades/${id}/ict-metadata`, fields)
+
+export type BacktestingExportContext = {
+  generatedAt: string
+  workspace: BacktestingWorkspace
+  trades: BacktestingTrade[]
+  screenshots: BacktestingScreenshot[]
+  lenses: BacktestingEdgeLens[]
+  analytics: BacktestingAnalytics
+  liveEvidence: BacktestingEvidence[]
+}
+
+export const getBacktestingExportContext = (workspaceId: string) =>
+  apiGet<BacktestingExportContext>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/export-context`)

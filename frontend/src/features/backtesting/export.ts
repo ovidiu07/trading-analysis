@@ -4,7 +4,7 @@ import { calendarResearchTrades, groupCalendarPeriods } from './calendar'
 import { fvgSignalExport } from './fvgSignals'
 import { computeResearchMetrics, emptyResearchFilters, filterResearchTrades, type ResearchFilters } from './research'
 
-export type ExportPeriod = { from: string; to: string; dateBasis: 'entry' | 'exit'; filters?: ResearchFilters }
+export type ExportPeriod = { from: string; to: string; dateBasis: 'entry' | 'exit'; allDates?: boolean; filters?: ResearchFilters }
 type Cell = string | number | boolean | null | undefined
 type Row = Record<string, Cell>
 
@@ -15,12 +15,12 @@ export function validExportDate(value: string) {
 }
 
 export function selectExportTrades(trades: BacktestingTrade[], workspaceId: string, period: ExportPeriod) {
-  if (!validExportDate(period.from) || !validExportDate(period.to) || period.from > period.to) throw new Error('INVALID_EXPORT_PERIOD')
+  if (!period.allDates && (!validExportDate(period.from) || !validExportDate(period.to) || period.from > period.to)) throw new Error('INVALID_EXPORT_PERIOD')
   const candidates = filterResearchTrades(trades, { ...emptyResearchFilters, ...period.filters, dateFrom: '', dateTo: '' })
   return candidates.filter(trade => {
     const date = period.dateBasis === 'exit' ? trade.exitDate : trade.date
     return trade.workspaceId === workspaceId && trade.source !== 'LIVE' && trade.tradeScope !== 'LIVE'
-      && Boolean(date && date >= period.from && date <= period.to)
+      && (period.allDates || Boolean(date && date >= period.from && date <= period.to))
   }).sort((a, b) => `${a.date}T${a.entryTime}|${a.id}`.localeCompare(`${b.date}T${b.entryTime}|${b.id}`))
 }
 
@@ -135,11 +135,14 @@ function metricRows(trades: BacktestingTrade[], group: string, condition: string
   })]
 }
 
+export const exportedTradeFields = tradeFields
+
 function edgeRows(trades: BacktestingTrade[], baseline: BacktestingMetric): Row[] {
   const dimensions: Array<[string, (trade: BacktestingTrade) => string[]]> = [
     ['Session', trade => [trade.session || 'Unclassified']], ['Direction', trade => [trade.direction]],
     ['Weekday', trade => [trade.weekday || new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date(`${trade.date}T12:00:00Z`))]],
     ['Source', trade => [trade.source]], ['Setup', trade => [trade.setupName || 'Unclassified']], ['Entry timeframe', trade => [trade.entryTimeframe || 'Unclassified']],
+    ...(['setupType', 'setupQuality', 'entryConfirmation', 'htfTrend', 'marketStructure', 'priceLocation', 'marketCondition', 'liquidityType', 'liquiditySide', 'sweepLevel', 'sweepConfirmation', 'structureConfirmation', 'displacement', 'fvgAge', 'fvgRetest', 'fvgEntryLocation', 'fvgSequence', 'researchSample', 'strategyVersionId'] as const).map(field => [tradeFields[field], (trade: BacktestingTrade) => [String(trade[field] ?? 'Unclassified')]] as [string, (trade: BacktestingTrade) => string[]]),
     ['Gap type', trade => [trade.gapPresent ? trade.gapType || 'UNKNOWN' : 'NO_GAP']], ['Tag', trade => [...new Set(trade.tags || [])]]
   ]
   return dimensions.flatMap(([dimension, classify]) => {
@@ -186,7 +189,7 @@ export function buildBacktestingReport(workspace: BacktestingWorkspace, trades: 
       workspace, workspaceStatisticsScope: 'ALL_TIME_SNAPSHOT_NOT_SELECTED_PERIOD' }, null, 2),
     'README.txt': [
       `Backtesting export: ${workspace.title || workspace.symbol || 'Research workspace'}`, `Generated at (UTC): ${generatedAt}`,
-      `Inclusive ${period.dateBasis} date period: ${period.from} to ${period.to}. Dates use each trade's recorded local clock.`,
+      period.allDates ? 'Selection: all recorded dates in this workspace.' : `Inclusive ${period.dateBasis} date period: ${period.from} to ${period.to}. Dates use each trade's recorded local clock.`,
       `Exported trades: ${selected.length}. Analytics trades: ${analyzed.length}. Excluded trades retained in trades.csv: ${selected.length - analyzed.length}.`,
       'trades.csv: one row per trade, with entry and exit details and every available API trade field. Live trades are excluded.',
       'overview.csv and edge-analysis.csv: recomputed from included trades in the selected period; saved lifetime analytics are not reused.',
@@ -214,13 +217,13 @@ export function buildBacktestingReport(workspace: BacktestingWorkspace, trades: 
   }
 }
 
-export function reportArchive(files: Record<string, string>) {
-  return zipSync(Object.fromEntries(Object.entries(files).map(([name, content]) => [name, strToU8(content)])), { level: 6 })
+export function reportArchive(files: Record<string, string | Uint8Array>) {
+  return zipSync(Object.fromEntries(Object.entries(files).map(([name, content]) => [name, typeof content === 'string' ? strToU8(content) : content])), { level: 6 })
 }
 
 export function exportFilename(workspace: BacktestingWorkspace, period: ExportPeriod, extension: 'zip' | 'csv') {
   const name = (workspace.title || workspace.symbol || 'workspace').replace(/[^\p{L}\p{N}_-]+/gu, '-').slice(0, 90) || 'workspace'
-  return `backtesting-${name}-${period.dateBasis}-${period.from}-${period.to}.${extension}`
+  return `backtesting-${name}-${period.allDates ? 'all' : `${period.dateBasis}-${period.from}-${period.to}`}.${extension}`
 }
 
 export function downloadExport(data: BlobPart, filename: string, contentType: string) {

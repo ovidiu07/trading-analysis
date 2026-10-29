@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BacktestingTrade, BacktestingWorkspace } from '../../api/backtesting'
 import { I18nProvider, useI18n } from '../../i18n'
 import ExportBacktestingDialog from './ExportBacktestingDialog'
+import { prepareCompleteExport } from './completeExport'
+vi.mock('./completeExport', () => ({ prepareCompleteExport: vi.fn(async () => ({ files: { 'trades.json': '[]' }, count: 1 })) }))
 import { emptyResearchFilters } from './research'
 
 const workspace = { id: 'one', title: 'Export test', symbol: 'GER40' } as BacktestingWorkspace
@@ -26,12 +28,13 @@ describe('ExportBacktestingDialog', () => {
     localStorage.setItem('app.language', 'en')
     renderDialog()
     expect(screen.getByText('1 trades to export · 1 included in analytics · 0 excluded from analytics')).toBeInTheDocument()
+    await click(screen.getByRole('checkbox', { name: 'Entire workspace (all dates)' }))
     fireEvent.change(screen.getByLabelText('Export from'), { target: { value: '2026-10-02' } })
     expect(screen.getByRole('button', { name: 'Download export' })).toBeDisabled()
     expect(screen.getByText(/Enter valid start and end/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Export to'), { target: { value: '2026-10-03' } })
     expect(screen.getByText(/No backtest\/replay trades match/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Download export' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Download export' })).toBeEnabled()
   })
 
   it('keeps incomplete report data visible and allows the trades-only CSV', async () => {
@@ -53,6 +56,7 @@ describe('ExportBacktestingDialog', () => {
     const props = renderDialog()
     await act(async () => { await userEvent.click(screen.getByRole('button', { name: 'Download export' })) })
     await vi.waitFor(() => expect(props.onExported).toHaveBeenCalledWith('Export downloaded for 1 trades.'))
+    expect(prepareCompleteExport).toHaveBeenCalledWith('one', expect.objectContaining({ allDates: true }))
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
     expect(click).toHaveBeenCalledOnce()
     expect(props.onClose).toHaveBeenCalledOnce()
@@ -76,6 +80,6 @@ describe('ExportBacktestingDialog', () => {
     expect(screen.getByRole('dialog', { name: 'Exportă datele de backtesting' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Descarcă exportul' })).toBeEnabled()
     await click(screen.getByRole('checkbox', { name: 'Aplică celelalte filtre active ale spațiului (1)' }))
-    expect(screen.getByRole('button', { name: 'Descarcă exportul' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Descarcă exportul' })).toBeEnabled()
   })
 })

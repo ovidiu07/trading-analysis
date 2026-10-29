@@ -76,6 +76,17 @@ public class AssetController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{assetId}/export-link")
+    public ResponseEntity<AssetService.ExportLink> exportLink(@PathVariable UUID assetId) {
+        return ResponseEntity.ok().header("Cache-Control", "private, no-store")
+                .body(assetService.exportLink(assetId));
+    }
+
+    @GetMapping("/{assetId}/export-content")
+    public ResponseEntity<?> exportContent(@PathVariable UUID assetId) {
+        return assetService.exportContent(assetId);
+    }
+
     @GetMapping("/{assetId}/download")
     public ResponseEntity<?> download(@PathVariable UUID assetId) {
         return assetService.download(assetId, false);

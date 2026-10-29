@@ -1,0 +1,565 @@
+//@version=6
+indicator("Devtrader Zones of Interest", "Devtrader ZOI", overlay = true, max_boxes_count = 150, max_lines_count = 450, max_labels_count = 150, max_bars_back = 1000)
+// Structural hypotheses, not observed resting orders or calibrated probabilities.
+// Replaces ML Liquidity Zone Classifier [PhenLabs]. Exact original preserved at:
+// research/zones-of-interest-2026-10-20/baseline-before-upgrade.pine.
+// Documentation and evidence: docs/zones-of-interest.md.
+
+string G1 = "Detection | chart timeframe"
+bool showSwings = input.bool(true, "Swing support / resistance", group = G1)
+bool showLiquidity = input.bool(false, "Equal-high / equal-low liquidity", group = G1)
+bool showOrigins = input.bool(false, "Displacement origins (OB hypothesis)", group = G1)
+bool showGaps = input.bool(false, "Fair value gaps", group = G1)
+int pivotLen = input.int(5, "Swing confirmation bars on each side", 2, 50, group = G1, tooltip = "A pivot becomes known this many bars AFTER its origin. Drawings start at detection by default.")
+int atrLen = input.int(14, "ATR length", 2, 100, group = G1)
+float swingWidth = input.float(0.25, "Swing band height / ATR", 0.02, 2.0, 0.05, group = G1)
+float equalTolerance = input.float(0.12, "Equal-high / low tolerance / ATR", 0.01, 1.0, 0.01, group = G1)
+int equalSeparation = input.int(3, "Minimum bars between equal pivots", 1, 100, group = G1)
+int poolLookback = input.int(300, "Liquidity pivot search / chart bars", 20, 2000, group = G1)
+float impulseATR = input.float(1.2, "Displacement body / prior ATR", 0.2, 5.0, 0.1, group = G1)
+int originSearch = input.int(8, "Search last opposite candle / bars", 1, 30, group = G1)
+float maxOriginATR = input.float(1.5, "Maximum origin height / ATR (reject larger)", 0.1, 5.0, 0.1, group = G1)
+float minGapATR = input.float(0.10, "Minimum FVG height / prior ATR", 0.0, 2.0, 0.01, group = G1)
+float maxGapATR = input.float(2.0, "Maximum FVG height / prior ATR", 0.1, 10.0, 0.1, group = G1)
+bool allowSessionGaps = input.bool(false, "Allow FVGs across trading breaks", group = G1)
+
+string G2 = "Detection | higher timeframes"
+bool useHTF = input.bool(true, "Confirmed HTF swings", group = G2)
+bool autoHTF = input.bool(true, "Automatic higher timeframe", group = G2)
+float htfMultiplier = input.float(12.0, "Auto HTF multiplier", 2.0, 48.0, 1.0, group = G2)
+string manualHTF = input.timeframe("1D", "Manual higher timeframe", group = G2)
+bool useDay = input.bool(true, "Previous day high / low (intraday only)", group = G2)
+bool useWeek = input.bool(true, "Previous week high / low (below weekly)", group = G2)
+
+string G3 = "Lifecycle and relevance"
+int minScore = input.int(40, "Minimum evidence score / 100", 0, 100, group = G3, tooltip = "Heuristic evidence, NOT win probability: source strength + nearby confluence - retests - age.")
+int maxVisible = input.int(12, "Maximum visible active zones", 2, 40, group = G3)
+bool balanceFamilies = input.bool(true, "Balance reaction and liquidity display", group = G3)
+int maxTracked = input.int(90, "Maximum tracked zones including history", 20, 120, group = G3)
+int maxAge = input.int(2000, "Expire after / chart bars", 50, 20000, group = G3)
+float maxDistance = input.float(15.0, "Hide farther than / current ATR", 1.0, 200.0, 1.0, group = G3)
+float duplicateATR = input.float(0.15, "Same-source duplicate distance / ATR", 0.0, 1.0, 0.05, group = G3)
+float confluenceATR = input.float(0.5, "Confluence distance / current ATR", 0.0, 3.0, 0.1, group = G3)
+string invalidation = input.string("Close", "Reaction zone invalidation", ["Close", "Wick"], group = G3)
+float breakBuffer = input.float(0.05, "Break / sweep buffer / creation ATR", 0.0, 0.5, 0.01, group = G3)
+string gapMitigation = input.string("Full fill", "FVG resolution", ["First touch", "Midpoint", "Full fill"], group = G3)
+bool keepHistory = input.bool(false, "Keep resolved zones on chart", group = G3)
+int historyLimit = input.int(10, "Maximum visible resolved zones", 0, 25, group = G3)
+
+string G4 = "Appearance | colours"
+color supportColor = input.color(#089981, "Support / demand", group = G4)
+color resistanceColor = input.color(#F23645, "Resistance / supply", group = G4)
+color buyLiquidityColor = input.color(#FF9800, "Buy-side liquidity (above highs)", group = G4)
+color sellLiquidityColor = input.color(#FF9800, "Sell-side liquidity (below lows)", group = G4)
+color bullGapColor = input.color(#26A69A, "Bullish FVG", group = G4)
+color bearGapColor = input.color(#AB47BC, "Bearish FVG", group = G4)
+color resolvedColor = input.color(#787B86, "Resolved zones", group = G4)
+color textColor = input.color(color.white, "Label text", group = G4)
+color panelColor = input.color(color.new(#131722, 8), "Dashboard background", group = G4)
+int fillTransparency = input.int(87, "Zone fill transparency", 0, 100, group = G4)
+int testedTransparency = input.int(93, "Retested zone transparency", 0, 100, group = G4)
+
+string G5 = "Appearance | lines, boxes and shapes"
+string zoneShape = input.string("Box + midpoint", "Zone geometry", ["Box + midpoint", "Box", "Boundary lines", "Level line"], group = G5)
+string reactionStyle = input.string("Dotted", "Reaction border style", ["Solid", "Dashed", "Dotted"], group = G5)
+string liquidityStyle = input.string("Solid", "Liquidity border style", ["Solid", "Dashed", "Dotted"], group = G5)
+string gapStyle = input.string("Solid", "FVG border style", ["Solid", "Dashed", "Dotted"], group = G5)
+int lineWidth = input.int(1, "Line / border width", 1, 4, group = G5)
+bool extendRight = input.bool(true, "Extend active zones right", group = G5)
+int labelOffset = input.int(3, "Label offset / chart periods", 0, 100, group = G5)
+bool showLabels = input.bool(true, "Show zone labels and tooltips", group = G5)
+string labelSizeInput = input.string("Tiny", "Label size", ["Tiny", "Small", "Normal"], group = G5)
+bool drawAtOrigin = input.bool(false, "Draw from origin (backpaints past bars)", group = G5, tooltip = "OFF starts drawings at detection. ON extends into the past; zones were NOT known at their origin. Tooltips always show both times.")
+bool showEvents = input.bool(true, "Show rejection and sweep markers", group = G5)
+string markerShape = input.string("Triangle", "Event marker shape", ["Triangle", "Circle", "Diamond", "Arrow"], group = G5)
+bool showDashboard = input.bool(true, "Show dashboard", group = G5)
+string dashboardPosition = input.string("Top right", "Dashboard position", ["Top right", "Bottom right", "Top left", "Bottom left"], group = G5)
+
+// Kind: 0 swing, 1 inferred liquidity, 2 displacement origin, 3 FVG, 4 period liquidity.
+// Side: reaction +1 support/-1 resistance; liquidity +1 above highs/-1 below lows.
+// State: 0 active, 1 broken, 2 filled, 3 swept, 4 taken, 5 expired.
+type Zone
+    float top
+    float bottom
+    float scale
+    int kind
+    int side
+    string source
+    int origin
+    int detected
+    int bornBar
+    float baseScore
+    int tests = 0
+    bool contact = false
+    bool reactionReported = false
+    int state = 0
+    int ended = na
+    box area = na
+    line upper = na
+    line lower = na
+    line middle = na
+    label caption = na
+
+type Swing
+    float price
+    float scale
+    int timestamp
+    int index
+    bool taken = false
+
+var array<Zone> zones = array.new<Zone>()
+var array<Swing> highs = array.new<Swing>()
+var array<Swing> lows = array.new<Swing>()
+
+f_style(string style) =>
+    style == "Dashed" ? line.style_dashed : style == "Dotted" ? line.style_dotted : line.style_solid
+
+f_liquidity(Zone z) =>
+    z.kind == 1 or z.kind == 4
+
+f_color(Zone z) =>
+    z.state != 0 ? resolvedColor : f_liquidity(z) ? (z.side == 1 ? buyLiquidityColor : sellLiquidityColor) : z.kind == 3 ? (z.side == 1 ? bullGapColor : bearGapColor) : z.side == 1 ? supportColor : resistanceColor
+
+f_state(int state) =>
+    switch state
+        1 => "Broken"
+        2 => "Filled"
+        3 => "Swept"
+        4 => "Taken"
+        5 => "Expired"
+        => "Active"
+
+f_distance(Zone z, float price) =>
+    math.max(z.bottom - price, math.max(price - z.top, 0.0))
+
+f_score(Zone z, float scale) =>
+    int confluences = 0
+    int role = f_liquidity(z) ? z.side : -z.side
+    for other in zones
+        int otherRole = f_liquidity(other) ? other.side : -other.side
+        bool independent = other.kind != z.kind or other.source != z.source
+        float distance = math.max(other.bottom - z.top, z.bottom - other.top)
+        if other.state == 0 and independent and otherRole == role and distance <= scale * confluenceATR
+            confluences += 1
+    float agePenalty = 15.0 * math.min(1.0, float(bar_index - z.bornBar) / maxAge)
+    math.max(0.0, math.min(100.0, z.baseScore + math.min(confluences, 2) * 8 - math.min(z.tests, 5) * 5 - agePenalty))
+
+// Reserve half the visible budget for each role, then fill unused slots.
+// This changes display only; source bands and lifecycle remain independent.
+f_select(array<float> ranks, array<bool> liquidity, int limit, bool balance) =>
+    array<bool> selected = array.new<bool>(ranks.size(), false)
+    array<float> work = ranks.copy()
+    int chosen = 0
+    if ranks.size() > 0 and limit > 0
+        for pass = 0 to (balance ? 2 : 0)
+            int family = balance ? pass : 2
+            int budget = family == 0 ? int(math.ceil(limit * 0.5)) : family == 1 ? int(math.floor(limit * 0.5)) : limit - chosen
+            if budget > 0
+                for n = 1 to budget
+                    int best = na
+                    float bestRank = -1e9
+                    for i = 0 to work.size() - 1
+                        bool eligible = family == 2 or (family == 1 ? liquidity.get(i) : not liquidity.get(i))
+                        if eligible and work.get(i) > bestRank
+                            bestRank := work.get(i)
+                            best := i
+                    if not na(best)
+                        selected.set(best, true)
+                        work.set(best, -1e10)
+                        chosen += 1
+    selected
+
+f_delete(int index) =>
+    Zone z = zones.remove(index)
+    box.delete(z.area)
+    line.delete(z.upper)
+    line.delete(z.lower)
+    line.delete(z.middle)
+    label.delete(z.caption)
+
+// Preserve actual bounds; deduplicate only the same family, timeframe and side.
+f_add(float top, float bottom, float scale, int kind, int side, string source, int origin, float score) =>
+    bool added = false
+    bool valid = not na(top) and not na(bottom) and not na(scale) and scale > 0 and top >= bottom and not na(origin)
+    if valid
+        bool duplicate = false
+        for z in zones
+            if z.state == 0 and z.kind == kind and z.side == side and z.source == source
+                if math.max(bottom - z.top, z.bottom - top) <= scale * duplicateATR
+                    duplicate := true
+        bool liquidity = kind == 1 or kind == 4
+        bool stillAhead = not liquidity or (side == 1 ? high < top : low > bottom)
+        bool intact = liquidity or (side == 1 ? close >= bottom : close <= top)
+        if not duplicate and stillAhead and intact
+            zones.push(Zone.new(top, bottom, scale, kind, side, source, origin, time_close, bar_index, score))
+            added := true
+    added
+
+f_trim(float scale) =>
+    while zones.size() > maxTracked
+        int removeIndex = 0
+        float lowest = 1e10
+        for i = 0 to zones.size() - 1
+            Zone z = zones.get(i)
+            float rank = z.state != 0 ? -100000.0 + z.bornBar * 0.001 : z.baseScore - f_distance(z, close) / scale
+            if rank < lowest
+                lowest := rank
+                removeIndex := i
+        f_delete(removeIndex)
+
+f_pool(array<Swing> pivots, float price, float scale, int side) =>
+    float matchHigh = price
+    float matchLow = price
+    int matches = 1
+    int firstTime = time[pivotLen]
+    int pivotBar = bar_index - pivotLen
+    for p in pivots
+        float tolerance = math.max(scale, p.scale) * equalTolerance
+        if not p.taken and pivotBar - p.index >= equalSeparation and pivotBar - p.index <= poolLookback and math.abs(price - p.price) <= tolerance
+            matchHigh := math.max(matchHigh, p.price)
+            matchLow := math.min(matchLow, p.price)
+            firstTime := math.min(firstTime, p.timestamp)
+            matches += 1
+    bool added = false
+    if showLiquidity and matches >= 2
+        float pad = math.max(syminfo.mintick, scale * equalTolerance * 0.5)
+        added := f_add(matchHigh + pad, matchLow - pad, scale, 1, side, side == 1 ? "EQH" : "EQL", firstTime, 65.0 + math.min(matches - 2, 3) * 5)
+    pivots.push(Swing.new(price, scale, time[pivotLen], pivotBar))
+    while pivots.size() > 80
+        pivots.shift()
+    added
+
+// One deterministic lifecycle function shared by the chart and synthetic Pine QA.
+// OHLC alone does not establish an intrabar path. Invalidation takes precedence
+// over rejection when both extremes are inside the same candle.
+f_step(Zone z, float o, float h, float l, float c, int index, int stamp, bool wickBreak, float bufferFraction, string fillMode, int ttl) =>
+    bool touchEvent = false
+    bool bull = false
+    bool bear = false
+    bool sweptHigh = false
+    bool sweptLow = false
+    bool broken = false
+    bool filledEvent = false
+    if z.state == 0 and index > z.bornBar
+        float buffer = z.scale * bufferFraction
+        bool touched = h >= z.bottom and l <= z.top
+        bool broke = z.side == 1 ? (wickBreak ? l : c) < z.bottom - buffer : (wickBreak ? h : c) > z.top + buffer
+        if f_liquidity(z)
+            bool taken = z.side == 1 ? h >= z.top + buffer : l <= z.bottom - buffer
+            bool swept = taken and (z.side == 1 ? c < z.bottom : c > z.top)
+            if taken
+                z.state := swept ? 3 : 4
+                sweptHigh := swept and z.side == 1
+                sweptLow := swept and z.side == -1
+        else if z.kind == 3
+            float threshold = fillMode == "First touch" ? (z.side == 1 ? z.top : z.bottom) : fillMode == "Midpoint" ? math.avg(z.top, z.bottom) : (z.side == 1 ? z.bottom : z.top)
+            bool filled = z.side == 1 ? l <= threshold : h >= threshold
+            if broke or filled
+                z.state := broke ? 1 : 2
+                filledEvent := filled and not broke
+                broken := broke
+        else if broke
+            z.state := 1
+            broken := true
+        if z.state == 0 and not f_liquidity(z)
+            if touched and not z.contact
+                z.tests += 1
+                z.reactionReported := false
+                touchEvent := true
+            if (touched or z.contact) and not z.reactionReported
+                bull := z.side == 1 and c > z.top and c > o
+                bear := z.side == -1 and c < z.bottom and c < o
+                z.reactionReported := bull or bear
+        z.contact := touched
+        if z.state == 0 and index - z.bornBar >= ttl
+            z.state := 5
+        if z.state != 0
+            z.ended := stamp
+    [touchEvent, bull, bear, sweptHigh, sweptLow, broken, filledEvent]
+
+// Every requested HTF value is offset BEFORE requesting with lookahead_on.
+f_htfPayload() =>
+    float pHigh = ta.pivothigh(high, pivotLen, pivotLen)
+    float pLow = ta.pivotlow(low, pivotLen, pivotLen)
+    float scale = ta.atr(atrLen)
+    [pHigh[1], pLow[1], scale[pivotLen + 1], time[pivotLen + 1]]
+
+if barstate.isfirst and (not chart.is_standard or timeframe.isticks)
+    runtime.error("Use a standard time-based chart. Synthetic and tick charts are not supported by this price-zone model.")
+float chartSeconds = timeframe.in_seconds()
+string htf = autoHTF ? timeframe.from_seconds(int(math.min(chartSeconds * htfMultiplier, timeframe.in_seconds("12M")))) : manualHTF
+bool htfAvailable = useHTF and timeframe.in_seconds(htf) > chartSeconds
+if barstate.isfirst
+    if useHTF and not autoHTF and timeframe.in_seconds(manualHTF) <= chartSeconds
+        runtime.error("Manual HTF must be strictly higher than the chart timeframe, or disable HTF swings.")
+    if minGapATR > maxGapATR
+        runtime.error("Minimum FVG height must not exceed maximum FVG height.")
+
+// Clamp unused period requests to chart TF to avoid accidental LTF requests.
+string dayTF = chartSeconds < timeframe.in_seconds("1D") ? "1D" : timeframe.period
+string weekTF = chartSeconds < timeframe.in_seconds("1W") ? "1W" : timeframe.period
+string requestHTF = htfAvailable ? htf : timeframe.period
+[htfHigh, htfLow, htfATR, htfOrigin] = request.security(syminfo.tickerid, requestHTF, f_htfPayload(), lookahead = barmerge.lookahead_on)
+[dayHigh, dayLow, dayOrigin] = request.security(syminfo.tickerid, dayTF, [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+[weekHigh, weekLow, weekOrigin] = request.security(syminfo.tickerid, weekTF, [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+
+float atr = ta.atr(atrLen)
+float priorATR = atr[1]
+float ph = ta.pivothigh(high, pivotLen, pivotLen)
+float pl = ta.pivotlow(low, pivotLen, pivotLen)
+float volumeAverage = ta.sma(volume, 20)
+float volumeRatio = not na(volume) and not na(volumeAverage[1]) and volumeAverage[1] > 0 ? volume / volumeAverage[1] : na
+float pivotVolumeRatio = volumeRatio[pivotLen]
+float body = math.abs(close - open)
+float barRange = math.max(high - low, syminfo.mintick)
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int lastSwingHighTime = na
+var int lastSwingLowTime = na
+var int brokenHighTime = na
+var int brokenLowTime = na
+var int lastHTFHigh = na
+var int lastHTFLow = na
+var int lastDay = na
+var int lastWeek = na
+var int createdCount = 0
+var int sweepCount = 0
+var int rejectionCount = 0
+bool newZone = false
+bool touchEvent = false
+bool bullRejection = false
+bool bearRejection = false
+bool highSweep = false
+bool lowSweep = false
+bool brokenEvent = false
+bool filledEvent = false
+
+if barstate.isconfirmed and not na(priorATR) and priorATR > 0
+    // Run BEFORE detection; never count the creation candle as a retest.
+    if zones.size() > 0
+        for i = zones.size() - 1 to 0
+            Zone z = zones.get(i)
+            [touched, bull, bear, sweptHigh, sweptLow, broke, filled] = f_step(z, open, high, low, close, bar_index, time_close, invalidation == "Wick", breakBuffer, gapMitigation, maxAge)
+            touchEvent := touchEvent or touched
+            bullRejection := bullRejection or bull
+            bearRejection := bearRejection or bear
+            highSweep := highSweep or sweptHigh
+            lowSweep := lowSweep or sweptLow
+            brokenEvent := brokenEvent or broke
+            filledEvent := filledEvent or filled
+            if z.state != 0
+                // Consume the underlying evidence too, so later equal pivots
+                // cannot recycle this taken pool as untouched liquidity.
+                if z.kind == 1 and (z.state == 3 or z.state == 4)
+                    array<Swing> book = z.side == 1 ? highs : lows
+                    for p in book
+                        if p.price >= z.bottom - z.scale * equalTolerance and p.price <= z.top + z.scale * equalTolerance
+                            p.taken := true
+                if not keepHistory
+                    f_delete(i)
+
+    // A breached old pivot cannot reappear as untouched liquidity.
+    for p in highs
+        if high > p.price + p.scale * equalTolerance or bar_index - p.index > poolLookback
+            p.taken := true
+    for p in lows
+        if low < p.price - p.scale * equalTolerance or bar_index - p.index > poolLookback
+            p.taken := true
+
+    // Breaks reference the swing known BEFORE this candle.
+    bool brokeHigh = not na(lastSwingHigh) and close > lastSwingHigh and close[1] <= lastSwingHigh and (na(brokenHighTime) or brokenHighTime != lastSwingHighTime)
+    bool brokeLow = not na(lastSwingLow) and close < lastSwingLow and close[1] >= lastSwingLow and (na(brokenLowTime) or brokenLowTime != lastSwingLowTime)
+    bool impulseUp = close > open and body >= priorATR * impulseATR and (close - low) / barRange >= 0.75
+    bool impulseDown = close < open and body >= priorATR * impulseATR and (high - close) / barRange >= 0.75
+    if showOrigins and ((brokeHigh and impulseUp) or (brokeLow and impulseDown))
+        int side = brokeHigh and impulseUp ? 1 : -1
+        int originOffset = na
+        for j = 1 to originSearch
+            if side == 1 ? close[j] < open[j] : close[j] > open[j]
+                originOffset := j
+                break
+        if not na(originOffset)
+            float top = side == 1 ? open[originOffset] : high[originOffset]
+            float bottom = side == 1 ? low[originOffset] : open[originOffset]
+            bool intact = true
+            if originOffset > 1
+                for j = 1 to originOffset - 1
+                    if side == 1 ? low[j] < bottom : high[j] > top
+                        intact := false
+            if intact and top - bottom >= syminfo.mintick and top - bottom <= priorATR * maxOriginATR
+                float bonus = na(volumeRatio) ? 0.0 : math.min(10.0, math.max(0.0, (volumeRatio - 1.0) * 5.0))
+                newZone := f_add(top, bottom, priorATR, 2, side, "Origin " + timeframe.period, time[originOffset], 60.0 + bonus) or newZone
+    if brokeHigh
+        brokenHighTime := lastSwingHighTime
+    if brokeLow
+        brokenLowTime := lastSwingLowTime
+
+    if not na(ph) and not na(atr[pivotLen]) and atr[pivotLen] > 0
+        float scale = atr[pivotLen]
+        lastSwingHigh := ph
+        lastSwingHighTime := time[pivotLen]
+        newZone := f_pool(highs, ph, scale, 1) or newZone
+        if showSwings
+            float bonus = na(pivotVolumeRatio) ? 0.0 : math.min(10.0, math.max(0.0, (pivotVolumeRatio - 1.0) * 5.0))
+            newZone := f_add(ph, ph - math.max(syminfo.mintick, scale * swingWidth), scale, 0, -1, "Swing " + timeframe.period, time[pivotLen], 45.0 + bonus) or newZone
+    if not na(pl) and not na(atr[pivotLen]) and atr[pivotLen] > 0
+        float scale = atr[pivotLen]
+        lastSwingLow := pl
+        lastSwingLowTime := time[pivotLen]
+        newZone := f_pool(lows, pl, scale, -1) or newZone
+        if showSwings
+            float bonus = na(pivotVolumeRatio) ? 0.0 : math.min(10.0, math.max(0.0, (pivotVolumeRatio - 1.0) * 5.0))
+            newZone := f_add(pl + math.max(syminfo.mintick, scale * swingWidth), pl, scale, 0, 1, "Swing " + timeframe.period, time[pivotLen], 45.0 + bonus) or newZone
+
+    bool continuous = allowSessionGaps or (time <= time_close[1] and time[1] <= time_close[2])
+    float middleBody = close[1] - open[1]
+    if showGaps and continuous and not na(atr[2])
+        float gapScale = atr[2]
+        float upGap = low - high[2]
+        float downGap = low[2] - high
+        if upGap >= math.max(syminfo.mintick, gapScale * minGapATR) and upGap <= gapScale * maxGapATR and middleBody >= gapScale * impulseATR
+            newZone := f_add(low, high[2], gapScale, 3, 1, "FVG " + timeframe.period, time[2], 55.0) or newZone
+        if downGap >= math.max(syminfo.mintick, gapScale * minGapATR) and downGap <= gapScale * maxGapATR and -middleBody >= gapScale * impulseATR
+            newZone := f_add(low[2], high, gapScale, 3, -1, "FVG " + timeframe.period, time[2], 55.0) or newZone
+
+    if htfAvailable
+        if not na(htfHigh) and (na(lastHTFHigh) or htfOrigin != lastHTFHigh)
+            newZone := f_add(htfHigh, htfHigh - htfATR * swingWidth, htfATR, 0, -1, "HTF " + htf, htfOrigin, 65.0) or newZone
+            lastHTFHigh := htfOrigin
+        if not na(htfLow) and (na(lastHTFLow) or htfOrigin != lastHTFLow)
+            newZone := f_add(htfLow + htfATR * swingWidth, htfLow, htfATR, 0, 1, "HTF " + htf, htfOrigin, 65.0) or newZone
+            lastHTFLow := htfOrigin
+    if useDay and chartSeconds < timeframe.in_seconds("1D") and not na(dayOrigin) and (na(lastDay) or dayOrigin != lastDay)
+        float pad = math.max(syminfo.mintick, priorATR * equalTolerance * 0.5)
+        newZone := f_add(dayHigh + pad, dayHigh - pad, priorATR, 4, 1, "PDH", dayOrigin, 70.0) or newZone
+        newZone := f_add(dayLow + pad, dayLow - pad, priorATR, 4, -1, "PDL", dayOrigin, 70.0) or newZone
+        lastDay := dayOrigin
+    if useWeek and chartSeconds < timeframe.in_seconds("1W") and not na(weekOrigin) and (na(lastWeek) or weekOrigin != lastWeek)
+        float pad = math.max(syminfo.mintick, priorATR * equalTolerance * 0.5)
+        newZone := f_add(weekHigh + pad, weekHigh - pad, priorATR, 4, 1, "PWH", weekOrigin, 80.0) or newZone
+        newZone := f_add(weekLow + pad, weekLow - pad, priorATR, 4, -1, "PWL", weekOrigin, 80.0) or newZone
+        lastWeek := weekOrigin
+    f_trim(priorATR)
+    createdCount += newZone ? 1 : 0
+    sweepCount += highSweep or lowSweep ? 1 : 0
+    rejectionCount += bullRejection or bearRejection ? 1 : 0
+
+// Drawings allocated lazily. Bound: 120 * (1 box + 3 lines + 1 label).
+// Ranking changes visibility only, never the stored bounds or event logic.
+f_render(Zone z, bool visible, float score) =>
+    int left = drawAtOrigin ? z.origin : z.detected
+    int right = z.state == 0 ? time_close : z.ended
+    int captionTime = z.state == 0 ? time_close + int(chartSeconds * 1000) * labelOffset : right
+    float mid = math.avg(z.top, z.bottom)
+    color col = f_color(z)
+    string style = f_style(z.state != 0 ? "Dotted" : f_liquidity(z) ? liquidityStyle : z.kind == 3 ? gapStyle : reactionStyle)
+    string extension = extendRight and z.state == 0 ? extend.right : extend.none
+    bool drawBox = visible and (zoneShape == "Box" or zoneShape == "Box + midpoint")
+    bool drawBounds = visible and zoneShape == "Boundary lines"
+    bool drawMid = visible and (zoneShape == "Box + midpoint" or zoneShape == "Level line")
+    if na(z.area) and visible
+        z.area := box.new(left, z.top, right, z.bottom, xloc = xloc.bar_time)
+        z.upper := line.new(left, z.top, right, z.top, xloc = xloc.bar_time)
+        z.lower := line.new(left, z.bottom, right, z.bottom, xloc = xloc.bar_time)
+        z.middle := line.new(left, mid, right, mid, xloc = xloc.bar_time)
+        z.caption := label.new(captionTime, mid, "", xloc = xloc.bar_time)
+    if not na(z.area)
+        box.set_right(z.area, right)
+        box.set_extend(z.area, extension)
+        box.set_border_color(z.area, drawBox ? col : na)
+        box.set_border_style(z.area, style)
+        box.set_border_width(z.area, lineWidth)
+        box.set_bgcolor(z.area, drawBox ? color.new(col, z.state != 0 ? 95 : z.tests > 0 ? testedTransparency : fillTransparency) : na)
+        line.set_x2(z.upper, right)
+        line.set_x2(z.lower, right)
+        line.set_x2(z.middle, right)
+        line.set_extend(z.upper, extension)
+        line.set_extend(z.lower, extension)
+        line.set_extend(z.middle, extension)
+        line.set_color(z.upper, drawBounds ? col : na)
+        line.set_color(z.lower, drawBounds ? col : na)
+        line.set_color(z.middle, drawMid ? col : na)
+        line.set_style(z.upper, style)
+        line.set_style(z.lower, style)
+        line.set_style(z.middle, style)
+        line.set_width(z.upper, lineWidth)
+        line.set_width(z.lower, lineWidth)
+        line.set_width(z.middle, lineWidth)
+        string role = f_liquidity(z) ? (z.side == 1 ? "BSL" : "SSL") : z.side == 1 ? "Demand" : "Supply"
+        string state = z.state != 0 ? f_state(z.state) : z.tests == 0 ? "Fresh" : "Tests " + str.tostring(z.tests)
+        string datedSource = z.source + (z.kind == 4 ? " " + str.format_time(z.origin, "MMM dd", syminfo.timezone) : "")
+        string caption = datedSource + " | " + role + " | " + str.tostring(int(math.round(score))) + "/100 | " + state
+        label.set_xy(z.caption, captionTime, mid)
+        label.set_style(z.caption, label.style_label_right)
+        label.set_color(z.caption, visible and showLabels ? color.new(col, 10) : na)
+        label.set_textcolor(z.caption, textColor)
+        label.set_size(z.caption, labelSizeInput == "Tiny" ? size.tiny : labelSizeInput == "Normal" ? size.normal : size.small)
+        label.set_text(z.caption, visible and showLabels ? caption : "")
+        label.set_tooltip(z.caption, "Origin (exchange TZ): " + str.format_time(z.origin, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nKnown at bar close: " + str.format_time(z.detected, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nBand: " + str.tostring(z.bottom, format.mintick) + " - " + str.tostring(z.top, format.mintick) + "\nScore is structural evidence, not probability.\nLiquidity is inferred; resting orders are not observed.")
+
+var table dashboard = table.new(dashboardPosition == "Top left" ? position.top_left : dashboardPosition == "Bottom left" ? position.bottom_left : dashboardPosition == "Bottom right" ? position.bottom_right : position.top_right, 2, 7, border_width = 1)
+if barstate.islast
+    float safeATR = math.max(nz(atr[1], syminfo.mintick), syminfo.mintick)
+    float referencePrice = barstate.isconfirmed ? close : close[1]
+    array<float> ranks = array.new<float>()
+    array<float> scores = array.new<float>()
+    array<bool> liquidity = array.new<bool>()
+    int active = 0
+    string above = "None tracked"
+    string below = "None tracked"
+    float aboveDistance = 1e20
+    float belowDistance = 1e20
+    for z in zones
+        float score = f_score(z, safeATR)
+        float distance = f_distance(z, referencePrice) / safeATR
+        scores.push(score)
+        liquidity.push(f_liquidity(z))
+        ranks.push(z.state == 0 and score >= minScore and distance <= maxDistance ? score - distance * 2.0 : -1e10)
+        if z.state == 0
+            active += 1
+            if f_liquidity(z) and z.side == 1 and z.bottom > referencePrice and distance < aboveDistance
+                aboveDistance := distance
+                above := z.source + " " + str.tostring(z.bottom, format.mintick)
+            if f_liquidity(z) and z.side == -1 and z.top < referencePrice and distance < belowDistance
+                belowDistance := distance
+                below := z.source + " " + str.tostring(z.top, format.mintick)
+    if zones.size() > 0
+        array<bool> selected = f_select(ranks, liquidity, maxVisible, balanceFamilies)
+        int historyShown = 0
+        for i = zones.size() - 1 to 0
+            Zone z = zones.get(i)
+            bool history = keepHistory and z.state != 0 and historyShown < historyLimit
+            if history
+                historyShown += 1
+            f_render(z, selected.get(i) or history, scores.get(i))
+    if showDashboard
+        for row = 0 to 6
+            table.cell(dashboard, 0, row, "", bgcolor = panelColor, text_color = textColor, text_size = size.small)
+            table.cell(dashboard, 1, row, "", bgcolor = panelColor, text_color = textColor, text_size = size.small)
+        table.cell_set_text(dashboard, 0, 0, "Zones of interest")
+        table.cell_set_text(dashboard, 1, 0, "Evidence, not probability")
+        table.cell_set_text(dashboard, 0, 1, "Chart / HTF")
+        table.cell_set_text(dashboard, 1, 1, timeframe.period + " / " + (htfAvailable ? htf : "off / unavailable"))
+        table.cell_set_text(dashboard, 0, 2, "Active / tracked")
+        table.cell_set_text(dashboard, 1, 2, str.tostring(active) + " / " + str.tostring(zones.size()))
+        table.cell_set_text(dashboard, 0, 3, "Liquidity above")
+        table.cell_set_text(dashboard, 1, 3, above)
+        table.cell_set_text(dashboard, 0, 4, "Liquidity below")
+        table.cell_set_text(dashboard, 1, 4, below)
+        table.cell_set_text(dashboard, 0, 5, "Volume feed")
+        table.cell_set_text(dashboard, 1, 5, na(volumeRatio) ? "Unavailable (price model active)" : syminfo.volumetype == "tick" ? "Tick volume (relative only)" : "Provider volume (relative only)")
+        table.cell_set_text(dashboard, 0, 6, "Event bars: new / sweep / reject")
+        table.cell_set_text(dashboard, 1, 6, str.tostring(createdCount) + " / " + str.tostring(sweepCount) + " / " + str.tostring(rejectionCount))
+
+string upShape = markerShape == "Circle" ? shape.circle : markerShape == "Diamond" ? shape.diamond : markerShape == "Arrow" ? shape.arrowup : shape.triangleup
+string downShape = markerShape == "Circle" ? shape.circle : markerShape == "Diamond" ? shape.diamond : markerShape == "Arrow" ? shape.arrowdown : shape.triangledown
+plotshape(showEvents and (bullRejection or lowSweep), "Bullish rejection / SSL sweep", upShape, location.belowbar, supportColor, size = size.tiny)
+plotshape(showEvents and (bearRejection or highSweep), "Bearish rejection / BSL sweep", downShape, location.abovebar, resistanceColor, size = size.tiny)
+alertcondition(newZone, "New structural zone", "New confirmed structural zone on {{ticker}} / {{interval}}. This is not an entry signal.")
+alertcondition(touchEvent, "Reaction zone retest", "Price retested a confirmed reaction zone on {{ticker}} / {{interval}}.")
+alertcondition(bullRejection, "Bullish zone rejection", "Closed bullish rejection at a tracked zone on {{ticker}} / {{interval}}.")
+alertcondition(bearRejection, "Bearish zone rejection", "Closed bearish rejection at a tracked zone on {{ticker}} / {{interval}}.")
+alertcondition(highSweep, "Buy-side liquidity sweep", "Price exceeded an inferred high-side pool and closed below its band on {{ticker}} / {{interval}}.")
+alertcondition(lowSweep, "Sell-side liquidity sweep", "Price exceeded an inferred low-side pool and closed above its band on {{ticker}} / {{interval}}.")
+alertcondition(brokenEvent, "Reaction zone broken", "A tracked reaction zone was invalidated on {{ticker}} / {{interval}}.")
+alertcondition(filledEvent, "FVG resolved", "A tracked FVG reached its selected mitigation threshold on {{ticker}} / {{interval}}.")

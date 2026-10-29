@@ -1,0 +1,103 @@
+//@version=6
+indicator("Devtrader ZOI | Footprint POC companion", "ZOI Footprint", overlay = true, max_boxes_count = 100, max_labels_count = 100, max_lines_count = 100)
+// Optional companion to zones-of-interest.pine. Requires Premium or Ultimate.
+// Uses TradingView footprint rows, NOT candle-volume proxies or resting orders.
+int ticksPerRow = input.int(100, "Ticks per footprint row", 1, 100000, tooltip = "Price row height = this input * syminfo.mintick. Adjust to the instrument; 100 ticks is not 100 price points.")
+int averageLength = input.int(20, "Footprint volume baseline / bars", 5, 100)
+float volumeMultiplier = input.float(1.5, "Minimum footprint volume / baseline", 0.5, 10.0, 0.1)
+float minPOCShare = input.float(15.0, "Minimum volume in POC row / %", 1.0, 100.0, 1.0)
+int maxZones = input.int(10, "Maximum untouched POC zones", 1, 50)
+int maxAge = input.int(500, "Expire after / chart bars", 10, 10000)
+bool showLabels = input.bool(true, "Show labels and footprint details")
+bool showTouches = input.bool(true, "Mark first POC retest")
+string geometry = input.string("Box + midpoint", "Zone geometry", ["Box + midpoint", "Box", "Level line"])
+string lineStyleInput = input.string("Dotted", "Line style", ["Solid", "Dashed", "Dotted"])
+int lineWidth = input.int(1, "Line width", 1, 4)
+int fillTransparency = input.int(88, "Fill transparency", 0, 100)
+color zoneColor = input.color(#FF9800, "Untouched POC colour")
+color textColor = input.color(color.white, "Text colour")
+color touchColor = input.color(#FFD54F, "POC retest marker")
+string eventShape = input.string("Diamond", "Retest shape", ["Diamond", "Circle", "Triangle"])
+bool showStatus = input.bool(true, "Show data status (bottom left)")
+
+type Node
+    float top
+    float bottom
+    int born
+    int known
+    float deltaPercent
+    float share
+    box area
+    line level
+    label caption
+var array<Node> nodes = array.new<Node>()
+f_remove(int index) =>
+    Node node = nodes.remove(index)
+    box.delete(node.area)
+    line.delete(node.level)
+    label.delete(node.caption)
+
+if barstate.isfirst and (not chart.is_standard or timeframe.isticks)
+    runtime.error("Use a standard time-based chart for footprint zone analysis.")
+// Exactly ONE footprint request. Never substitute OHLCV estimates when it is na.
+footprint fp = request.footprint(ticksPerRow, 70)
+float fpVolume = na(fp) ? na : fp.total_volume()
+float fpBaseline = ta.sma(fpVolume, averageLength)
+float fpDelta = na(fp) ? na : fp.delta()
+bool firstRetest = false
+bool newPOC = false
+var int availableBars = 0
+var int lastAvailable = na
+var table status = table.new(position.bottom_left, 1, 2)
+
+if barstate.isconfirmed
+    if nodes.size() > 0
+        for i = nodes.size() - 1 to 0
+            Node node = nodes.get(i)
+            bool touch = high >= node.bottom and low <= node.top
+            // A gap across the entire row is passed, not an executed retest.
+            bool gapAcross = (close[1] < node.bottom and low > node.top) or (close[1] > node.top and high < node.bottom)
+            if bar_index > node.born and (touch or gapAcross or bar_index - node.born >= maxAge)
+                firstRetest := firstRetest or touch
+                f_remove(i)
+    if not na(fp) and fpVolume > 0
+        availableBars += 1
+        lastAvailable := time_close
+        volume_row poc = fp.poc()
+        if not na(poc)
+            float top = poc.up_price()
+            float bottom = poc.down_price()
+            float share = poc.total_volume() / fpVolume * 100.0
+            bool highParticipation = not na(fpBaseline[1]) and fpBaseline[1] > 0 and fpVolume >= fpBaseline[1] * volumeMultiplier
+            if highParticipation and share >= minPOCShare and top > bottom
+                bool duplicate = false
+                for node in nodes
+                    if bottom <= node.top and top >= node.bottom
+                        duplicate := true
+                if not duplicate
+                    float deltaPercent = fpDelta / fpVolume * 100.0
+                    string style = lineStyleInput == "Solid" ? line.style_solid : lineStyleInput == "Dashed" ? line.style_dashed : line.style_dotted
+                    bool boxVisible = geometry != "Level line"
+                    bool midVisible = geometry != "Box"
+                    float mid = math.avg(top, bottom)
+                    box area = box.new(time_close, top, time_close, bottom, xloc = xloc.bar_time, extend = extend.right, border_color = boxVisible ? zoneColor : na, border_width = lineWidth, border_style = style, bgcolor = boxVisible ? color.new(zoneColor, fillTransparency) : na)
+                    line level = line.new(time_close, mid, time_close + 1, mid, xloc = xloc.bar_time, extend = extend.right, color = midVisible ? zoneColor : na, style = style, width = lineWidth)
+                    label caption = label.new(time_close, mid, showLabels ? "Footprint POC | " + str.tostring(share, "#.#") + "% vol" : "", xloc = xloc.bar_time, style = label.style_label_right, color = showLabels ? zoneColor : na, textcolor = textColor, size = size.small)
+                    label.set_tooltip(caption, "Confirmed at " + str.format_time(time_close, "yyyy-MM-dd HH:mm", syminfo.timezone) + "\nPOC row volume share: " + str.tostring(share, "#.#") + "%\nBar delta / footprint volume: " + str.tostring(deltaPercent, "#.#") + "%\nUntouched since detection; future attraction is a hypothesis.\nBuy/sell categories derive from intrabar price action, not resting orders.")
+                    nodes.push(Node.new(top, bottom, bar_index, time_close, deltaPercent, share, area, level, caption))
+                    newPOC := true
+    while nodes.size() > maxZones
+        f_remove(0)
+
+if barstate.islast
+    for node in nodes
+        box.set_right(node.area, time_close)
+        line.set_x2(node.level, time_close)
+        label.set_x(node.caption, time_close)
+    if showStatus
+        table.cell(status, 0, 0, na(fp) ? "Footprint unavailable on this bar" : "Native footprint data available", bgcolor = color.new(color.black, 10), text_color = textColor, text_size = size.small)
+        table.cell(status, 0, 1, "Untouched POC rows: " + str.tostring(nodes.size()) + " | Confirmed data bars: " + str.tostring(availableBars) + (na(lastAvailable) ? "" : "\nLast available: " + str.format_time(lastAvailable, "yyyy-MM-dd HH:mm", syminfo.timezone)), bgcolor = color.new(color.black, 10), text_color = textColor, text_size = size.small)
+string retestShape = eventShape == "Circle" ? shape.circle : eventShape == "Triangle" ? shape.triangleup : shape.diamond
+plotshape(showTouches and firstRetest, "First POC retest", retestShape, location.belowbar, touchColor, size = size.tiny)
+alertcondition(newPOC, "New untouched footprint POC", "New high-participation footprint POC row confirmed on {{ticker}} / {{interval}}.")
+alertcondition(firstRetest, "Footprint POC retested", "A tracked footprint POC row was traded again on {{ticker}} / {{interval}}.")

@@ -44,9 +44,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BacktestingController {
     private final BacktestingService backtestingService;
+    private final com.tradevault.service.BacktestingExportService exportService;
     private final BacktestingResearchService researchService;
     private final LiveTradeEvidenceSyncService evidenceSyncService;
     private final CurrentUserService currentUserService;
+
+    @GetMapping("/workspaces/{workspaceId}/export-context")
+    public ResponseEntity<com.tradevault.service.BacktestingExportService.Snapshot> exportContext(@PathVariable UUID workspaceId) {
+        return ResponseEntity.ok().header("Cache-Control", "private, no-store").body(exportService.snapshot(workspaceId));
+    }
 
     @GetMapping("/workspaces")
     public BacktestingListResponse listWorkspaces(
