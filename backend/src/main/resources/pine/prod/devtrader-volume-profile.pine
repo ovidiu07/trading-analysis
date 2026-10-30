@@ -25,6 +25,8 @@ indicator(
 // ----------------------------------------------------------------------------
 // Input groups
 // ----------------------------------------------------------------------------
+const string GROUP_PRESET = "0 · Automatic timeframe settings"
+const string GROUP_UI = "0A · Readability & layout"
 const string GROUP_DATA = "1 · Data engine"
 const string GROUP_PROFILE = "2 · Session volume profile"
 const string GROUP_FOOTPRINT_VALUES = "2A · Footprint values"
@@ -32,7 +34,28 @@ const string GROUP_FLOW = "3 · Order-flow analysis"
 const string GROUP_CANDLES = "4 · Delta candles"
 const string GROUP_LEVELS = "5 · Levels & signals"
 const string GROUP_DASHBOARD = "6 · Professional dashboard"
+const string GROUP_ICT = "7 · ICT entry checklist"
+const string GROUP_LIQUIDITY = "7A · Liquidity sources & daily open"
+const string GROUP_ZONES = "8 · Auction references & imbalance zones"
 const int MAX_PROFILE_BINS = 2500
+
+string tuningModeInput = input.string("Auto by timeframe", "Parameter mode", options = ["Auto by timeframe", "Manual"], tooltip = "Auto applies conservative timeframe-specific thresholds. These are starting presets, not optimized or proven best settings. Numeric inputs below are used in Manual mode; footprint base ticks, sessions, risk and execution choices remain yours in both modes. Effective settings are shown in the checklist header tooltip.", group = GROUP_PRESET)
+string chartDetailInput = input.string("Entry focus", "Chart detail", options = ["Entry focus", "Context + entries", "Full diagnostics"], tooltip = "Entry focus: qualified ICT labels and their FVG/imbalance only. Context + entries: recent, deduplicated flow markers and zones. Full diagnostics: all lifecycle labels and raw context markers. Hidden diagnostics remain available in the checklist.", group = GROUP_PRESET)
+int entryLabelLimitInput = input.int(8, "Retained entry labels", minval = 1, maxval = 30, group = GROUP_PRESET)
+int contextHistoryBarsInput = input.int(150, "Context marker history (bars)", minval = 20, maxval = 2000, group = GROUP_PRESET)
+int manualCooldownInput = input.int(5, "Manual context cooldown (bars)", minval = 1, maxval = 100, active = tuningModeInput == "Manual", group = GROUP_PRESET)
+string ictAlertScopeInput = input.string("Qualified entries", "ICT alert scope", options = ["Qualified entries", "All state changes"], group = GROUP_PRESET)
+
+// Readability is independent of the pressure dashboard and signal thresholds.
+string checklistLayoutInput = input.string("Compact", "Checklist layout", options = ["Compact", "Detailed"], group = GROUP_UI)
+string checklistSizeInput = input.string(size.normal, "Checklist text size", options = [size.small, size.normal, size.large], group = GROUP_UI)
+string entryTextSizeInput = input.string(size.small, "Entry label text size", options = [size.small, size.normal, size.large], group = GROUP_UI)
+string zoneTextInput = input.string("Diagnostics only", "Text inside zones", options = ["Diagnostics only", "Always", "Off"], tooltip = "Narrow zones cannot reliably fit text at every chart zoom. Default: keep zones clean and read the checklist/entry-label tooltip. Diagnostic text starts only after a zone spans six bars.", group = GROUP_UI)
+string badgePositionInput = input.string("Top center", "Data badge position", options = ["Top center", "Bottom center"], group = GROUP_UI)
+string badgeSizeInput = input.string(size.small, "Data badge text size", options = [size.small, size.normal, size.large], group = GROUP_UI)
+
+string ictPanelPositionInput = input.string("Bottom right", "Checklist position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = GROUP_UI)
+
 
 // Data engine
 string sourceModeInput = input.string(
@@ -41,8 +64,8 @@ string sourceModeInput = input.string(
      tooltip = "Native Footprint is the strict default and never falls back silently. LTF Estimate is approximate. Auto can mix both sources across a session/day and is provided only for users who prefer continuity over consistency.",
      group = GROUP_DATA)
 int rowTicksInput = input.int(
-     4, "Footprint row size (ticks)", minval = 1, maxval = 100000,
-     tooltip = "Price height of one native footprint row. Row price height = this value × the symbol minimum tick.",
+     4, "Base footprint row size (ticks)", minval = 1, maxval = 100000,
+     tooltip = "Base native row size. Auto multiplies this by 1/1/2/3/4/6 across seconds/1m/2–5m/6–15m/16–60m/above-1h bands. Actual row height is effective ticks × minimum tick; inspect the checklist header tooltip.",
      group = GROUP_DATA)
 float valueAreaPercentInput = input.float(
      70.0, "Value area (%)", minval = 1.0, maxval = 100.0, step = 1.0,
@@ -51,7 +74,7 @@ float valueAreaPercentInput = input.float(
 float imbalancePercentInput = input.float(
      300.0, "Diagonal imbalance (%)", minval = 1.0, maxval = 10000.0, step = 25.0,
      tooltip = "Native footprint threshold for diagonal buy/sell imbalance. 300% means one side must be three times the opposing adjacent-row volume.",
-     group = GROUP_DATA)
+     active = tuningModeInput == "Manual", group = GROUP_DATA)
 bool ltfAutoInput = input.bool(true, "Automatic fallback timeframe", group = GROUP_DATA)
 int targetIntrabarsInput = input.int(
      120, "Target intrabars per candle", minval = 10, maxval = 1500,
@@ -78,7 +101,7 @@ string timezoneInput = input.string(
 string profileResetInput = input.string(
      "Daily", "Profile reset",
      options = ["Daily", "Weekly", "Monthly", "Session only"],
-     tooltip = "Daily, weekly and monthly modes aggregate only the configured session bars inside that calendar period. Session only starts a new profile every time price re-enters the session.",
+     tooltip = "Daily, weekly and monthly modes aggregate configured-session bars inside each calendar period. Session only resets at the session's local start date, including 24-hour and session-restricted charts.",
      group = GROUP_PROFILE)
 string profileResolutionInput = input.string(
      "Adaptive", "Profile row resolution",
@@ -108,10 +131,10 @@ float profileRowGapInput = input.float(
      10.0, "Visual row separation (%)", minval = 0.0, maxval = 40.0, step = 2.5,
      tooltip = "Adds a small gap between displayed rows so the profile remains readable instead of becoming one solid mass.",
      group = GROUP_PROFILE)
-int valueAreaTransparencyInput = input.int(60, "Value-area transparency", minval = 0, maxval = 100, inline = "profileOpacity", group = GROUP_PROFILE)
-int outsideValueTransparencyInput = input.int(88, "Outside", minval = 0, maxval = 100, inline = "profileOpacity", group = GROUP_PROFILE)
-bool showValueAreaBracketInput = input.bool(true, "Value-area bracket", inline = "profileLevels", group = GROUP_PROFILE)
-bool showProfileMeanInput = input.bool(true, "Mean", inline = "profileLevels", group = GROUP_PROFILE)
+int valueAreaTransparencyInput = input.int(60, "Value-area transparency", minval = 0, maxval = 100, group = GROUP_PROFILE)
+int outsideValueTransparencyInput = input.int(88, "Outside", minval = 0, maxval = 100, group = GROUP_PROFILE)
+bool showValueAreaBracketInput = input.bool(true, "Value-area bracket", group = GROUP_PROFILE)
+bool showProfileMeanInput = input.bool(true, "Mean", group = GROUP_PROFILE)
 string pocDisplayModeInput = input.string(
      "Edge notch", "POC display",
      options = ["Edge notch", "Label only", "Short dotted line", "Extended line", "Hidden"],
@@ -121,18 +144,18 @@ bool showAuctionLabelsInput = input.bool(
      true, "Show POC / VAH / VAL prices",
      tooltip = "Shows exact developing POC, VAH and VAL prices beside the profile. The same values remain available in the dashboard and Data Window.",
      group = GROUP_PROFILE)
-bool adaptivePocColorInput = input.bool(true, "Adaptive POC colour", inline = "pocStyle", group = GROUP_PROFILE)
-color pocColorInput = input.color(#FFA82E, "Custom", inline = "pocStyle", group = GROUP_PROFILE)
-bool showDevelopingPocTrailInput = input.bool(false, "Developing POC trail", inline = "pocStructure", group = GROUP_PROFILE)
-bool showPreviousPocInput = input.bool(false, "Previous POC", inline = "pocStructure", group = GROUP_PROFILE)
+bool adaptivePocColorInput = input.bool(true, "Adaptive POC colour", group = GROUP_PROFILE)
+color pocColorInput = input.color(#FFA82E, "Custom", group = GROUP_PROFILE)
+bool showDevelopingPocTrailInput = input.bool(false, "Developing POC trail", group = GROUP_PROFILE)
+bool showPreviousPocInput = input.bool(false, "Previous POC", group = GROUP_PROFILE)
 int pocMigrationRowsInput = input.int(
      1, "POC migration threshold (rows)", minval = 1, maxval = 20,
      tooltip = "The developing trail moves only after POC changes by at least this many active profile rows. This suppresses one-tick visual noise.",
      group = GROUP_PROFILE)
-color profileTotalColorInput = input.color(#FF8F22, "Total profile", inline = "profileColors", group = GROUP_PROFILE)
-color profileBuyColorInput = input.color(#112B8C, "Buy profile", inline = "profileColors", group = GROUP_PROFILE)
-color profileSellColorInput = input.color(#751B21, "Sell profile", inline = "profileColors", group = GROUP_PROFILE)
-color valueAreaColorInput = input.color(#FFFFFF, "Value area", inline = "levelColors", group = GROUP_PROFILE)
+color profileTotalColorInput = input.color(#FF8F22, "Total profile", group = GROUP_PROFILE)
+color profileBuyColorInput = input.color(#112B8C, "Buy profile", group = GROUP_PROFILE)
+color profileSellColorInput = input.color(#751B21, "Sell profile", group = GROUP_PROFILE)
+color valueAreaColorInput = input.color(#FFFFFF, "Value area", group = GROUP_PROFILE)
 
 // Footprint values
 bool showFootprintValuesInput = input.bool(
@@ -153,11 +176,11 @@ string footprintNumberFormatInput = input.string(
      options = ["Compact", "Full"],
      tooltip = "Compact abbreviates large values (for example 1.2K). Full uses comma-separated values and preserves up to two fractional digits.",
      group = GROUP_FOOTPRINT_VALUES)
-color buyValueTextColorInput = input.color(#BFDBFE, "Buy value text", inline = "footprintValueColors", group = GROUP_FOOTPRINT_VALUES)
-color sellValueTextColorInput = input.color(#FECACA, "Sell value text", inline = "footprintValueColors", group = GROUP_FOOTPRINT_VALUES)
-color neutralValueTextColorInput = input.color(#F8FAFC, "Neutral", inline = "footprintValueColors", group = GROUP_FOOTPRINT_VALUES)
+color buyValueTextColorInput = input.color(#BFDBFE, "Buy value text", group = GROUP_FOOTPRINT_VALUES)
+color sellValueTextColorInput = input.color(#FECACA, "Sell value text", group = GROUP_FOOTPRINT_VALUES)
+color neutralValueTextColorInput = input.color(#F8FAFC, "Neutral", group = GROUP_FOOTPRINT_VALUES)
 int minimumValueRowWidthInput = input.int(
-     3, "Minimum row width for values", minval = 1, maxval = 25,
+     6, "Minimum row width for values", minval = 1, maxval = 25,
      tooltip = "Minimum width in chart bars required before row text is shown. Raise this if values overlap at your usual chart zoom.",
      group = GROUP_FOOTPRINT_VALUES)
 
@@ -167,7 +190,7 @@ int deltaZLengthInput = input.int(50, "Delta z-score length", minval = 10, maxva
 float extremeDeltaPercentInput = input.float(
      35.0, "Extreme delta (%)", minval = 1.0, maxval = 100.0, step = 1.0,
      tooltip = "Minimum absolute normalized delta used by extreme-delta and absorption events.",
-     group = GROUP_FLOW)
+     active = tuningModeInput == "Manual", group = GROUP_FLOW)
 float directionalDeltaPercentInput = input.float(
      15.0, "Directional pressure (%)", minval = 1.0, maxval = 100.0, step = 1.0,
      tooltip = "Minimum absolute normalized delta for a BUY or SELL pressure classification. Smaller non-neutral readings are shown as a bias.",
@@ -175,7 +198,7 @@ float directionalDeltaPercentInput = input.float(
 float minimumRelativeVolumeInput = input.float(
      1.20, "Minimum relative volume", minval = 0.0, maxval = 10.0, step = 0.05,
      tooltip = "Requires meaningful participation before extreme-delta and absorption events qualify.",
-     group = GROUP_FLOW)
+     active = tuningModeInput == "Manual", group = GROUP_FLOW)
 int horizonMaturityBarsInput = input.int(
      3, "Session/day maturity (bars)", minval = 1, maxval = 100,
      tooltip = "Minimum number of classified candles before session/day strong-pressure alerts can fire. The dashboard still shows live totals from the first candle.",
@@ -187,14 +210,15 @@ float absorptionCloseEdgeInput = input.float(
 int stackedRowsInput = input.int(
      3, "Stacked imbalance rows", minval = 2, maxval = 10,
      tooltip = "Minimum consecutive native footprint imbalance rows required for a stacked-imbalance event.",
-     group = GROUP_FLOW)
+     active = tuningModeInput == "Manual", group = GROUP_FLOW)
 int divergencePivotInput = input.int(
      5, "CVD divergence pivot", minval = 2, maxval = 25,
      tooltip = "Confirmed pivot strength. Divergence markers appear this many bars after the pivot and never use unconfirmed future bars.",
-     group = GROUP_FLOW)
+     active = tuningModeInput == "Manual", group = GROUP_FLOW)
 bool confirmedSignalsOnlyInput = input.bool(
      true, "Confirm events at candle close",
-     tooltip = "Recommended. When disabled, realtime events can appear and disappear while the candle is developing.",
+     tooltip = "Manual mode only. Auto always waits for candle close. In Manual + Full diagnostics, disabling confirmation allows provisional events to appear and disappear.",
+     active = tuningModeInput == "Manual",
      group = GROUP_FLOW)
 
 // Delta candle visuals
@@ -218,11 +242,11 @@ float deltaSaturationInput = input.float(
      tooltip = "Absolute normalized delta at or above this value fills the complete selected candle range.",
      group = GROUP_CANDLES)
 int candleFillTransparencyInput = input.int(84, "Base candle transparency", minval = 0, maxval = 100, group = GROUP_CANDLES)
-color candleUpColorInput = input.color(#112B8C, "Bull outline", inline = "candleColors", group = GROUP_CANDLES)
-color candleDownColorInput = input.color(#000000, "Bear outline", inline = "candleColors", group = GROUP_CANDLES)
-color positiveDeltaColorInput = input.color(#41A549, "Positive delta", inline = "deltaColors", group = GROUP_CANDLES)
-color negativeDeltaColorInput = input.color(#F03542, "Negative delta", inline = "deltaColors", group = GROUP_CANDLES)
-color neutralDeltaColorInput = input.color(#FFFFFF, "Neutral delta", inline = "deltaColors", group = GROUP_CANDLES)
+color candleUpColorInput = input.color(#112B8C, "Bull outline", group = GROUP_CANDLES)
+color candleDownColorInput = input.color(#000000, "Bear outline", group = GROUP_CANDLES)
+color positiveDeltaColorInput = input.color(#41A549, "Positive delta", group = GROUP_CANDLES)
+color negativeDeltaColorInput = input.color(#F03542, "Negative delta", group = GROUP_CANDLES)
+color neutralDeltaColorInput = input.color(#FFFFFF, "Neutral delta", group = GROUP_CANDLES)
 
 // Levels and signals
 string barPocDisplayInput = input.string(
@@ -234,9 +258,9 @@ int recentBarPocCountInput = input.int(
      20, "Recent POC candles", minval = 1, maxval = 250,
      tooltip = "Used only when Per-bar POC is set to Recent bars.",
      group = GROUP_LEVELS)
-bool showBarValueAreaInput = input.bool(false, "VAH / VAL", inline = "barLevels", group = GROUP_LEVELS)
-bool showAbsorptionInput = input.bool(true, "Absorption markers", inline = "eventMarkers", group = GROUP_LEVELS)
-bool showStackedImbalanceInput = input.bool(true, "Stacked imbalance", inline = "eventMarkers", group = GROUP_LEVELS)
+bool showBarValueAreaInput = input.bool(false, "VAH / VAL", group = GROUP_LEVELS)
+bool showAbsorptionInput = input.bool(true, "Absorption markers", group = GROUP_LEVELS)
+bool showStackedImbalanceInput = input.bool(true, "Stacked imbalance", group = GROUP_LEVELS)
 bool showDivergenceInput = input.bool(true, "CVD divergence", group = GROUP_LEVELS)
 
 // Dashboard
@@ -250,10 +274,163 @@ string dashboardSizeInput = input.string(
      size.small, "Text size",
      options = [size.tiny, size.small, size.normal, size.large],
      group = GROUP_DASHBOARD)
-color dashboardBackgroundInput = input.color(#111827E8, "Background", inline = "dashboardColors", group = GROUP_DASHBOARD)
-color dashboardHeaderInput = input.color(#1D4ED8, "Header", inline = "dashboardColors", group = GROUP_DASHBOARD)
-color dashboardTextInput = input.color(#CBD5E1, "Text", inline = "dashboardColors", group = GROUP_DASHBOARD)
+color dashboardBackgroundInput = input.color(#111827E8, "Background", group = GROUP_DASHBOARD)
+color dashboardHeaderInput = input.color(#1D4ED8, "Header", group = GROUP_DASHBOARD)
+color dashboardTextInput = input.color(#CBD5E1, "Text", group = GROUP_DASHBOARD)
 color profilePocColor = adaptivePocColorInput ? chart.fg_color : pocColorInput
+
+// These are explicit, testable setup definitions, not a probability model.
+bool enableIctInput = input.bool(true, "Enable ICT checklist", group = GROUP_ICT)
+string ictModeInput = input.string("Reversal", "Setup model", options = ["Reversal", "Continuation"], group = GROUP_ICT)
+string ictExecutionInput = input.string("Limit at FVG", "Entry assessment", options = ["Limit at FVG", "Confirmed retest"], tooltip = "Limit: qualification is frozen at the FVG confirmation, before any later touch. Confirmed retest: qualification is assessed at the retest close; that close is a reference, not a guaranteed fill. No orders are placed.", group = GROUP_ICT)
+int ictSwingInput = input.int(3, "Confirmed swing strength", minval = 2, maxval = 20, tooltip = "Structure uses pivots only after this many right-hand bars. Continuation requires higher highs/higher lows or lower highs/lower lows on the chart timeframe. This is not an HTF bias filter.", active = tuningModeInput == "Manual", group = GROUP_ICT)
+string ictSweepInput = input.string("Combined liquidity", "Reversal sweep reference", options = ["Combined liquidity", "Previous session", "Confirmed swing"], tooltip = "Combined monitors all enabled sources below. Legacy single-source choices remain available. Levels must be known before the sweep candle; a level is consumed on its first penetration, even without a reclaim.", group = GROUP_ICT)
+bool liqPriorInput = input.bool(true, "Previous configured session high / low", group = GROUP_LIQUIDITY)
+bool liqSwingInput = input.bool(true, "Internal confirmed swing highs / lows", group = GROUP_LIQUIDITY)
+bool liqEqualInput = input.bool(true, "Equal highs / equal lows (EQH / EQL)", group = GROUP_LIQUIDITY)
+int liqEqualTicksInput = input.int(2, "Equal-level tolerance (ticks)", minval = 0, maxval = 100, group = GROUP_LIQUIDITY)
+float liqEqualAtrInput = input.float(0.05, "Equal-level tolerance / ATR", minval = 0, maxval = 0.5, step = 0.01, tooltip = "Tolerance is the larger of ticks and ATR fraction. Two confirmed pivots must be separated, with no intervening excursion beyond their outer edge. A pool is usable only after the second pivot confirms.", group = GROUP_LIQUIDITY)
+int liqEqualSeparationInput = input.int(3, "Minimum bars between equal pivots", minval = 2, maxval = 100, group = GROUP_LIQUIDITY)
+int liqInternalAgeInput = input.int(250, "Internal level lifetime (chart bars)", minval = 10, maxval = 2000, group = GROUP_LIQUIDITY)
+int liqSessionDaysInput = input.int(3, "Completed session level lifetime (24h days)", minval = 1, maxval = 10, group = GROUP_LIQUIDITY)
+int liqSweepTicksInput = input.int(1, "Minimum sweep penetration (ticks)", minval = 1, maxval = 100, group = GROUP_LIQUIDITY)
+bool liqAsiaInput = input.bool(true, "Completed Asia range", group = GROUP_LIQUIDITY)
+string liqAsiaSessionInput = input.session("0000-0800", "Asia range hours", group = GROUP_LIQUIDITY)
+string liqAsiaTimezoneInput = input.string("Etc/UTC", "Asia range timezone", group = GROUP_LIQUIDITY)
+bool liqLondonInput = input.bool(true, "Completed London range", group = GROUP_LIQUIDITY)
+string liqLondonSessionInput = input.session("0800-1200", "London range hours", group = GROUP_LIQUIDITY)
+string liqLondonTimezoneInput = input.string("Europe/London", "London range timezone", group = GROUP_LIQUIDITY)
+bool liqNewYorkInput = input.bool(true, "Completed New York range", group = GROUP_LIQUIDITY)
+string liqNewYorkSessionInput = input.session("0930-1600", "New York range hours", group = GROUP_LIQUIDITY)
+string liqNewYorkTimezoneInput = input.string("America/New_York", "New York range timezone", tooltip = "These are configurable research windows, not automatic exchange sessions. Use IANA timezones for local daylight-saving changes. Only completed ranges with observed, aligned chart coverage are eligible.", group = GROUP_LIQUIDITY)
+string liqDailyOpenInput = input.string("Context only", "Daily open role", options = ["Context only", "Reclaim trigger", "Off"], tooltip = "Daily open is a price reference, not evidence of resting stops. Context shows above/below. Reclaim trigger explicitly allows one penetration-and-reclaim from each side per day in Combined mode; it still requires structure, displacement/FVG and enabled filters.", group = GROUP_LIQUIDITY)
+string liqDailyTimezoneInput = input.string("America/New_York", "Daily open timezone", tooltip = "Calendar-midnight open in this timezone, taken from the first observed chart bar after the day boundary. Missing opening history or a candle straddling midnight makes it unavailable. It is not necessarily the exchange daily-candle open.", group = GROUP_LIQUIDITY)
+string ictLocationPolicyInput = input.string("By liquidity source", "Reversal location rule", options = ["By liquidity source", "Prior value for every sweep"], tooltip = "By source: previous configured-session sweeps use prior VA reclaim; local sessions, swings, EQH/EQL and daily-open reclaims require the planned entry in discount (long) / premium (short) of the frozen sweep-extreme to opposing-structure range. Strict prior value retains the old rule for every source.", group = GROUP_LIQUIDITY)
+string ictTargetInput = input.string("Nearest opposing liquidity", "Target reference model", options = ["Nearest opposing liquidity", "Previous session extreme"], tooltip = "Nearest selects the closest enabled, unswept opposing high/low beyond the entire FVG confirmation candle, never a farther target to manufacture R. Daily open is excluded. The chosen target freezes with the candidate.", group = GROUP_LIQUIDITY)
+int ictSweepAgeInput = input.int(12, "Maximum sweep-to-break bars", minval = 1, maxval = 100, active = tuningModeInput == "Manual", group = GROUP_ICT)
+int ictBreakAgeInput = input.int(3, "Maximum break-to-FVG bars", minval = 1, maxval = 20, active = tuningModeInput == "Manual", group = GROUP_ICT)
+int ictExpiryInput = input.int(12, "FVG expiry (bars after confirmation)", minval = 1, maxval = 100, active = tuningModeInput == "Manual", group = GROUP_ICT)
+float ictBodyAtrInput = input.float(0.8, "Displacement body / prior ATR", minval = 0.1, maxval = 5, step = 0.1, active = tuningModeInput == "Manual", group = GROUP_ICT)
+float ictBodyShareInput = input.float(60, "Displacement body / range (%)", minval = 10, maxval = 100, step = 5, active = tuningModeInput == "Manual", group = GROUP_ICT)
+int ictGapTicksInput = input.int(2, "Minimum FVG (ticks)", minval = 1, maxval = 1000, group = GROUP_ICT)
+float ictEntryDepthInput = input.float(50, "Limit depth into FVG (%)", minval = 0, maxval = 100, step = 5, group = GROUP_ICT)
+int ictStopBufferInput = input.int(2, "Structural stop buffer (ticks)", minval = 1, maxval = 100, group = GROUP_ICT)
+bool ictLocationInput = input.bool(true, "Filter: location context", tooltip = "Reversal follows the selected location rule. Local liquidity uses a frozen sweep-to-structure midpoint; prior-session liquidity uses completed native value. Continuation retains prior-value acceptance. Levels freeze with the setup.", group = GROUP_ICT)
+int acceptanceBarsInput = input.int(2, "Acceptance closes outside prior value", minval = 1, maxval = 10, group = GROUP_ICT)
+bool ictParticipationInput = input.bool(true, "Filter: displacement participation", group = GROUP_ICT)
+string ictRvolModeInput = input.string("Recent bars", "Participation baseline", options = ["Recent bars", "Same session time"], tooltip = "Both exclude the current sample. Same session time uses completed prior sessions at the same elapsed-minute slot; missing slots are not substituted. Warmup is shown as insufficient data.", group = GROUP_ICT)
+int timeRvolSessionsInput = input.int(10, "Time RVOL: prior sessions", minval = 3, maxval = 20, group = GROUP_ICT)
+int timeRvolMinimumInput = input.int(3, "Time RVOL: minimum samples", minval = 2, maxval = 20, group = GROUP_ICT)
+bool ictImbalanceInput = input.bool(true, "Filter: fresh imbalance overlaps FVG", tooltip = "Requires a native stack from the FVG middle (displacement) candle overlapping the FVG. The stack must still be fresh at FVG confirmation. Disabling this filter does not turn estimated data into native order flow.", group = GROUP_ICT)
+bool ictRoomInput = input.bool(true, "Filter: room to opposing liquidity", group = GROUP_ICT)
+float ictMinimumRInput = input.float(1.5, "Minimum R to fixed target", minval = 0.5, maxval = 10, step = 0.25, tooltip = "R to the selected frozen target reference. Missing, already reached or wrong-side targets cannot qualify. Costs and slippage are not included.", group = GROUP_ICT)
+bool ictAlertsInput = input.bool(false, "Enable ICT state-change alerts", tooltip = "Create an alert using Any alert() function call. Only confirmed transitions are emitted; messages include direction, reason, entry reference, stop and target. Existing indicator alerts remain available.", group = GROUP_ICT)
+bool showIctMarksInput = input.bool(true, "Show setup and lifecycle labels", group = GROUP_ICT)
+int recentPressureInput = input.int(5, "Recent pressure window (bars)", minval = 2, maxval = 30, group = GROUP_ICT)
+bool showPriorValueInput = input.bool(true, "Show previous profile VAH / VAL", group = GROUP_ZONES)
+bool showImbalanceZonesInput = input.bool(true, "Show imbalance zones", group = GROUP_ZONES)
+int zoneLimitInput = input.int(12, "Maximum retained imbalance zones", minval = 2, maxval = 30, active = tuningModeInput == "Manual" or chartDetailInput == "Full diagnostics", group = GROUP_ZONES)
+int zoneExpiryInput = input.int(60, "Imbalance zone expiry (bars)", minval = 3, maxval = 500, active = tuningModeInput == "Manual", group = GROUP_ZONES)
+float minimumStackShareInput = input.float(5, "Minimum stack share of candle volume (%)", minval = 0, maxval = 100, step = 1, active = tuningModeInput == "Manual", group = GROUP_ZONES)
+bool showQualityBadgeInput = input.bool(true, "Always show data-quality badge", group = GROUP_ZONES)
+
+// Input defaults must be constant in Pine. Effective simple values are recomputed
+// when the chart timeframe changes; the native request never receives a series row size.
+simple int presetSeconds = int(nz(timeframe.in_seconds(), 60))
+simple int presetBand = presetSeconds < 60 ? 0 : presetSeconds <= 60 ? 1 : presetSeconds <= 300 ? 2 : presetSeconds <= 900 ? 3 : presetSeconds <= 3600 ? 4 : 5
+simple bool automaticTuning = tuningModeInput == "Auto by timeframe"
+simple bool fullDiagnostics = chartDetailInput == "Full diagnostics"
+simple bool compactChecklist = checklistLayoutInput == "Compact"
+simple bool showZoneText = zoneTextInput == "Always" or (zoneTextInput == "Diagnostics only" and fullDiagnostics)
+simple bool entryFocus = chartDetailInput == "Entry focus"
+simple string presetName = presetBand == 0 ? "Seconds" : presetBand == 1 ? "1m" : presetBand == 2 ? "2–5m" : presetBand == 3 ? "6–15m" : presetBand == 4 ? "16–60m" : "Above 1h"
+simple int rowTicksEffective = automaticTuning ? math.min(100000, rowTicksInput * (presetBand <= 1 ? 1 : presetBand == 2 ? 2 : presetBand == 3 ? 3 : presetBand == 4 ? 4 : 6)) : rowTicksInput
+simple float imbalancePercentEffective = automaticTuning ? (presetBand <= 1 ? 400.0 : presetBand == 2 ? 350.0 : 300.0) : imbalancePercentInput
+simple float minimumRelativeVolumeEffective = automaticTuning ? (presetBand == 0 ? 2.0 : presetBand == 1 ? 1.6 : presetBand == 2 ? 1.4 : presetBand == 3 ? 1.3 : 1.2) : minimumRelativeVolumeInput
+simple float extremeDeltaPercentEffective = automaticTuning ? (presetBand == 0 ? 50.0 : presetBand == 1 ? 45.0 : presetBand == 2 ? 40.0 : presetBand == 3 ? 35.0 : 30.0) : extremeDeltaPercentInput
+simple int stackedRowsEffective = automaticTuning ? (presetBand == 0 ? 5 : presetBand == 1 ? 4 : 3) : stackedRowsInput
+simple float minimumStackShareEffective = automaticTuning ? (presetBand == 0 ? 12.0 : presetBand == 1 ? 10.0 : presetBand <= 3 ? 8.0 : 6.0) : minimumStackShareInput
+simple int ictSwingEffective = automaticTuning ? (presetBand == 0 ? 8 : presetBand == 1 ? 5 : presetBand == 2 ? 4 : 3) : ictSwingInput
+simple int divergencePivotEffective = automaticTuning ? (presetBand == 0 ? 10 : presetBand == 1 ? 8 : presetBand == 2 ? 5 : 3) : divergencePivotInput
+simple float ictBodyAtrEffective = automaticTuning ? (presetBand == 0 ? 1.2 : presetBand == 1 ? 1.0 : presetBand == 2 ? 0.9 : 0.8) : ictBodyAtrInput
+simple float ictBodyShareEffective = automaticTuning ? (presetBand == 0 ? 70.0 : presetBand <= 2 ? 65.0 : 60.0) : ictBodyShareInput
+simple int ictSweepAgeEffective = automaticTuning ? (presetBand == 0 ? 60 : presetBand == 1 ? 20 : presetBand == 2 ? 8 : presetBand == 3 ? 6 : 4) : ictSweepAgeInput
+simple int ictBreakAgeEffective = automaticTuning ? (presetBand <= 3 ? 2 : 1) : ictBreakAgeInput
+simple int ictExpiryEffective = automaticTuning ? (presetBand == 0 ? 60 : presetBand == 1 ? 15 : presetBand == 2 ? 6 : presetBand == 3 ? 4 : 3) : ictExpiryInput
+simple int zoneExpiryEffective = automaticTuning ? int(math.max(3, math.min(500, math.ceil(3600.0 / presetSeconds)))) : zoneExpiryInput
+simple int zoneLimitEffective = automaticTuning and not fullDiagnostics ? 4 : zoneLimitInput
+simple int contextCooldown = automaticTuning ? int(math.max(2, math.min(100, math.ceil(600.0 / presetSeconds)))) : manualCooldownInput
+simple float minimumGapAtr = automaticTuning ? (presetBand == 0 ? 0.10 : presetBand == 1 ? 0.08 : presetBand == 2 ? 0.06 : 0.04) : 0.0
+simple bool effectiveSignalConfirmation = automaticTuning or confirmedSignalsOnlyInput
+simple int retainedIctLabels = fullDiagnostics ? 80 : entryLabelLimitInput
+string effectiveSettingsText = (automaticTuning ? "AUTO · " + presetName : "MANUAL") + " · " + chartDetailInput + "\nRVOL ≥ " + str.tostring(minimumRelativeVolumeEffective, "#.0") + "× · Delta extreme " + str.tostring(extremeDeltaPercentEffective, "#") + "% · Stack " + str.tostring(stackedRowsEffective) + " rows / " + str.tostring(imbalancePercentEffective, "#") + "%\nSwing " + str.tostring(ictSwingEffective) + " bars · Displacement " + str.tostring(ictBodyAtrEffective, "#.0") + " ATR · FVG expiry " + str.tostring(ictExpiryEffective) + " bars\nFootprint row " + str.tostring(rowTicksEffective) + " ticks · Stack share " + str.tostring(minimumStackShareEffective, "#") + "% · Minimum gap " + str.tostring(minimumGapAtr, "#.00") + " ATR (and tick minimum)"
+
+// Bounded price references; side +1 = highs, -1 = lows. A daily open has one of each.
+type LiquidityLevel
+    float price
+    int side
+    string name
+    string kind
+    int born
+    int expires
+    bool consumed = false
+    int expiresBar = na
+
+type LiquiditySession
+    int anchor = na
+    int ending = na
+    float hi = na
+    float lo = na
+    bool complete = false
+    bool published = false
+    string status = "Waiting for session history"
+
+type FlowZone
+    int direction
+    float bottom
+    float top
+    int born
+    int state = 0 // 0 fresh, 1 tested, 2 invalidated, 3 expired
+    box drawing = na
+
+type IctCandidate
+    int direction = 0
+    int born = na
+    int updated = na
+    string state = "WAITING"
+    string reason = "Waiting for sweep / structure / displacement / FVG"
+    float bottom = na
+    float top = na
+    float entry = na
+    float stop = na
+    float target = na
+    float boundary = na
+    string sweepName = ""
+    float sweepPrice = na
+    string sweepKind = ""
+    string targetName = ""
+    string locationModel = "Prior value"
+    float rvol = na
+    float rr = na
+    bool locationAvailable = false
+    bool imbalanceAvailable = false
+    string dataReason = ""
+    string locationReason = ""
+    string targetReason = ""
+    bool locationOk = false
+    bool participationOk = false
+    bool imbalanceOk = false
+    bool roomOk = false
+    bool filtersOk = false
+    bool dataOk = false
+    bool active = false
+    int firstTouch = na
+    FlowZone zone = na
+    box drawing = na
+
+var array<FlowZone> flowZones = array.new<FlowZone>()
+var IctCandidate ict = IctCandidate.new()
+var array<label> ictLabels = array.new<label>()
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -332,6 +509,20 @@ profile_add(
         sellMap.put(key, previousSell + math.max(nz(sellAmount), 0.0))
     canAdd
 
+profile_add_range(map<int, float> buys, map<int, float> sells, float bottom, float top, float step, float buyAmount, float sellAmount) =>
+    // Overlap-weighted redistribution conserves volume when the two grids differ.
+    // Within a native row the distribution is unknown; this remains a binning approximation.
+    int firstKey = int(math.floor(bottom / step + 0.5))
+    int lastKey = math.max(firstKey, int(math.ceil(top / step + 0.5)) - 1)
+    bool accepted = true
+    for key = firstKey to lastKey
+        float overlap = math.max(0.0, math.min(top, (key + 0.5) * step) - math.max(bottom, (key - 0.5) * step))
+        float share = top > bottom ? overlap / (top - bottom) : 1.0
+        if share > 0
+            bool added = profile_add(buys, sells, key, buyAmount * share, sellAmount * share)
+            accepted := accepted and added
+    accepted
+
 profile_stats(
      map<int, float> buyMap,
      map<int, float> sellMap,
@@ -399,6 +590,38 @@ clear_profile_boxes(array<box> boxes) =>
         box.delete(boxes.pop())
     boxes.size()
 
+// Bound table width by wrapping at word boundaries; retain full wording in tooltips.
+// Complete relative to the chart feed: observe the boundary from an earlier bar.
+// A closed market need not print at the exact custom-session opening timestamp.
+observed_session_start(int opening, int previousOpen, int currentOpen, bool firstLoaded) =>
+    not firstLoaded and not na(previousOpen) and previousOpen < opening and currentOpen >= opening
+
+traded_flow_missing(bool hasFlow, float chartVolume) =>
+    not hasFlow and (na(chartVolume) or chartVolume > 0)
+
+assessment_status(bool enabled, bool available, bool assessed, bool passed) =>
+    not enabled ? "Off" : not available ? "Unavailable" : not assessed ? "Waiting" : passed ? "Passed" : "Failed"
+
+wrap_panel_text(string value, int columns) =>
+    string result = ""
+    int used = 0
+    for word in str.split(value, " ")
+        int length = str.length(word)
+        bool newline = used > 0 and used + 1 + length > columns
+        result += (used == 0 ? "" : newline ? "\n" : " ") + word
+        used := newline ? length : used + (used > 0 ? 1 : 0) + length
+    result
+
+filter_read(bool enabled, bool hasCandidate, bool passed) =>
+    not enabled ? "OFF" : not hasCandidate ? "—" : passed ? "PASS" : "FAIL"
+
+workflow_row(table panel, int row, string name, string state, string reason, string textSize, color background, color textColor, color passColor, color failColor, color waitColor) =>
+    color stateColor = state == "Passed" or state == "Ready" or state == "CONDITIONS MET" ? passColor : state == "Failed" or state == "FILTERED" or state == "INVALIDATED" ? failColor : state == "Off" or state == "History" or state == "Not required" ? textColor : waitColor
+    table.cell(panel, 0, row, name, bgcolor = background, text_color = textColor, text_size = textSize, text_halign = text.align_left, tooltip = reason)
+    table.cell(panel, 1, row, wrap_panel_text(state, 18), bgcolor = color.new(stateColor, 88), text_color = stateColor, text_size = textSize, text_halign = text.align_left, tooltip = reason)
+    table.cell(panel, 2, row, wrap_panel_text(reason, 34), bgcolor = background, text_color = textColor, text_size = textSize, text_halign = text.align_left, tooltip = reason)
+    row
+
 dashboard_row(
      table dashboard,
      int row,
@@ -454,11 +677,168 @@ pressure_matrix_row(
     table.cell(dashboard, 5, row, state, bgcolor = color.new(stateColor, 84), text_color = stateColor, text_size = textSize, text_halign = text.align_center, text_font_family = font.family_monospace, text_formatting = text.format_bold, tooltip = rowTooltip)
     row
 
+// Pure per-level transitions are also executed by local regression tests.
+liquidity_event(LiquidityLevel level, int atBar, int atTime, float barHigh, float barLow, float barClose, float previousClose, float penetration) =>
+    int event = 0
+    if not level.consumed and atBar > level.born and atTime < level.expires and (na(level.expiresBar) or atBar <= level.expiresBar)
+        bool crossed = level.side < 0 ? barLow < level.price : barHigh > level.price
+        bool deepEnough = level.side < 0 ? barLow <= level.price - penetration : barHigh >= level.price + penetration
+        bool reclaimed = level.side < 0 ? previousClose >= level.price and barClose > level.price : previousClose <= level.price and barClose < level.price
+        if crossed
+            level.consumed := true
+            event := reclaimed and deepEnough ? -level.side : 0
+    event
+
+equal_pool_valid(float first, float second, float excursion, float tolerance, int separation, int minimumSeparation, int maximumSeparation, int side) =>
+    not na(first) and not na(second) and separation >= minimumSeparation and separation <= maximumSeparation and math.abs(first - second) <= tolerance and (side > 0 ? excursion <= math.max(first, second) : excursion >= math.min(first, second))
+
+local_location_ok(int direction, float entry, float sweepExtreme, float structure) =>
+    not na(entry) and not na(sweepExtreme) and not na(structure) and (direction > 0 ? structure > sweepExtreme and entry >= sweepExtreme and entry <= math.avg(sweepExtreme, structure) : structure < sweepExtreme and entry <= sweepExtreme and entry >= math.avg(sweepExtreme, structure))
+
+liquidity_priority(string kind) =>
+    kind == "EQ" ? 4 : kind == "Session" ? 3 : kind == "Prior session" ? 2 : kind == "Swing" ? 1 : 0
+
+add_liquidity(array<LiquidityLevel> levels, float price, int side, string name, string kind, int born, int expires, int expiresBar = na) =>
+    if not na(price)
+        LiquidityLevel level = LiquidityLevel.new(price, side, name, kind, born, expires)
+        level.expiresBar := expiresBar
+        levels.push(level)
+    while levels.size() > 80
+        levels.shift()
+    levels.size()
+
+liquidity_anchor(string sessionHours, string timezone) =>
+    int h = int(str.tonumber(str.substring(sessionHours, 0, 2)))
+    int m = int(str.tonumber(str.substring(sessionHours, 2, 4)))
+    int today = timestamp(timezone, year(time, timezone), month(time, timezone), dayofmonth(time, timezone), h, m)
+    time >= today ? today : timestamp(timezone, year(time, timezone), month(time, timezone), dayofmonth(time, timezone) - 1, h, m)
+
+publish_liquidity_session(LiquiditySession session, array<LiquidityLevel> levels, string name, string timezone, int lifetime, string kind) =>
+    if not session.published and not na(session.anchor)
+        if kind == "Prior session" and ictSweepInput == "Previous session"
+            for level in levels
+                if level.kind == "Prior session"
+                    level.consumed := true
+        if session.complete and not na(session.hi)
+            string datedName = name + " " + str.format_time(session.anchor, "dd MMM", timezone)
+            // On a gap past the end, the range was already closed at this bar's open.
+            int knownBar = time >= session.ending ? bar_index - 1 : bar_index
+            add_liquidity(levels, session.hi, 1, datedName + " H", kind, knownBar, session.ending + lifetime)
+            add_liquidity(levels, session.lo, -1, datedName + " L", kind, knownBar, session.ending + lifetime)
+            session.status := "Completed range available"
+        else
+            session.status := "Incomplete / misaligned range excluded"
+        session.published := true
+    session.published
+
+track_liquidity_session(LiquiditySession session, array<LiquidityLevel> levels, string hours, string timezone, string name, bool enabled, int lifetime, string kind = "Session") =>
+    int openTime = time(timeframe.period, hours, timezone)
+    int closeTime = time_close(timeframe.period, hours, timezone)
+    int anchorTime = liquidity_anchor(hours, timezone)
+    bool inside = not na(openTime)
+    if enabled and barstate.isconfirmed and timeframe.isintraday
+        if not na(session.anchor) and (not inside or anchorTime != session.anchor)
+            publish_liquidity_session(session, levels, name, timezone, lifetime, kind)
+        if inside
+            if na(session.anchor) or anchorTime != session.anchor
+                session.anchor := anchorTime
+                int startMinutes = int(str.tonumber(str.substring(hours, 0, 2))) * 60 + int(str.tonumber(str.substring(hours, 2, 4)))
+                int endHour = int(str.tonumber(str.substring(hours, 5, 7)))
+                int endMinute = int(str.tonumber(str.substring(hours, 7, 9)))
+                session.ending := timestamp(timezone, year(anchorTime, timezone), month(anchorTime, timezone), dayofmonth(anchorTime, timezone) + (endHour * 60 + endMinute <= startMinutes ? 1 : 0), endHour, endMinute)
+                session.hi := na
+                session.lo := na
+                session.complete := observed_session_start(anchorTime, time[1], time, barstate.isfirst)
+                session.published := false
+            session.hi := na(session.hi) ? high : math.max(session.hi, high)
+            session.lo := na(session.lo) ? low : math.min(session.lo, low)
+            session.complete := session.complete and openTime == time and closeTime == time_close
+            session.status := session.complete ? "Building; prior completed levels retained" : "Building incomplete / misaligned range"
+            if time_close >= session.ending
+                publish_liquidity_session(session, levels, name, timezone, lifetime, kind)
+    session.status
+
+nearest_liquidity(array<LiquidityLevel> levels, int side, float beyond, int atBar, int atTime) =>
+    LiquidityLevel nearest = na
+    for level in levels
+        if level.kind != "Daily open" and level.side == side and not level.consumed and level.born < atBar and atTime < level.expires and (na(level.expiresBar) or atBar <= level.expiresBar) and (level.price - beyond) * side > 0
+            if na(nearest)
+                nearest := level
+            else if (level.price - nearest.price) * side < 0 or (level.price == nearest.price and liquidity_priority(level.kind) > liquidity_priority(nearest.kind))
+                nearest := level
+    nearest
+
+// Mutable object helper shared verbatim with the deterministic Pine QA harness.
+update_ict_candidate(IctCandidate candidate, int atBar, float barOpen, float barHigh, float barLow, float barClose, float previousClose, float barDeltaPercent, bool newSession, bool inSession, bool dataAvailable, string executionMode, int expiryBars, int zoneExpiryBars, bool requireImbalance, bool requireRoom, float minimumR, float reactionDelta) =>
+    bool qualified = false
+    // Manage the existing candidate before considering another. Failed filters
+    // are never upgraded after seeing how their retest turned out.
+    if candidate.active and atBar > candidate.born
+        bool stopBroken = candidate.direction > 0 ? barLow <= candidate.stop : barHigh >= candidate.stop
+        bool gapBroken = candidate.direction > 0 ? barClose < candidate.bottom : barClose > candidate.top
+        // Geometry remains valid even if the display-history cap evicts this zone.
+        bool zoneBroken = not na(candidate.zone) ? (candidate.direction > 0 ? barClose < candidate.zone.bottom : barClose > candidate.zone.top) : false
+        bool zoneExpired = not na(candidate.zone) ? atBar - candidate.zone.born > zoneExpiryBars : false
+        bool touched = barHigh >= candidate.bottom and barLow <= candidate.top
+        bool limitTouched = barLow <= candidate.entry and barHigh >= candidate.entry
+        bool targetReached = not na(candidate.target) and (candidate.direction > 0 ? barHigh >= candidate.target : barLow <= candidate.target)
+        bool gappedPastLimit = candidate.direction > 0 ? previousClose > candidate.entry and barHigh < candidate.entry : previousClose < candidate.entry and barLow > candidate.entry
+        if newSession or not inSession or atBar - candidate.born > expiryBars or (requireImbalance and zoneExpired)
+            candidate.state := "EXPIRED"
+            candidate.reason := requireImbalance and zoneExpired ? "Supporting imbalance zone expired" : "Session ended or FVG age limit exceeded"
+            candidate.active := false
+        else if not dataAvailable
+            candidate.state := "INSUFFICIENT DATA"
+            candidate.reason := "Native data or session alignment lost; qualification withdrawn"
+            candidate.active := false
+        else if stopBroken or gapBroken or (requireImbalance and zoneBroken)
+            candidate.state := "INVALIDATED"
+            candidate.reason := stopBroken ? "Structural stop breached; any same-bar touch is ambiguous" : gapBroken ? "Confirmed close through FVG far edge" : "Supporting imbalance invalidated"
+            candidate.active := false
+        else if requireRoom and targetReached
+            candidate.state := touched ? "REVIEW" : "EXPIRED"
+            candidate.reason := touched ? "Retest and target on same bar; sequence unknown" : "Fixed target reached before entry assessment"
+            candidate.active := false
+        else if executionMode == "Limit at FVG" and (limitTouched or gappedPastLimit)
+            candidate.state := gappedPastLimit ? "REVIEW" : "ENTRY TOUCHED"
+            candidate.reason := gappedPastLimit ? "Price gapped past limit; execution cannot be inferred" : "Prequalified limit price traded; fill and outcome unverified"
+            candidate.active := false
+        else if executionMode == "Confirmed retest"
+            if touched and na(candidate.firstTouch)
+                candidate.firstTouch := atBar
+            bool reaction = not na(candidate.firstTouch) and (candidate.direction > 0 ? barClose > candidate.top and barClose > barOpen : barClose < candidate.bottom and barClose < barOpen) and barDeltaPercent * candidate.direction >= reactionDelta
+            float reactionRisk = (barClose - candidate.stop) * candidate.direction
+            float reactionR = reactionRisk > 0 and not na(candidate.target) ? (candidate.target - barClose) * candidate.direction / reactionRisk : na
+            if reaction
+                candidate.entry := barClose
+                candidate.rr := reactionR
+                candidate.roomOk := not na(reactionR) and reactionR >= minimumR
+                candidate.state := not requireRoom or candidate.roomOk ? "CONDITIONS MET" : "FILTERED"
+                candidate.reason := not requireRoom or candidate.roomOk ? "Retest rejection confirmed now; close is an entry reference, not a fill" : "Reaction confirmed but insufficient R at the confirmation close"
+                candidate.active := false
+                qualified := candidate.state == "CONDITIONS MET"
+            else if not na(candidate.firstTouch)
+                candidate.state := "WAITING"
+                candidate.reason := "FVG tested; waiting for rejection close and directional delta"
+
+    qualified
+
 // ----------------------------------------------------------------------------
 // Session state and fallback timeframe
 // ----------------------------------------------------------------------------
 string profileTimezone = timezoneInput == "Exchange" ? syminfo.timezone : timezoneInput
 bool profileActive = not na(time(timeframe.period, profileSessionInput, profileTimezone))
+// Calendar arithmetic preserves the local session anchor across DST and month ends.
+int sessionStartHour = int(str.tonumber(str.substring(profileSessionInput, 0, 2)))
+int sessionStartMinute = int(str.tonumber(str.substring(profileSessionInput, 2, 4)))
+int todaySessionStart = timestamp(profileTimezone, year(time, profileTimezone), month(time, profileTimezone), dayofmonth(time, profileTimezone), sessionStartHour, sessionStartMinute)
+int configuredSessionId = time >= todaySessionStart ? todaySessionStart : timestamp(profileTimezone, year(time, profileTimezone), month(time, profileTimezone), dayofmonth(time, profileTimezone) - 1, sessionStartHour, sessionStartMinute)
+var int lastConfiguredSessionId = na
+bool sessionEntry = profileActive and (na(lastConfiguredSessionId) or configuredSessionId != lastConfiguredSessionId)
+if profileActive
+    lastConfiguredSessionId := configuredSessionId
+// The footprint covers the whole chart bar. Do not qualify setups on partial session bars.
+bool sessionBarAligned = profileActive and time(timeframe.period, profileSessionInput, profileTimezone) == time and time_close(timeframe.period, profileSessionInput, profileTimezone) == time_close
 int dailyProfilePeriod = time("1D", "0000-0000", profileTimezone)
 int weeklyProfilePeriod = time("1W", "0000-0000", profileTimezone)
 int monthlyProfilePeriod = time("1M", "0000-0000", profileTimezone)
@@ -466,7 +846,6 @@ int selectedProfilePeriod =
      profileResetInput == "Weekly" ? weeklyProfilePeriod :
      profileResetInput == "Monthly" ? monthlyProfilePeriod : dailyProfilePeriod
 var int activeProfilePeriod = na
-bool sessionEntry = profileActive and (barstate.isfirst or not profileActive[1])
 bool calendarProfileChanged = na(activeProfilePeriod) or selectedProfilePeriod != activeProfilePeriod
 bool resetRequested = profileResetInput == "Session only" ? sessionEntry : calendarProfileChanged
 bool newProfile = profileActive and (barstate.isfirst or resetRequested)
@@ -478,7 +857,7 @@ int requestedSeconds = ltfAutoInput ? automaticSeconds : manualSeconds
 int fallbackFloorSeconds = allowSecondsInput ? 1 : 60
 int fallbackSeconds = math.min(chartSeconds, math.max(fallbackFloorSeconds, requestedSeconds))
 string fallbackTimeframe = timeframe.from_seconds(fallbackSeconds)
-float footprintPriceStep = syminfo.mintick * float(rowTicksInput)
+float footprintPriceStep = syminfo.mintick * float(rowTicksEffective)
 float currentAtr = ta.atr(14)
 float adaptiveProfileStep = math.max(footprintPriceStep, nz(currentAtr, footprintPriceStep) * profileAtrFractionInput)
 float roundedAdaptiveProfileStep = math.max(syminfo.mintick, math.round(adaptiveProfileStep / syminfo.mintick) * syminfo.mintick)
@@ -489,6 +868,12 @@ var float sessionProfilePriceStep = footprintPriceStep
 var int profileSequence = 0
 var bool profileContainsEstimate = false
 var bool profileBinLimitHit = false
+var bool profileIncomplete = true
+var bool previousProfileUsable = false
+var string profileCoverageReason = "Loaded history starts inside profile"
+var string previousProfileReason = "No completed profile in loaded history"
+var int profileMissingBars = 0
+var int previousProfileKnownBar = na
 var float previousSessionPoc = na
 var float previousSessionVah = na
 var float previousSessionVal = na
@@ -503,6 +888,16 @@ if newProfile
         previousSessionPoc := completedPoc
         previousSessionVah := completedVah
         previousSessionVal := completedVal
+        previousProfileUsable := not profileIncomplete and not profileBinLimitHit and not profileContainsEstimate
+        previousProfileReason := profileBinLimitHit ? "Prior profile exceeded row capacity" : profileContainsEstimate ? "Prior profile contains estimated volume" : profileCoverageReason
+        previousProfileKnownBar := bar_index
+    else
+        previousSessionPoc := na
+        previousSessionVah := na
+        previousSessionVal := na
+        previousProfileUsable := false
+        previousProfileReason := "Prior profile has no usable volume"
+        previousProfileKnownBar := bar_index
     sessionBuyMap.clear()
     sessionSellMap.clear()
     sessionProfilePriceStep := profileResolutionInput == "Adaptive" ? roundedAdaptiveProfileStep : footprintPriceStep
@@ -510,14 +905,18 @@ if newProfile
     profileSequence += 1
     profileContainsEstimate := false
     profileBinLimitHit := false
+    // The first loaded profile is conservatively partial, including weekly/monthly profiles.
+    profileIncomplete := not observed_session_start(math.max(configuredSessionId, selectedProfilePeriod), time[1], time, barstate.isfirst)
+    profileCoverageReason := profileIncomplete ? "Loaded history starts inside profile" : ""
+    profileMissingBars := 0
 
 // ----------------------------------------------------------------------------
 // One native footprint request + one LTF fallback request
 // ----------------------------------------------------------------------------
 footprint requestedFootprint = request.footprint(
-     rowTicksInput,
+     rowTicksEffective,
      valueAreaPercentInput,
-     imbalancePercentInput)
+     imbalancePercentEffective)
 
 [ltfOpen, ltfHigh, ltfLow, ltfClose, ltfVolume] = request.security_lower_tf(
      syminfo.tickerid,
@@ -593,6 +992,12 @@ int buyImbalanceCount = 0
 int sellImbalanceCount = 0
 int maximumBuyStack = 0
 int maximumSellStack = 0
+float bestBuyStackLow = na
+float bestBuyStackHigh = na
+float bestSellStackLow = na
+float bestSellStackHigh = na
+float bestBuyStackVolume = 0.0
+float bestSellStackVolume = 0.0
 
 if useNative
     buyVolume := requestedFootprint.buy_volume()
@@ -613,8 +1018,22 @@ if useNative
     array<volume_row> footprintRows = requestedFootprint.rows()
     int currentBuyStack = 0
     int currentSellStack = 0
+    float buyRunLow = na
+    float buyRunHigh = na
+    float sellRunLow = na
+    float sellRunHigh = na
+    float buyRunVolume = 0.0
+    float sellRunVolume = 0.0
+    float previousRowLow = na
+    float previousRowHigh = na
     if footprintRows.size() > 0
         for footprintRow in footprintRows
+            float rowLow = footprintRow.down_price()
+            float rowHigh = footprintRow.up_price()
+            bool adjacent = not na(previousRowLow) and (math.abs(rowLow - previousRowHigh) < syminfo.mintick * 0.1 or math.abs(rowHigh - previousRowLow) < syminfo.mintick * 0.1)
+            if not adjacent
+                currentBuyStack := 0
+                currentSellStack := 0
             bool hasBuyImbalance = footprintRow.has_buy_imbalance()
             bool hasSellImbalance = footprintRow.has_sell_imbalance()
             buyImbalanceCount += hasBuyImbalance ? 1 : 0
@@ -623,11 +1042,25 @@ if useNative
             currentSellStack := hasSellImbalance ? currentSellStack + 1 : 0
             maximumBuyStack := math.max(maximumBuyStack, currentBuyStack)
             maximumSellStack := math.max(maximumSellStack, currentSellStack)
+            buyRunLow := currentBuyStack == 1 ? rowLow : currentBuyStack > 1 ? math.min(buyRunLow, rowLow) : na
+            buyRunHigh := currentBuyStack == 1 ? rowHigh : currentBuyStack > 1 ? math.max(buyRunHigh, rowHigh) : na
+            sellRunLow := currentSellStack == 1 ? rowLow : currentSellStack > 1 ? math.min(sellRunLow, rowLow) : na
+            sellRunHigh := currentSellStack == 1 ? rowHigh : currentSellStack > 1 ? math.max(sellRunHigh, rowHigh) : na
+            buyRunVolume := currentBuyStack == 1 ? footprintRow.total_volume() : currentBuyStack > 1 ? buyRunVolume + footprintRow.total_volume() : 0.0
+            sellRunVolume := currentSellStack == 1 ? footprintRow.total_volume() : currentSellStack > 1 ? sellRunVolume + footprintRow.total_volume() : 0.0
+            if currentBuyStack >= stackedRowsEffective and buyRunVolume >= totalVolume * minimumStackShareEffective / 100 and buyRunVolume > bestBuyStackVolume
+                bestBuyStackLow := buyRunLow
+                bestBuyStackHigh := buyRunHigh
+                bestBuyStackVolume := buyRunVolume
+            if currentSellStack >= stackedRowsEffective and sellRunVolume >= totalVolume * minimumStackShareEffective / 100 and sellRunVolume > bestSellStackVolume
+                bestSellStackLow := sellRunLow
+                bestSellStackHigh := sellRunHigh
+                bestSellStackVolume := sellRunVolume
+            previousRowLow := rowLow
+            previousRowHigh := rowHigh
 
             if profileActive and footprintRow.total_volume() > 0
-                float rowMidPrice = math.avg(footprintRow.up_price(), footprintRow.down_price())
-                int priceKey = int(math.round(rowMidPrice / sessionProfilePriceStep))
-                bool accepted = profile_add(sessionBuyMap, sessionSellMap, priceKey, footprintRow.buy_volume(), footprintRow.sell_volume())
+                bool accepted = profile_add_range(sessionBuyMap, sessionSellMap, rowLow, rowHigh, sessionProfilePriceStep, footprintRow.buy_volume(), footprintRow.sell_volume())
                 profileBinLimitHit := profileBinLimitHit or not accepted
 else if useFallback
     buyVolume := fallbackBuyVolume
@@ -651,19 +1084,22 @@ else if useFallback
                 profileBinLimitHit := profileBinLimitHit or not accepted
 
 bool hasOrderFlowData = (useNative or useFallback) and nz(totalVolume, 0.0) > 0
+if profileActive and not sessionBarAligned
+    profileIncomplete := true
+    profileCoverageReason := "Chart candle straddles session boundary"
+if profileActive and traded_flow_missing(hasOrderFlowData, volume)
+    profileIncomplete := true
+    profileMissingBars += 1
+    profileCoverageReason := "Missing flow on " + str.tostring(profileMissingBars) + " traded bars"
 float deltaRatio = hasOrderFlowData and totalVolume > 0 ? volumeDelta / totalVolume : na
 float deltaPercent = deltaRatio * 100.0
 
 // ----------------------------------------------------------------------------
-// Pressure horizons: candle, configured session and independent trading day
+// Pressure horizons: candle, configured session and independent calendar day
 // ----------------------------------------------------------------------------
-// Session pressure always resets when the configured session opens. A 24-hour
-// session has no out-of-session transition, so it resets at the calendar day in
-// the selected timezone. Daily pressure is intentionally independent from the
-// profile's Daily/Weekly/Monthly reset choice.
-bool fullDayProfileSession = profileSessionInput == "0000-0000"
-bool profileCalendarDayChanged = barstate.isfirst or dailyProfilePeriod != dailyProfilePeriod[1]
-bool newPressureSession = profileActive and (sessionEntry or (fullDayProfileSession and profileCalendarDayChanged))
+// Session identity does not depend on out-of-session bars being present.
+// Daily pressure deliberately uses calendar midnight in the selected timezone.
+bool newPressureSession = sessionEntry
 
 var int pressureSessionSequence = 0
 var float sessionBuyVolume = 0.0
@@ -782,6 +1218,9 @@ if profileJustClosed and not na(sessionPoc)
     previousSessionPoc := sessionPoc
     previousSessionVah := sessionVah
     previousSessionVal := sessionVal
+    previousProfileUsable := not profileIncomplete and not profileBinLimitHit and not profileContainsEstimate
+    previousProfileReason := profileBinLimitHit ? "Prior profile exceeded row capacity" : profileContainsEstimate ? "Prior profile contains estimated volume" : profileCoverageReason
+    previousProfileKnownBar := bar_index
 
 // The displayed trail records meaningful value migration instead of moving a
 // single line retroactively across the complete session.
@@ -805,7 +1244,7 @@ else if profileActive and not na(sessionPoc)
 // ----------------------------------------------------------------------------
 // Professional order-flow context
 // ----------------------------------------------------------------------------
-float averageVolume = ta.sma(hasOrderFlowData ? totalVolume : na, relativeVolumeLengthInput)
+float averageVolume = ta.sma(hasOrderFlowData ? totalVolume : na, relativeVolumeLengthInput)[1]
 float relativeVolume = averageVolume > 0 ? totalVolume / averageVolume : na
 float deltaMean = ta.sma(deltaPercent, deltaZLengthInput)
 float deltaDeviation = ta.stdev(deltaPercent, deltaZLengthInput)
@@ -813,18 +1252,18 @@ float deltaZScore = deltaDeviation > 0 ? (deltaPercent - deltaMean) / deltaDevia
 float candleRange = math.max(high - low, syminfo.mintick)
 float closeLocation = (close - low) / candleRange
 
-bool sufficientParticipation = nz(relativeVolume, 0.0) >= minimumRelativeVolumeInput
-bool extremePositiveDelta = hasOrderFlowData and deltaPercent >= extremeDeltaPercentInput and sufficientParticipation
-bool extremeNegativeDelta = hasOrderFlowData and deltaPercent <= -extremeDeltaPercentInput and sufficientParticipation
-bool buyersAbsorbed = extremePositiveDelta and (close < open or closeLocation <= absorptionCloseEdgeInput)
-bool sellersAbsorbed = extremeNegativeDelta and (close > open or closeLocation >= 1.0 - absorptionCloseEdgeInput)
-bool stackedBuyImbalance = useNative and maximumBuyStack >= stackedRowsInput
-bool stackedSellImbalance = useNative and maximumSellStack >= stackedRowsInput
-bool signalGate = not confirmedSignalsOnlyInput or barstate.isconfirmed
+bool sufficientParticipation = nz(relativeVolume, 0.0) >= minimumRelativeVolumeEffective
+bool extremePositiveDelta = hasOrderFlowData and deltaPercent >= extremeDeltaPercentEffective and sufficientParticipation
+bool extremeNegativeDelta = hasOrderFlowData and deltaPercent <= -extremeDeltaPercentEffective and sufficientParticipation
+bool buyersAbsorbed = extremePositiveDelta and close < open and closeLocation <= absorptionCloseEdgeInput
+bool sellersAbsorbed = extremeNegativeDelta and close > open and closeLocation >= 1.0 - absorptionCloseEdgeInput
+bool stackedBuyImbalance = useNative and not na(bestBuyStackLow)
+bool stackedSellImbalance = useNative and not na(bestSellStackLow)
+bool signalGate = not effectiveSignalConfirmation or barstate.isconfirmed
 
 // Confirmed CVD divergence. Markers are plotted back on the confirmed pivot bar.
-float confirmedPivotLow = ta.pivotlow(low, divergencePivotInput, divergencePivotInput)
-float confirmedPivotHigh = ta.pivothigh(high, divergencePivotInput, divergencePivotInput)
+float confirmedPivotLow = ta.pivotlow(low, divergencePivotEffective, divergencePivotEffective)
+float confirmedPivotHigh = ta.pivothigh(high, divergencePivotEffective, divergencePivotEffective)
 var float previousPivotLowPrice = na
 var float previousPivotLowCvd = na
 var int previousPivotLowProfile = na
@@ -842,9 +1281,9 @@ if newPressureSession
 
 bool bullishCvdDivergence = false
 bool bearishCvdDivergence = false
-if not na(confirmedPivotLow) and profileActive[divergencePivotInput]
-    float pivotCvd = sessionCvd[divergencePivotInput]
-    int pivotProfile = pressureSessionSequence[divergencePivotInput]
+if not na(confirmedPivotLow) and profileActive[divergencePivotEffective]
+    float pivotCvd = sessionCvd[divergencePivotEffective]
+    int pivotProfile = pressureSessionSequence[divergencePivotEffective]
     bullishCvdDivergence :=
          pivotProfile == pressureSessionSequence and
          pivotProfile == previousPivotLowProfile and
@@ -855,9 +1294,9 @@ if not na(confirmedPivotLow) and profileActive[divergencePivotInput]
         previousPivotLowCvd := pivotCvd
         previousPivotLowProfile := pivotProfile
 
-if not na(confirmedPivotHigh) and profileActive[divergencePivotInput]
-    float pivotCvd = sessionCvd[divergencePivotInput]
-    int pivotProfile = pressureSessionSequence[divergencePivotInput]
+if not na(confirmedPivotHigh) and profileActive[divergencePivotEffective]
+    float pivotCvd = sessionCvd[divergencePivotEffective]
+    int pivotProfile = pressureSessionSequence[divergencePivotEffective]
     bearishCvdDivergence :=
          pivotProfile == pressureSessionSequence and
          pivotProfile == previousPivotHighProfile and
@@ -868,19 +1307,32 @@ if not na(confirmedPivotHigh) and profileActive[divergencePivotInput]
         previousPivotHighCvd := pivotCvd
         previousPivotHighProfile := pivotProfile
 
-bool buyersAbsorbedEvent = buyersAbsorbed and signalGate
-bool sellersAbsorbedEvent = sellersAbsorbed and signalGate
-bool stackedBuyEvent = stackedBuyImbalance and signalGate
-bool stackedSellEvent = stackedSellImbalance and signalGate
-bool extremePositiveEvent = extremePositiveDelta and signalGate
-bool extremeNegativeEvent = extremeNegativeDelta and signalGate
-bool bullishCvdDivergenceEvent = bullishCvdDivergence and signalGate
-bool bearishCvdDivergenceEvent = bearishCvdDivergence and signalGate
+// Debounce context evidence independently of ICT qualification. Display suppression
+// must never prevent a valid ICT candidate from being evaluated.
+var int lastPositiveContextBar = na
+var int lastNegativeContextBar = na
+if newPressureSession
+    lastPositiveContextBar := na
+    lastNegativeContextBar := na
+bool positiveContextGate = signalGate and (fullDiagnostics or (profileActive and barstate.isconfirmed and (na(lastPositiveContextBar) or bar_index - lastPositiveContextBar >= contextCooldown)))
+bool negativeContextGate = signalGate and (fullDiagnostics or (profileActive and barstate.isconfirmed and (na(lastNegativeContextBar) or bar_index - lastNegativeContextBar >= contextCooldown)))
+bool sellersAbsorbedEvent = sellersAbsorbed and positiveContextGate and (fullDiagnostics or newPressureSession or not sellersAbsorbed[1])
+bool buyersAbsorbedEvent = buyersAbsorbed and negativeContextGate and (fullDiagnostics or newPressureSession or not buyersAbsorbed[1])
+bool stackedBuyEvent = stackedBuyImbalance and positiveContextGate and (fullDiagnostics or (not sellersAbsorbedEvent and sufficientParticipation and deltaPercent >= directionalDeltaPercentInput and (newPressureSession or not stackedBuyImbalance[1])))
+bool stackedSellEvent = stackedSellImbalance and negativeContextGate and (fullDiagnostics or (not buyersAbsorbedEvent and sufficientParticipation and deltaPercent <= -directionalDeltaPercentInput and (newPressureSession or not stackedSellImbalance[1])))
+bool extremePositiveEvent = extremePositiveDelta and positiveContextGate and (fullDiagnostics or newPressureSession or not extremePositiveDelta[1])
+bool extremeNegativeEvent = extremeNegativeDelta and negativeContextGate and (fullDiagnostics or newPressureSession or not extremeNegativeDelta[1])
+bool bullishCvdDivergenceEvent = bullishCvdDivergence and positiveContextGate and (fullDiagnostics or (not sellersAbsorbedEvent and not stackedBuyEvent))
+bool bearishCvdDivergenceEvent = bearishCvdDivergence and negativeContextGate and (fullDiagnostics or (not buyersAbsorbedEvent and not stackedSellEvent))
+if barstate.isconfirmed and (sellersAbsorbedEvent or stackedBuyEvent or extremePositiveEvent or bullishCvdDivergenceEvent)
+    lastPositiveContextBar := bar_index
+if barstate.isconfirmed and (buyersAbsorbedEvent or stackedSellEvent or extremeNegativeEvent or bearishCvdDivergenceEvent)
+    lastNegativeContextBar := bar_index
 
-string candlePressureState = pressure_state(deltaPercent, hasOrderFlowData, true, sufficientParticipation, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentInput)
-string sessionPressureState = pressure_state(sessionDeltaPercent, hasSessionPressure, false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentInput)
-string dailyPressureState = pressure_state(dailyDeltaPercent, hasDailyPressure, false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentInput)
-string previousDayPressureState = pressure_state(previousDayDeltaPercent, not na(previousDayTotalVolume), false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentInput)
+string candlePressureState = pressure_state(deltaPercent, hasOrderFlowData, true, sufficientParticipation, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentEffective)
+string sessionPressureState = pressure_state(sessionDeltaPercent, hasSessionPressure, false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentEffective)
+string dailyPressureState = pressure_state(dailyDeltaPercent, hasDailyPressure, false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentEffective)
+string previousDayPressureState = pressure_state(previousDayDeltaPercent, not na(previousDayTotalVolume), false, true, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentEffective)
 if hasSessionPressure and not profileActive
     sessionPressureState := sessionPressureState + " · CLOSED"
 if sessionContainsEstimate and hasSessionPressure
@@ -907,14 +1359,496 @@ color previousDayPressureColor = pressure_color(previousDayDeltaPercent, not na(
 
 bool sessionPressureMature = sessionPressureBars >= horizonMaturityBarsInput
 bool dailyPressureMature = dailyPressureBars >= horizonMaturityBarsInput
-bool sessionStrongBuyPressure = hasSessionPressure and sessionPressureMature and sessionMissingDataBars == 0 and sessionDeltaPercent >= extremeDeltaPercentInput
-bool sessionStrongSellPressure = hasSessionPressure and sessionPressureMature and sessionMissingDataBars == 0 and sessionDeltaPercent <= -extremeDeltaPercentInput
-bool dailyStrongBuyPressure = hasDailyPressure and dailyPressureMature and dailyMissingDataBars == 0 and dailyDeltaPercent >= extremeDeltaPercentInput
-bool dailyStrongSellPressure = hasDailyPressure and dailyPressureMature and dailyMissingDataBars == 0 and dailyDeltaPercent <= -extremeDeltaPercentInput
+bool sessionStrongBuyPressure = hasSessionPressure and sessionPressureMature and sessionMissingDataBars == 0 and sessionDeltaPercent >= extremeDeltaPercentEffective
+bool sessionStrongSellPressure = hasSessionPressure and sessionPressureMature and sessionMissingDataBars == 0 and sessionDeltaPercent <= -extremeDeltaPercentEffective
+bool dailyStrongBuyPressure = hasDailyPressure and dailyPressureMature and dailyMissingDataBars == 0 and dailyDeltaPercent >= extremeDeltaPercentEffective
+bool dailyStrongSellPressure = hasDailyPressure and dailyPressureMature and dailyMissingDataBars == 0 and dailyDeltaPercent <= -extremeDeltaPercentEffective
 bool sessionStrongBuyPressureEvent = sessionStrongBuyPressure and (newPressureSession or not sessionStrongBuyPressure[1]) and signalGate
 bool sessionStrongSellPressureEvent = sessionStrongSellPressure and (newPressureSession or not sessionStrongSellPressure[1]) and signalGate
 bool dailyStrongBuyPressureEvent = dailyStrongBuyPressure and (newPressureDay or not dailyStrongBuyPressure[1]) and signalGate
 bool dailyStrongSellPressureEvent = dailyStrongSellPressure and (newPressureDay or not dailyStrongSellPressure[1]) and signalGate
+
+// ----------------------------------------------------------------------------
+// Confirmed auction context, persistent imbalance zones and ICT checklist
+// ----------------------------------------------------------------------------
+// One active candidate at a time. All setup state changes occur at bar close,
+// independently of the legacy live-event toggle. No backdated entry markers.
+var float auctionHigh = na
+var float auctionLow = na
+var float previousAuctionHigh = na
+var float previousAuctionLow = na
+var bool auctionRangeComplete = false
+var bool previousAuctionRangeComplete = false
+var string auctionRangeReason = "Loaded history starts inside session"
+var string previousRangeReason = "No completed session in loaded history"
+if newPressureSession
+    previousAuctionHigh := auctionHigh
+    previousAuctionLow := auctionLow
+    previousAuctionRangeComplete := auctionRangeComplete
+    previousRangeReason := auctionRangeReason
+    auctionHigh := na
+    auctionLow := na
+    auctionRangeComplete := observed_session_start(configuredSessionId, time[1], time, barstate.isfirst)
+    auctionRangeReason := auctionRangeComplete ? "" : "Loaded history starts inside session"
+if profileActive
+    auctionHigh := na(auctionHigh) ? high : math.max(auctionHigh, high)
+    auctionLow := na(auctionLow) ? low : math.min(auctionLow, low)
+    auctionRangeComplete := auctionRangeComplete and sessionBarAligned
+    if not sessionBarAligned
+        auctionRangeReason := "Chart candle straddles session boundary"
+
+// References are maintained outside the trading session too: an overnight raid
+// consumes a level even when no entry is permitted. No external indicator is read.
+var array<LiquidityLevel> liquidityLevels = array.new<LiquidityLevel>()
+var LiquiditySession configuredLiquidityRange = LiquiditySession.new()
+var LiquiditySession asiaRange = LiquiditySession.new()
+var LiquiditySession londonRange = LiquiditySession.new()
+var LiquiditySession newYorkRange = LiquiditySession.new()
+int liquidityLifetime = liqSessionDaysInput * 86400000
+bool combinedLiquidity = ictSweepInput == "Combined liquidity"
+track_liquidity_session(configuredLiquidityRange, liquidityLevels, profileSessionInput, profileTimezone, "Prior session", ictSweepInput == "Previous session" or combinedLiquidity and liqPriorInput, liquidityLifetime, "Prior session")
+track_liquidity_session(asiaRange, liquidityLevels, liqAsiaSessionInput, liqAsiaTimezoneInput, "Asia", combinedLiquidity and liqAsiaInput, liquidityLifetime)
+track_liquidity_session(londonRange, liquidityLevels, liqLondonSessionInput, liqLondonTimezoneInput, "London", combinedLiquidity and liqLondonInput, liquidityLifetime)
+track_liquidity_session(newYorkRange, liquidityLevels, liqNewYorkSessionInput, liqNewYorkTimezoneInput, "New York", combinedLiquidity and liqNewYorkInput, liquidityLifetime)
+int liquidityDay = timestamp(liqDailyTimezoneInput, year(time, liqDailyTimezoneInput), month(time, liqDailyTimezoneInput), dayofmonth(time, liqDailyTimezoneInput), 0, 0)
+int nextLiquidityDay = timestamp(liqDailyTimezoneInput, year(time, liqDailyTimezoneInput), month(time, liqDailyTimezoneInput), dayofmonth(time, liqDailyTimezoneInput) + 1, 0, 0)
+var int observedLiquidityDay = na
+var float liquidityDailyOpen = na
+var int liquidityDailyOpenTime = na
+var string dailyOpenReason = "Opening history unavailable"
+if barstate.isconfirmed
+    if na(observedLiquidityDay) or liquidityDay != observedLiquidityDay
+        observedLiquidityDay := liquidityDay
+        bool openingObserved = observed_session_start(liquidityDay, time[1], time, barstate.isfirst) and time_close[1] <= liquidityDay
+        liquidityDailyOpen := openingObserved ? open : na
+        liquidityDailyOpenTime := openingObserved ? time : na
+        dailyOpenReason := openingObserved ? "First observed bar " + str.format_time(time, "HH:mm", liqDailyTimezoneInput) + " " + liqDailyTimezoneInput : "Day opening not observed / boundary straddled"
+        if combinedLiquidity and liqDailyOpenInput == "Reclaim trigger" and openingObserved
+            add_liquidity(liquidityLevels, liquidityDailyOpen, -1, "Daily open reclaim", "Daily open", bar_index, nextLiquidityDay)
+            add_liquidity(liquidityLevels, liquidityDailyOpen, 1, "Daily open rejection", "Daily open", bar_index, nextLiquidityDay)
+
+LiquidityLevel sweptLowLevel = na
+LiquidityLevel sweptHighLevel = na
+int sweptLowCount = 0
+int sweptHighCount = 0
+if barstate.isconfirmed
+    int levelIndex = liquidityLevels.size() - 1
+    while levelIndex >= 0
+        LiquidityLevel level = liquidityLevels.get(levelIndex)
+        if level.consumed or time >= level.expires or (not na(level.expiresBar) and bar_index > level.expiresBar) or (newPressureSession and (level.kind == "Swing" or level.kind == "EQ"))
+            liquidityLevels.remove(levelIndex)
+        else
+            int event = liquidity_event(level, bar_index, time, high, low, close, close[1], syminfo.mintick * liqSweepTicksInput)
+            if event > 0
+                sweptLowCount += 1
+                if na(sweptLowLevel)
+                    sweptLowLevel := level
+                else if level.price > sweptLowLevel.price or (level.price == sweptLowLevel.price and liquidity_priority(level.kind) > liquidity_priority(sweptLowLevel.kind))
+                    sweptLowLevel := level
+            if event < 0
+                sweptHighCount += 1
+                if na(sweptHighLevel)
+                    sweptHighLevel := level
+                else if level.price < sweptHighLevel.price or (level.price == sweptHighLevel.price and liquidity_priority(level.kind) > liquidity_priority(sweptHighLevel.kind))
+                    sweptHighLevel := level
+        levelIndex -= 1
+
+// A bounded ring of minute-offset slots. The current session is NEVER a baseline.
+// 1500 slots accommodate a 25-hour local session across an autumn DST change.
+const int RVOL_SLOTS = 1500
+var array<float> timeVolumeHistory = array.new<float>((timeRvolSessionsInput + 1) * RVOL_SLOTS, na)
+var int timeVolumeCursor = -1
+if newPressureSession
+    timeVolumeCursor := (timeVolumeCursor + 1) % (timeRvolSessionsInput + 1)
+    timeVolumeHistory.fill(na, timeVolumeCursor * RVOL_SLOTS, (timeVolumeCursor + 1) * RVOL_SLOTS)
+int sessionMinuteOffset = int((time - configuredSessionId) / 60000)
+bool timeRvolSupported = timeframe.isintraday and chartSeconds >= 60 and chartSeconds % 60 == 0 and sessionMinuteOffset >= 0 and sessionMinuteOffset < RVOL_SLOTS
+float timeVolumeSum = 0.0
+int timeVolumeSamples = 0
+if profileActive and timeRvolSupported and timeVolumeCursor >= 0
+    for offset = 1 to timeRvolSessionsInput
+        int slot = ((timeVolumeCursor + offset) % (timeRvolSessionsInput + 1)) * RVOL_SLOTS + sessionMinuteOffset
+        float sampleVolume = timeVolumeHistory.get(slot)
+        if not na(sampleVolume)
+            timeVolumeSum += sampleVolume
+            timeVolumeSamples += 1
+float timeRelativeVolume = timeVolumeSamples >= timeRvolMinimumInput and timeVolumeSum > 0 and useNative ? totalVolume / (timeVolumeSum / timeVolumeSamples) : na
+if barstate.isconfirmed and profileActive and timeRvolSupported and sessionBarAligned and useNative and hasOrderFlowData and auctionRangeComplete
+    timeVolumeHistory.set(timeVolumeCursor * RVOL_SLOTS + sessionMinuteOffset, totalVolume)
+float entryRelativeVolume = ictRvolModeInput == "Same session time" ? timeRelativeVolume : relativeVolume
+float recentTotal = math.sum(profileActive and hasOrderFlowData ? totalVolume : 0.0, recentPressureInput)
+float recentDelta = math.sum(profileActive and hasOrderFlowData ? volumeDelta : 0.0, recentPressureInput)
+bool recentWindowValid = math.sum(profileActive and useNative and hasOrderFlowData ? 1.0 : 0.0, recentPressureInput) == recentPressureInput and pressureSessionSequence == pressureSessionSequence[recentPressureInput - 1]
+float recentDeltaPercent = recentWindowValid and recentTotal > 0 ? 100 * recentDelta / recentTotal : na
+
+var int abovePriorValueCloses = 0
+var int belowPriorValueCloses = 0
+if newProfile or newPressureSession
+    abovePriorValueCloses := 0
+    belowPriorValueCloses := 0
+if barstate.isconfirmed and profileActive
+    abovePriorValueCloses := previousProfileUsable and close > previousSessionVah ? abovePriorValueCloses + 1 : 0
+    belowPriorValueCloses := previousProfileUsable and close < previousSessionVal ? belowPriorValueCloses + 1 : 0
+string priorAuctionState = not previousProfileUsable ? "PRIOR VALUE INCOMPLETE" : abovePriorValueCloses >= acceptanceBarsInput ? "ACCEPTED ABOVE PRIOR VAH" : belowPriorValueCloses >= acceptanceBarsInput ? "ACCEPTED BELOW PRIOR VAL" : close > previousSessionVah ? "TESTING ABOVE PRIOR VAH" : close < previousSessionVal ? "TESTING BELOW PRIOR VAL" : "INSIDE PRIOR VALUE"
+
+if barstate.isconfirmed
+    // Lifecycle precedes new-zone creation; a zone cannot retest on its creation bar.
+    for zone in flowZones
+        if zone.state < 2
+            bool breached = zone.direction > 0 ? close < zone.bottom : close > zone.top
+            bool touched = high >= zone.bottom and low <= zone.top
+            if newPressureSession or not profileActive or bar_index - zone.born > zoneExpiryEffective
+                zone.state := 3
+            else if breached
+                zone.state := 2
+            else if touched and bar_index > zone.born
+                zone.state := 1
+            if not na(zone.drawing)
+                box.set_right(zone.drawing, bar_index)
+                color zoneColor = zone.direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
+                box.set_bgcolor(zone.drawing, color.new(zoneColor, zone.state == 0 ? 88 : 96))
+                box.set_text(zone.drawing, showZoneText and bar_index - zone.born >= 6 ? (zone.state == 0 ? "Fresh" : zone.state == 1 ? "Tested" : zone.state == 2 ? "Invalid" : "Expired") : "")
+    if profileActive and sessionBarAligned and useNative
+        for direction in array.from(1, -1)
+            float bottom = direction > 0 ? bestBuyStackLow : bestSellStackLow
+            float top = direction > 0 ? bestBuyStackHigh : bestSellStackHigh
+            if not na(bottom)
+                FlowZone zone = FlowZone.new(direction, bottom, top, bar_index)
+                if showImbalanceZonesInput and not entryFocus
+                    color zoneColor = direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
+                    zone.drawing := box.new(bar_index, top, bar_index + 1, bottom, bgcolor = color.new(zoneColor, 88), border_color = color.new(zoneColor, 65), text = "", text_size = size.small, text_color = zoneColor, text_wrap = text.wrap_auto)
+                flowZones.push(zone)
+    while flowZones.size() > zoneLimitEffective
+        FlowZone oldZone = flowZones.shift()
+        if not na(oldZone.drawing)
+            box.delete(oldZone.drawing)
+
+float ictPivotHigh = ta.pivothigh(high, ictSwingEffective, ictSwingEffective)
+float ictPivotLow = ta.pivotlow(low, ictSwingEffective, ictSwingEffective)
+var float ictSwingHigh = na
+var float ictSwingLow = na
+var float olderSwingHigh = na
+var float olderSwingLow = na
+var string bullSweepName = ""
+var string bearSweepName = ""
+var string bullSweepKind = ""
+var string bearSweepKind = ""
+var float bullSweepPrice = na
+var float bearSweepPrice = na
+var string bullBreakName = ""
+var string bearBreakName = ""
+var string bullBreakKind = ""
+var string bearBreakKind = ""
+var float bullBreakPrice = na
+var float bearBreakPrice = na
+var float bullBreakStructure = na
+var float bearBreakStructure = na
+var float lastEqualHigh = na
+var float lastEqualLow = na
+var int lastEqualHighBar = na
+var int lastEqualLowBar = na
+var float equalHighExcursion = na
+var float equalLowExcursion = na
+float rightHigh = ta.highest(high, ictSwingEffective)
+float rightLow = ta.lowest(low, ictSwingEffective)
+var int bullSweepBar = na
+var int bearSweepBar = na
+var float bullSweepLow = na
+var float bearSweepHigh = na
+var float bullMssLevel = na
+var float bearMssLevel = na
+var int bullBreakBar = na
+var int bearBreakBar = na
+var float bullBreakStop = na
+var float bearBreakStop = na
+var float bullBreakExtreme = na
+var float bearBreakExtreme = na
+var int usedBullBreak = na
+var int usedBearBreak = na
+bool ictTransition = false
+bool ictQualifiedEvent = false
+
+if enableIctInput and barstate.isconfirmed
+    string oldState = ict.state
+    int oldBorn = ict.born
+    bool candidateWasActive = ict.active
+    if newPressureSession
+        bullSweepBar := na
+        bearSweepBar := na
+        bullBreakBar := na
+        bearBreakBar := na
+        ictSwingHigh := na
+        ictSwingLow := na
+        olderSwingHigh := na
+        olderSwingLow := na
+        lastEqualHigh := na
+        lastEqualLow := na
+        lastEqualHighBar := na
+        lastEqualLowBar := na
+        equalHighExcursion := na
+        equalLowExcursion := na
+        for level in liquidityLevels
+            if level.kind == "Swing" or level.kind == "EQ"
+                level.consumed := true
+
+    ictQualifiedEvent := update_ict_candidate(ict, bar_index, open, high, low, close, close[1], deltaPercent, newPressureSession, profileActive, useNative and hasOrderFlowData and sessionBarAligned and sessionMissingDataBars == 0 and not profileBinLimitHit, ictExecutionInput, ictExpiryEffective, zoneExpiryEffective, ictImbalanceInput, ictRoomInput, ictMinimumRInput, directionalDeltaPercentInput)
+
+    if profileActive and sessionBarAligned
+        if not na(bullBreakBar) and low < bullBreakStop
+            bullBreakBar := na
+        if not na(bearBreakBar) and high > bearBreakStop
+            bearBreakBar := na
+        // Existing pivots are used here; pivots confirmed THIS bar are installed below.
+        bool sweptLow = not na(sweptLowLevel)
+        bool sweptHigh = not na(sweptHighLevel)
+        if not na(bullSweepBar) and (bar_index - bullSweepBar > ictSweepAgeEffective or low < bullSweepLow)
+            bullSweepBar := na
+        if not na(bearSweepBar) and (bar_index - bearSweepBar > ictSweepAgeEffective or high > bearSweepHigh)
+            bearSweepBar := na
+        // Outside bars sweeping both sides do not choose a direction arbitrarily.
+        if sweptLow and not sweptHigh
+            bullSweepBar := bar_index
+            bullSweepLow := low
+            bullMssLevel := ictSwingHigh
+            bullSweepName := sweptLowLevel.name + (sweptLowCount > 1 ? " (+" + str.tostring(sweptLowCount - 1) + ")" : "")
+            bullSweepKind := sweptLowLevel.kind
+            bullSweepPrice := sweptLowLevel.price
+        if sweptHigh and not sweptLow
+            bearSweepBar := bar_index
+            bearSweepHigh := high
+            bearMssLevel := ictSwingLow
+            bearSweepName := sweptHighLevel.name + (sweptHighCount > 1 ? " (+" + str.tostring(sweptHighCount - 1) + ")" : "")
+            bearSweepKind := sweptHighLevel.kind
+            bearSweepPrice := sweptHighLevel.price
+        bool bullishStructure = not na(olderSwingHigh) and not na(olderSwingLow) and ictSwingHigh > olderSwingHigh and ictSwingLow > olderSwingLow
+        bool bearishStructure = not na(olderSwingHigh) and not na(olderSwingLow) and ictSwingHigh < olderSwingHigh and ictSwingLow < olderSwingLow
+        bool bullBreak = ictModeInput == "Reversal" ? not na(bullSweepBar) and bar_index > bullSweepBar and close > bullMssLevel and close[1] <= bullMssLevel : bullishStructure and close > ictSwingHigh and close[1] <= ictSwingHigh
+        bool bearBreak = ictModeInput == "Reversal" ? not na(bearSweepBar) and bar_index > bearSweepBar and close < bearMssLevel and close[1] >= bearMssLevel : bearishStructure and close < ictSwingLow and close[1] >= ictSwingLow
+        if bullBreak
+            bullBreakBar := bar_index
+            bullBreakStop := ictModeInput == "Reversal" ? bullSweepLow : ictSwingLow
+            bullBreakExtreme := bullSweepLow
+            bullBreakName := bullSweepName
+            bullBreakKind := bullSweepKind
+            bullBreakPrice := bullSweepPrice
+            bullBreakStructure := bullMssLevel
+        if bearBreak
+            bearBreakBar := bar_index
+            bearBreakStop := ictModeInput == "Reversal" ? bearSweepHigh : ictSwingHigh
+            bearBreakExtreme := bearSweepHigh
+            bearBreakName := bearSweepName
+            bearBreakKind := bearSweepKind
+            bearBreakPrice := bearSweepPrice
+            bearBreakStructure := bearMssLevel
+
+        float middleBody = math.abs(close[1] - open[1])
+        float middleRange = math.max(high[1] - low[1], syminfo.mintick)
+        bool displacement = middleBody >= currentAtr[2] * ictBodyAtrEffective and middleBody / middleRange * 100 >= ictBodyShareEffective
+        bool sameSessionFvg = pressureSessionSequence == pressureSessionSequence[2] and profileActive[2]
+        bool bullFvg = low - high[2] >= math.max(syminfo.mintick * ictGapTicksInput, nz(currentAtr[2]) * minimumGapAtr) and close[1] > open[1]
+        bool bearFvg = low[2] - high >= math.max(syminfo.mintick * ictGapTicksInput, nz(currentAtr[2]) * minimumGapAtr) and close[1] < open[1]
+        bool bullBreakAvailable = not na(bullBreakBar) and bullBreakBar <= bar_index - 1 and bar_index - 1 - bullBreakBar <= ictBreakAgeEffective and (na(usedBullBreak) or usedBullBreak != bullBreakBar)
+        bool bearBreakAvailable = not na(bearBreakBar) and bearBreakBar <= bar_index - 1 and bar_index - 1 - bearBreakBar <= ictBreakAgeEffective and (na(usedBearBreak) or usedBearBreak != bearBreakBar)
+        int direction = bullFvg and bullBreakAvailable ? 1 : bearFvg and bearBreakAvailable ? -1 : 0
+        if not candidateWasActive and not ict.active and direction != 0 and displacement and sameSessionFvg
+            if not na(ict.drawing)
+                box.delete(ict.drawing)
+            ict := IctCandidate.new()
+            ict.direction := direction
+            ict.born := bar_index
+            ict.bottom := direction > 0 ? high[2] : high
+            ict.top := direction > 0 ? low : low[2]
+            ict.entry := math.round_to_mintick(direction > 0 ? ict.top - (ict.top - ict.bottom) * ictEntryDepthInput / 100 : ict.bottom + (ict.top - ict.bottom) * ictEntryDepthInput / 100)
+            ict.stop := math.round_to_mintick(direction > 0 ? bullBreakStop - syminfo.mintick * ictStopBufferInput : bearBreakStop + syminfo.mintick * ictStopBufferInput)
+            LiquidityLevel targetLevel = nearest_liquidity(liquidityLevels, direction, direction > 0 ? high : low, bar_index, time)
+            ict.target := ictTargetInput == "Previous session extreme" ? (previousAuctionRangeComplete ? (direction > 0 ? previousAuctionHigh : previousAuctionLow) : na) : not na(targetLevel) ? targetLevel.price : na
+            ict.targetName := ictTargetInput == "Previous session extreme" ? "Prior session " + (direction > 0 ? "H" : "L") : not na(targetLevel) ? targetLevel.name : "No unswept opposing level"
+            ict.sweepName := ictModeInput == "Reversal" ? (direction > 0 ? bullBreakName : bearBreakName) : "Continuation; sweep not required"
+            ict.sweepPrice := ictModeInput == "Reversal" ? (direction > 0 ? bullBreakPrice : bearBreakPrice) : na
+            ict.sweepKind := direction > 0 ? bullBreakKind : bearBreakKind
+            ict.boundary := direction > 0 ? (ictModeInput == "Reversal" ? previousSessionVal : previousSessionVah) : (ictModeInput == "Reversal" ? previousSessionVah : previousSessionVal)
+            ict.rvol := entryRelativeVolume[1]
+            bool localLocation = ictModeInput == "Reversal" and ictLocationPolicyInput == "By liquidity source" and ict.sweepKind != "Prior session"
+            float sweepExtreme = direction > 0 ? bullBreakExtreme : bearBreakExtreme
+            float structureReference = direction > 0 ? bullBreakStructure : bearBreakStructure
+            ict.locationModel := localLocation ? "Local discount/premium" : "Prior value"
+            ict.locationAvailable := localLocation ? not na(sweepExtreme) and not na(structureReference) : previousProfileUsable
+            ict.locationReason := localLocation ? "Sweep-to-structure range unavailable" : previousProfileReason
+            ict.targetReason := ictTargetInput == "Previous session extreme" ? previousRangeReason : "No unswept opposing level ahead of FVG"
+            ict.imbalanceAvailable := useNative[1] and hasOrderFlowData[1]
+            ict.locationOk := localLocation ? local_location_ok(direction, ict.entry, sweepExtreme, structureReference) : previousProfileUsable and (ictModeInput == "Reversal" ? (direction > 0 ? bullBreakExtreme < ict.boundary and close > ict.boundary : bearBreakExtreme > ict.boundary and close < ict.boundary) : (direction > 0 ? abovePriorValueCloses >= acceptanceBarsInput : belowPriorValueCloses >= acceptanceBarsInput))
+            if localLocation and ict.locationAvailable
+                ict.boundary := math.avg(sweepExtreme, structureReference)
+            if ict.locationAvailable
+                ict.locationReason := localLocation ? "Entry " + format_price(ict.entry) + (direction > 0 ? " <= midpoint " : " >= midpoint ") + format_price(ict.boundary) : "Prior-value boundary " + format_price(ict.boundary)
+            ict.participationOk := not na(ict.rvol) and ict.rvol >= minimumRelativeVolumeEffective
+            for zone in flowZones
+                if zone.direction == direction and zone.born == bar_index - 1 and zone.state == 0 and math.min(zone.top, ict.top) > math.max(zone.bottom, ict.bottom)
+                    ict.zone := zone
+                    ict.imbalanceOk := true
+            float risk = (ict.entry - ict.stop) * direction
+            ict.rr := risk > 0 and not na(ict.target) ? (ict.target - ict.entry) * direction / risk : na
+            bool targetStillAhead = direction > 0 ? high < ict.target : low > ict.target
+            ict.roomOk := not na(ict.rr) and ict.rr >= ictMinimumRInput and targetStillAhead
+            ict.dataOk := chart.is_standard and timeframe.isintraday and useNative and useNative[1] and useNative[2] and hasOrderFlowData and hasOrderFlowData[1] and hasOrderFlowData[2] and sessionBarAligned[1] and sessionBarAligned[2] and sessionMissingDataBars == 0 and not sessionContainsEstimate and not profileBinLimitHit and (not ictLocationInput or ict.locationAvailable) and (not ictParticipationInput or not na(ict.rvol)) and (not ictRoomInput or not na(ict.target))
+            ict.dataReason := not chart.is_standard ? "Use standard candles" : not timeframe.isintraday ? "Use an intraday timeframe" : not (useNative and useNative[1] and useNative[2]) ? "Native footprint missing in FVG candles" : not (hasOrderFlowData and hasOrderFlowData[1] and hasOrderFlowData[2]) ? "No classified volume in FVG candles" : not (sessionBarAligned[1] and sessionBarAligned[2]) ? "FVG crosses session boundary" : sessionMissingDataBars > 0 ? "Missing flow on traded session bars" : sessionContainsEstimate ? "Session contains estimated volume" : profileBinLimitHit ? "Profile row capacity reached" : ictLocationInput and not ict.locationAvailable ? ict.locationModel + ": " + ict.locationReason : ictParticipationInput and na(ict.rvol) ? "Displacement RVOL baseline unavailable" : ictRoomInput and na(ict.target) ? "Target reference: " + ict.targetReason : ""
+            ict.filtersOk := (not ictLocationInput or ict.locationOk) and (not ictParticipationInput or ict.participationOk) and (not ictImbalanceInput or ict.imbalanceOk) and (not ictRoomInput or ict.roomOk)
+            bool stopAlreadyBroken = risk <= 0 or (direction > 0 ? low <= ict.stop : high >= ict.stop)
+            ict.active := ict.dataOk and ict.filtersOk and not stopAlreadyBroken
+            ict.state := not ict.dataOk ? "INSUFFICIENT DATA" : stopAlreadyBroken ? "INVALIDATED" : not ict.filtersOk ? "FILTERED" : ictExecutionInput == "Limit at FVG" ? "CONDITIONS MET" : "WAITING"
+            ict.reason := not ict.dataOk ? ict.dataReason : stopAlreadyBroken ? "Structural stop already breached at FVG confirmation" : ictLocationInput and not ict.locationOk ? ict.locationModel + " rejected: " + ict.locationReason : ictParticipationInput and not ict.participationOk ? "Displacement participation below threshold" : ictImbalanceInput and not ict.imbalanceOk ? "No fresh displacement imbalance overlapping FVG" : ictRoomInput and not ict.roomOk ? "Target unavailable ahead of price or insufficient R" : ictExecutionInput == "Limit at FVG" ? "Qualified before future touch; no order placed" : "Setup qualified; waiting for FVG retest reaction"
+            if direction > 0
+                usedBullBreak := bullBreakBar
+            else
+                usedBearBreak := bearBreakBar
+            ictQualifiedEvent := ict.state == "CONDITIONS MET"
+            color setupColor = direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
+            if entryFocus and ict.active and showImbalanceZonesInput and not na(ict.zone) and na(ict.zone.drawing)
+                FlowZone supportingZone = ict.zone
+                supportingZone.drawing := box.new(supportingZone.born, supportingZone.top, bar_index + 1, supportingZone.bottom, bgcolor = color.new(setupColor, 90), border_color = color.new(setupColor, 60), text = "", text_size = size.small, text_color = setupColor, text_wrap = text.wrap_auto)
+            if showIctMarksInput and (not entryFocus or ict.active)
+                ict.drawing := box.new(bar_index, ict.top, bar_index + 1, ict.bottom, bgcolor = color.new(setupColor, 92), border_color = setupColor, text = "", text_size = size.small, text_color = setupColor, text_wrap = text.wrap_auto)
+
+        equalHighExcursion := na(equalHighExcursion) ? high : math.max(equalHighExcursion, high)
+        equalLowExcursion := na(equalLowExcursion) ? low : math.min(equalLowExcursion, low)
+        // Do not import a pivot whose center belongs to a previous session.
+        if pressureSessionSequence == pressureSessionSequence[ictSwingEffective]
+            if not na(ictPivotHigh)
+                int pivotBar = bar_index - ictSwingEffective
+                float tolerance = math.max(syminfo.mintick * liqEqualTicksInput, nz(currentAtr[ictSwingEffective]) * liqEqualAtrInput)
+                if combinedLiquidity and liqEqualInput and equal_pool_valid(lastEqualHigh, ictPivotHigh, equalHighExcursion, tolerance, pivotBar - lastEqualHighBar, liqEqualSeparationInput, liqInternalAgeInput, 1) and rightHigh <= math.max(lastEqualHigh, ictPivotHigh)
+                    add_liquidity(liquidityLevels, math.max(lastEqualHigh, ictPivotHigh), 1, "EQH", "EQ", bar_index, time + 31536000000, bar_index + liqInternalAgeInput)
+                if (combinedLiquidity and liqSwingInput or ictSweepInput == "Confirmed swing") and rightHigh <= ictPivotHigh
+                    add_liquidity(liquidityLevels, ictPivotHigh, 1, "Swing H", "Swing", bar_index, time + 31536000000, bar_index + liqInternalAgeInput)
+                lastEqualHigh := ictPivotHigh
+                lastEqualHighBar := pivotBar
+                equalHighExcursion := math.max(ictPivotHigh, rightHigh)
+                olderSwingHigh := ictSwingHigh
+                ictSwingHigh := ictPivotHigh
+            if not na(ictPivotLow)
+                int pivotBar = bar_index - ictSwingEffective
+                float tolerance = math.max(syminfo.mintick * liqEqualTicksInput, nz(currentAtr[ictSwingEffective]) * liqEqualAtrInput)
+                if combinedLiquidity and liqEqualInput and equal_pool_valid(lastEqualLow, ictPivotLow, equalLowExcursion, tolerance, pivotBar - lastEqualLowBar, liqEqualSeparationInput, liqInternalAgeInput, -1) and rightLow >= math.min(lastEqualLow, ictPivotLow)
+                    add_liquidity(liquidityLevels, math.min(lastEqualLow, ictPivotLow), -1, "EQL", "EQ", bar_index, time + 31536000000, bar_index + liqInternalAgeInput)
+                if (combinedLiquidity and liqSwingInput or ictSweepInput == "Confirmed swing") and rightLow >= ictPivotLow
+                    add_liquidity(liquidityLevels, ictPivotLow, -1, "Swing L", "Swing", bar_index, time + 31536000000, bar_index + liqInternalAgeInput)
+                lastEqualLow := ictPivotLow
+                lastEqualLowBar := pivotBar
+                equalLowExcursion := math.min(ictPivotLow, rightLow)
+                olderSwingLow := ictSwingLow
+                ictSwingLow := ictPivotLow
+
+    ictTransition := ict.state != oldState or (not na(ict.born) and (na(oldBorn) or ict.born != oldBorn))
+    if ictTransition
+        ict.updated := bar_index
+    if not na(ict.drawing) and (ict.active or ictTransition)
+        box.set_right(ict.drawing, bar_index + 1)
+        box.set_text(ict.drawing, showZoneText and bar_index - ict.born >= 6 ? "FVG" : "")
+    if ictTransition and ict.direction != 0
+        string detail = ictModeInput + " · " + ictExecutionInput + "\n" + ict.reason + "\nReference: " + ict.sweepName + " " + format_price(ict.sweepPrice) + " · Target: " + ict.targetName + "\nLocation: " + ict.locationModel + " · " + ict.locationReason + "\nEntry ref " + format_price(ict.entry) + " · Stop " + format_price(ict.stop) + " · Target " + format_price(ict.target) + "\nR " + (na(ict.rr) ? "—" : str.tostring(ict.rr, "#.00")) + " · Displacement RVOL " + (na(ict.rvol) ? "—" : str.tostring(ict.rvol, "#.00")) + "\nChecks at formation: location=" + str.tostring(ict.locationOk) + ", participation=" + str.tostring(ict.participationOk) + ", imbalance=" + str.tostring(ict.imbalanceOk) + ". Room at assessment=" + str.tostring(ict.roomOk)
+        bool showTransitionLabel = fullDiagnostics or ictQualifiedEvent or (not entryFocus and ict.state == "ENTRY TOUCHED")
+        if showIctMarksInput and showTransitionLabel
+            color eventColor = ictQualifiedEvent ? (ict.direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput) : color.gray
+            string markText = ictQualifiedEvent ? (ictExecutionInput == "Limit at FVG" ? "LIMIT READY" : "RETEST MET") : ict.state
+            ictLabels.push(label.new(bar_index, ict.direction > 0 ? low : high, (ict.direction > 0 ? "LONG\n" : "SHORT\n") + markText, style = ict.direction > 0 ? label.style_label_up : label.style_label_down, color = color.new(eventColor, 25), textcolor = color.white, size = entryTextSizeInput, tooltip = ict.state + "\n" + detail))
+            while ictLabels.size() > retainedIctLabels
+                label.delete(ictLabels.shift())
+        if ictAlertsInput and (ictAlertScopeInput == "All state changes" or ictQualifiedEvent)
+            alert(syminfo.ticker + " " + timeframe.period + " · " + (ict.direction > 0 ? "LONG " : "SHORT ") + ict.state + "\n" + detail, alert.freq_once_per_bar_close)
+
+LiquidityLevel nextLowLiquidity = nearest_liquidity(liquidityLevels, -1, close, bar_index, time)
+LiquidityLevel nextHighLiquidity = nearest_liquidity(liquidityLevels, 1, close, bar_index, time)
+int dailyOpenFreshSides = 0
+for level in liquidityLevels
+    if level.kind == "Daily open" and not level.consumed and level.born < bar_index and time < level.expires
+        dailyOpenFreshSides += 1
+// The workflow is a confirmed-bar snapshot. No provisional sweep/break gets a pass.
+var array<string> stepStates = array.new<string>(8, "Waiting")
+var array<string> stepReasons = array.new<string>(8, "Await confirmed candle")
+var string workflowSide = "Watching both"
+var string workflowState = "WAITING"
+var string workflowReason = "Await confirmed candle"
+var string workflowDataReason = ""
+var int workflowBar = na
+var bool workflowCandidate = false
+var float workflowEntry = na
+var float workflowStop = na
+var float workflowTarget = na
+var float workflowR = na
+var string workflowDailyState = "Unavailable"
+var string workflowDailyReason = "Await observed daily open"
+var string workflowLiquidityReason = "Await confirmed references"
+if enableIctInput and barstate.isconfirmed
+    workflowBar := bar_index
+    workflowCandidate := ict.direction != 0 and (ict.active or ict.updated == bar_index)
+    bool bullPending = not na(bullBreakBar) and bar_index - bullBreakBar <= ictBreakAgeEffective + 1 and (na(usedBullBreak) or usedBullBreak != bullBreakBar)
+    bool bearPending = not na(bearBreakBar) and bar_index - bearBreakBar <= ictBreakAgeEffective + 1 and (na(usedBearBreak) or usedBearBreak != bearBreakBar)
+    bool bullSwept = not na(bullSweepBar) and bar_index - bullSweepBar <= ictSweepAgeEffective
+    bool bearSwept = not na(bearSweepBar) and bar_index - bearSweepBar <= ictSweepAgeEffective
+    int watchDirection = workflowCandidate ? ict.direction : bullPending or bearPending ? (bullPending and (not bearPending or bullBreakBar > bearBreakBar) ? 1 : -1) : bullSwept or bearSwept ? (bullSwept and (not bearSwept or bullSweepBar > bearSweepBar) ? 1 : -1) : 0
+    bool broke = workflowCandidate or (watchDirection > 0 ? bullPending : watchDirection < 0 ? bearPending : false)
+    bool swept = workflowCandidate or (watchDirection > 0 ? bullSwept : watchDirection < 0 ? bearSwept : false) or (ictModeInput == "Reversal" and broke)
+    float lowReference = not na(nextLowLiquidity) ? nextLowLiquidity.price : na
+    float highReference = not na(nextHighLiquidity) ? nextHighLiquidity.price : na
+    bool sweepAvailable = not na(lowReference) or not na(highReference) or combinedLiquidity and liqDailyOpenInput == "Reclaim trigger" and dailyOpenFreshSides > 0
+    string lowName = not na(nextLowLiquidity) ? nextLowLiquidity.name + " " + format_price(lowReference) : "none below"
+    string highName = not na(nextHighLiquidity) ? nextHighLiquidity.name + " " + format_price(highReference) : "none above"
+    workflowLiquidityReason := "L: " + lowName + "; H: " + highName
+    workflowDailyState := liqDailyOpenInput == "Off" ? "Off" : na(liquidityDailyOpen) ? "Unavailable" : close > liquidityDailyOpen ? "Above" : close < liquidityDailyOpen ? "Below" : "At open"
+    workflowDailyReason := liqDailyOpenInput == "Off" ? "Reference disabled" : na(liquidityDailyOpen) ? dailyOpenReason : format_price(liquidityDailyOpen) + " · " + liqDailyOpenInput + (liqDailyOpenInput == "Reclaim trigger" ? " (" + str.tostring(dailyOpenFreshSides) + " fresh sides)" : "") + ". " + dailyOpenReason
+    string sweepDescription = workflowCandidate ? ict.sweepName + " " + format_price(ict.sweepPrice) : broke ? (watchDirection > 0 ? bullBreakName + " " + format_price(bullBreakPrice) : bearBreakName + " " + format_price(bearBreakPrice)) : watchDirection > 0 ? bullSweepName + " " + format_price(bullSweepPrice) : bearSweepName + " " + format_price(bearSweepPrice)
+    bool structureAvailable = watchDirection > 0 ? not na(bullMssLevel) or ictModeInput == "Continuation" and not na(ictSwingHigh) : watchDirection < 0 ? not na(bearMssLevel) or ictModeInput == "Continuation" and not na(ictSwingLow) : not na(ictSwingLow) and not na(ictSwingHigh)
+    workflowSide := watchDirection > 0 ? "LONG path" : watchDirection < 0 ? "SHORT path" : "Watching both"
+    workflowDataReason := not chart.is_standard ? "Use standard candles" : not timeframe.isintraday ? "Use an intraday timeframe" : not profileActive ? "Outside configured session" : not sessionBarAligned ? "Candle straddles session boundary" : not useNative ? "Native footprint unavailable; check source/history" : not hasOrderFlowData ? "No classified volume on last closed bar" : sessionMissingDataBars > 0 ? "Missing flow on " + str.tostring(sessionMissingDataBars) + " traded session bars" : sessionContainsEstimate ? "Session includes estimated volume" : profileBinLimitHit ? "Profile row capacity reached" : ""
+    // A missing volume baseline does not suppress observable price-structure progress.
+    stepStates.set(0, ictModeInput == "Continuation" ? "Not required" : swept ? "Passed" : not sweepAvailable ? "Unavailable" : "Waiting")
+    stepReasons.set(0, ictModeInput == "Continuation" ? "Continuation uses HH/HL or LH/LL" : swept ? sweepDescription + " reclaimed" : not sweepAvailable ? "No fresh enabled level; await completed range / pivots" : "Await raid + reclaim. " + workflowLiquidityReason + (combinedLiquidity and liqDailyOpenInput == "Reclaim trigger" ? "; DO " + format_price(liquidityDailyOpen) : ""))
+    float breakLevel = watchDirection > 0 ? (ictModeInput == "Reversal" ? bullMssLevel : ictSwingHigh) : watchDirection < 0 ? (ictModeInput == "Reversal" ? bearMssLevel : ictSwingLow) : na
+    stepStates.set(1, broke ? "Passed" : not structureAvailable ? "Unavailable" : "Waiting")
+    stepReasons.set(1, broke ? "Directional close through swing" : not structureAvailable ? "Confirm swing before a valid break" : ictModeInput == "Reversal" and not swept ? "First await sweep + reclaim" : watchDirection == 0 ? "Await directional structure break" : "Close " + (watchDirection > 0 ? "above " : "below ") + format_price(breakLevel))
+    float testBody = math.abs(close[1] - open[1])
+    float testRange = math.max(high[1] - low[1], syminfo.mintick)
+    bool testDisplacement = testBody >= currentAtr[2] * ictBodyAtrEffective and 100 * testBody / testRange >= ictBodyShareEffective
+    bool testGap = watchDirection > 0 ? low - high[2] >= math.max(syminfo.mintick * ictGapTicksInput, nz(currentAtr[2]) * minimumGapAtr) and close[1] > open[1] : watchDirection < 0 ? low[2] - high >= math.max(syminfo.mintick * ictGapTicksInput, nz(currentAtr[2]) * minimumGapAtr) and close[1] < open[1] : false
+    bool testedAfterBreak = broke and not workflowCandidate and (watchDirection > 0 ? bullBreakBar : bearBreakBar) <= bar_index - 1
+    bool weakDisplacement = testedAfterBreak and testGap and not testDisplacement
+    stepStates.set(2, workflowCandidate ? "Passed" : weakDisplacement ? "Failed" : "Waiting")
+    stepReasons.set(2, workflowCandidate ? "FVG " + format_price(ict.bottom) + " to " + format_price(ict.top) : weakDisplacement ? "Body below " + str.tostring(ictBodyAtrEffective, "#.0") + " ATR / " + str.tostring(ictBodyShareEffective, "#") + "% range" : not broke ? "First await structure break" : "Await displacement FVG within " + str.tostring(ictBreakAgeEffective) + " bars")
+    bool needsPriorLocation = ictModeInput == "Continuation" or ictLocationPolicyInput == "Prior value for every sweep" or ictSweepInput == "Previous session" or (swept and (broke ? (watchDirection > 0 ? bullBreakKind : bearBreakKind) : (watchDirection > 0 ? bullSweepKind : bearSweepKind)) == "Prior session")
+    bool locationAvailable = workflowCandidate ? ict.locationAvailable : not needsPriorLocation or previousProfileUsable
+    bool volumeAvailable = workflowCandidate ? not na(ict.rvol) : not na(entryRelativeVolume) and useNative and hasOrderFlowData
+    bool imbalanceAvailable = workflowCandidate ? ict.imbalanceAvailable : useNative and hasOrderFlowData
+    bool roomAvailable = workflowCandidate ? not na(ict.target) : ictTargetInput == "Previous session extreme" ? previousAuctionRangeComplete : not na(nextLowLiquidity) or not na(nextHighLiquidity)
+    stepStates.set(3, assessment_status(ictLocationInput, locationAvailable, workflowCandidate, ict.locationOk))
+    stepReasons.set(3, not ictLocationInput ? "Filter disabled" : not locationAvailable ? (workflowCandidate ? ict.locationReason : previousProfileReason) : not workflowCandidate ? (needsPriorLocation ? "Prior-value reclaim at FVG" : "Location rule follows swept source") : ict.locationModel + ": " + ict.locationReason)
+    stepStates.set(4, assessment_status(ictParticipationInput, volumeAvailable, workflowCandidate, ict.participationOk))
+    stepReasons.set(4, not ictParticipationInput ? "Filter disabled" : not volumeAvailable ? "RVOL baseline / native volume missing" : not workflowCandidate ? "Await displacement; minimum " + str.tostring(minimumRelativeVolumeEffective, "#.0") + "x" : str.tostring(ict.rvol, "#.00") + "x vs minimum " + str.tostring(minimumRelativeVolumeEffective, "#.0") + "x")
+    stepStates.set(5, assessment_status(ictImbalanceInput, imbalanceAvailable, workflowCandidate, ict.imbalanceOk))
+    stepReasons.set(5, not ictImbalanceInput ? "Filter disabled" : not imbalanceAvailable ? "Native displacement footprint missing" : not workflowCandidate ? "Await fresh stack overlapping FVG" : ict.imbalanceOk ? "Fresh displacement stack overlaps" : "No fresh stack overlapping FVG")
+    stepStates.set(6, assessment_status(ictRoomInput, roomAvailable, workflowCandidate, ict.roomOk))
+    stepReasons.set(6, not ictRoomInput ? "Filter disabled" : not roomAvailable ? (workflowCandidate ? ict.targetReason : ictTargetInput == "Previous session extreme" ? previousRangeReason : "No fresh opposing target reference") : not workflowCandidate ? "Calculate R after entry/stop exist" : ict.roomOk ? ict.targetName + " " + format_price(ict.target) + "; " + str.tostring(ict.rr, "#.00") + "R" : ict.targetName + "; R " + (na(ict.rr) ? "unavailable" : str.tostring(ict.rr, "#.00")) + " < " + str.tostring(ictMinimumRInput, "#.00") + " or target not ahead")
+    string entryState = not workflowCandidate ? "Waiting" : ict.state == "CONDITIONS MET" ? "Passed" : ict.state == "WAITING" ? "Waiting" : ict.state == "INSUFFICIENT DATA" or ict.state == "REVIEW" ? "Unavailable" : ict.state == "ENTRY TOUCHED" ? "Touched" : "Failed"
+    string entryReason = workflowCandidate ? ict.reason : "Complete the preceding checks"
+    string blocker = workflowDataReason
+    if blocker == ""
+        for i = 0 to 6
+            if stepStates.get(i) == "Unavailable" and blocker == ""
+                blocker := stepReasons.get(i)
+    if not workflowCandidate and blocker != ""
+        entryState := "Unavailable"
+        entryReason := blocker
+    stepStates.set(7, entryState)
+    stepReasons.set(7, entryReason)
+    workflowState := workflowCandidate ? ict.state : blocker != "" ? "BLOCKED" : "WAITING"
+    workflowReason := workflowCandidate ? ict.reason : blocker
+    if workflowReason == ""
+        for i = 0 to 7
+            if (stepStates.get(i) == "Waiting" or stepStates.get(i) == "Failed") and workflowReason == ""
+                workflowReason := stepReasons.get(i)
+    workflowEntry := workflowCandidate ? ict.entry : na
+    workflowStop := workflowCandidate ? ict.stop : na
+    workflowTarget := workflowCandidate ? ict.target : na
+    workflowR := workflowCandidate ? ict.rr : na
 
 // ----------------------------------------------------------------------------
 // Delta candles
@@ -972,9 +1906,9 @@ plotcandle(
 bool qualifiedBarPoc = (extremePositiveDelta or extremeNegativeDelta or buyersAbsorbed or sellersAbsorbed or stackedBuyImbalance or stackedSellImbalance) and signalGate
 bool recentBarPoc = bar_index >= last_bar_index - recentBarPocCountInput + 1
 bool showCurrentBarPoc =
-     barPocDisplayInput == "All bars" or
+     not entryFocus and (fullDiagnostics or recentBarPoc) and (barPocDisplayInput == "All bars" or
      (barPocDisplayInput == "Recent bars" and recentBarPoc) or
-     (barPocDisplayInput == "Qualified bars" and qualifiedBarPoc)
+     (barPocDisplayInput == "Qualified bars" and qualifiedBarPoc))
 plot(
      showCurrentBarPoc ? barPoc : na,
      "Bar POC",
@@ -983,14 +1917,14 @@ plot(
      style = plot.style_circles,
      display = display.all - display.status_line)
 plot(
-     showBarValueAreaInput ? barVah : na,
+     showBarValueAreaInput and not entryFocus and (fullDiagnostics or recentBarPoc) ? barVah : na,
      "Bar VAH",
      color = color.new(valueAreaColorInput, 25),
      linewidth = 1,
      style = plot.style_circles,
      display = display.all - display.status_line)
 plot(
-     showBarValueAreaInput ? barVal : na,
+     showBarValueAreaInput and not entryFocus and (fullDiagnostics or recentBarPoc) ? barVal : na,
      "Bar VAL",
      color = color.new(valueAreaColorInput, 25),
      linewidth = 1,
@@ -1041,27 +1975,31 @@ if barstate.islast
     profileKeys.sort(order.ascending)
     int sourceRowCount = profileKeys.size()
     if showProfileHistogramInput and sourceRowCount > 0
-        int rowsPerDisplayBucket = int(math.ceil(float(sourceRowCount) / float(maxProfileRowsInput)))
+        int firstDisplayKey = profileKeys.first()
+        int priceBinSpan = profileKeys.last() - firstDisplayKey + 1
+        int rowsPerDisplayBucket = int(math.ceil(float(priceBinSpan) / float(maxProfileRowsInput)))
         array<float> displayLows = array.new<float>()
         array<float> displayHighs = array.new<float>()
         array<float> displayBuys = array.new<float>()
         array<float> displaySells = array.new<float>()
         int sourceIndex = 0
-        while sourceIndex < sourceRowCount
-            int lastSourceIndex = math.min(sourceIndex + rowsPerDisplayBucket - 1, sourceRowCount - 1)
+        int displayBucketCount = int(math.ceil(float(priceBinSpan) / float(rowsPerDisplayBucket)))
+        for bucketNumber = 0 to displayBucketCount - 1
+            int firstBucketKey = firstDisplayKey + bucketNumber * rowsPerDisplayBucket
+            int lastBucketKey = firstBucketKey + rowsPerDisplayBucket - 1
             float bucketBuy = 0.0
             float bucketSell = 0.0
-            int bucketIndex = sourceIndex
-            while bucketIndex <= lastSourceIndex
-                int key = profileKeys.get(bucketIndex)
+            while sourceIndex < sourceRowCount and profileKeys.get(sourceIndex) <= lastBucketKey
+                int key = profileKeys.get(sourceIndex)
                 bucketBuy += nz(sessionBuyMap.get(key))
                 bucketSell += nz(sessionSellMap.get(key))
-                bucketIndex += 1
-            displayLows.push((float(profileKeys.get(sourceIndex)) - 0.5) * sessionProfilePriceStep)
-            displayHighs.push((float(profileKeys.get(lastSourceIndex)) + 0.5) * sessionProfilePriceStep)
+                sourceIndex += 1
+            // Equal price intervals retain empty buckets rather than bridging
+            // arbitrary gaps between occupied map keys. Zero-volume boxes are omitted.
+            displayLows.push((float(firstBucketKey) - 0.5) * sessionProfilePriceStep)
+            displayHighs.push((float(lastBucketKey) + 0.5) * sessionProfilePriceStep)
             displayBuys.push(bucketBuy)
             displaySells.push(bucketSell)
-            sourceIndex := lastSourceIndex + 1
 
         int displayRowCount = displayLows.size()
         float largestDisplayedSide = 0.0
@@ -1098,8 +2036,9 @@ if barstate.islast
                 int totalWidth = largestDisplayedTotal > 0 ? int(math.round(rowTotal / largestDisplayedTotal * profileWidthInput)) : 0
                 float rowDeltaRatio = rowTotal > 0 ? (rowBuy - rowSell) / rowTotal : 0.0
                 color dominanceColor = math.abs(rowDeltaRatio) < 0.05 ? profileTotalColorInput : color.from_gradient(rowDeltaRatio, -1.0, 1.0, profileSellColorInput, profileBuyColorInput)
-                bool showSideValues = showFootprintValuesInput and footprintValueModeInput == "Sell × Buy" and sellWidth >= minimumValueRowWidthInput and buyWidth >= minimumValueRowWidthInput
-                bool showCombinedSplitValue = showFootprintValuesInput and not showSideValues and math.max(sellWidth, buyWidth) >= minimumValueRowWidthInput
+                int valueWidthMinimum = minimumValueRowWidthInput * (footprintNumberFormatInput == "Full" ? 2 : 1) * (footprintValueTextSizeInput == size.normal ? 2 : 1)
+                bool showSideValues = showFootprintValuesInput and footprintValueModeInput == "Sell × Buy" and sellWidth >= valueWidthMinimum and buyWidth >= valueWidthMinimum
+                bool showCombinedSplitValue = showFootprintValuesInput and not showSideValues and math.max(sellWidth, buyWidth) >= valueWidthMinimum * (footprintValueModeInput == "Sell × Buy" ? 2 : 1)
                 bool combinedValueOnSell = sellWidth >= buyWidth
                 string combinedBuySellText = format_footprint_value(rowSell, footprintNumberFormatInput) + " × " + format_footprint_value(rowBuy, footprintNumberFormatInput)
                 string summaryText =
@@ -1109,10 +2048,10 @@ if barstate.islast
                      footprintValueModeInput != "Delta" ? neutralValueTextColorInput :
                      rowBuy > rowSell ? buyValueTextColorInput : rowSell > rowBuy ? sellValueTextColorInput : neutralValueTextColorInput
                 string sellBoxText =
-                     showSideValues ? format_footprint_value(rowSell, footprintNumberFormatInput) + " ×" :
+                     showSideValues ? format_footprint_value(rowSell, footprintNumberFormatInput) + " " :
                      showCombinedSplitValue and combinedValueOnSell ? summaryText : ""
                 string buyBoxText =
-                     showSideValues ? format_footprint_value(rowBuy, footprintNumberFormatInput) :
+                     showSideValues ? " " + format_footprint_value(rowBuy, footprintNumberFormatInput) :
                      showCombinedSplitValue and not combinedValueOnSell ? summaryText : ""
                 color sellBoxTextColor = showSideValues ? sellValueTextColorInput : summaryTextColor
                 color buyBoxTextColor = showSideValues ? buyValueTextColorInput : summaryTextColor
@@ -1131,7 +2070,7 @@ if barstate.islast
                          text_color = sellBoxTextColor,
                          text_halign = sellBoxTextAlignment,
                          text_valign = text.align_center,
-                         text_wrap = text.wrap_auto,
+                         text_wrap = text.wrap_none,
                          text_font_family = font.family_monospace)
                     sessionProfileBoxes.push(sellBox)
                 if profileDisplayModeInput == "Buy / Sell Split" and rowBuy > 0
@@ -1147,12 +2086,12 @@ if barstate.islast
                          text_color = buyBoxTextColor,
                          text_halign = buyBoxTextAlignment,
                          text_valign = text.align_center,
-                         text_wrap = text.wrap_auto,
+                         text_wrap = text.wrap_none,
                          text_font_family = font.family_monospace)
                     sessionProfileBoxes.push(buyBox)
                 if profileDisplayModeInput != "Buy / Sell Split" and rowTotal > 0
                     color profileRowColor = profileDisplayModeInput == "Delta Dominance" ? dominanceColor : profileTotalColorInput
-                    bool showTotalBoxText = showFootprintValuesInput and totalWidth >= minimumValueRowWidthInput
+                    bool showTotalBoxText = showFootprintValuesInput and totalWidth >= valueWidthMinimum
                     box totalBox = box.new(
                          profileRightIndex - math.max(totalWidth, 1), drawHigh,
                          profileRightIndex, drawLow,
@@ -1165,7 +2104,7 @@ if barstate.islast
                          text_color = summaryTextColor,
                          text_halign = text.align_center,
                          text_valign = text.align_center,
-                         text_wrap = text.wrap_auto,
+                         text_wrap = text.wrap_none,
                          text_font_family = font.family_monospace)
                     sessionProfileBoxes.push(totalBox)
 
@@ -1292,50 +2231,57 @@ if barstate.islast
 // ----------------------------------------------------------------------------
 // Compact shape grammar: diamonds = absorption, triangles = stacked imbalance,
 // circles = confirmed CVD divergence. Full readings remain in the dashboard.
+bool showContextMarker = not entryFocus and (fullDiagnostics or bar_index >= last_bar_index - contextHistoryBarsInput + 1)
 plotshape(
-     showAbsorptionInput and sellersAbsorbedEvent,
+     showContextMarker and showAbsorptionInput and sellersAbsorbedEvent,
      title = "Sellers absorbed",
      style = shape.diamond,
      location = location.belowbar,
      color = color.new(positiveDeltaColorInput, 22),
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 plotshape(
-     showAbsorptionInput and buyersAbsorbedEvent,
+     showContextMarker and showAbsorptionInput and buyersAbsorbedEvent,
      title = "Buyers absorbed",
      style = shape.diamond,
      location = location.abovebar,
      color = color.new(negativeDeltaColorInput, 22),
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 plotshape(
-     showStackedImbalanceInput and stackedBuyEvent,
+     showContextMarker and showStackedImbalanceInput and stackedBuyEvent,
      title = "Stacked buy imbalance",
      style = shape.triangleup,
      location = location.belowbar,
      color = positiveDeltaColorInput,
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 plotshape(
-     showStackedImbalanceInput and stackedSellEvent,
+     showContextMarker and showStackedImbalanceInput and stackedSellEvent,
      title = "Stacked sell imbalance",
      style = shape.triangledown,
      location = location.abovebar,
      color = negativeDeltaColorInput,
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 plotshape(
-     showDivergenceInput and bullishCvdDivergenceEvent,
+     showContextMarker and showDivergenceInput and bullishCvdDivergenceEvent,
      title = "Bullish CVD divergence",
      style = shape.circle,
      location = location.belowbar,
-     offset = -divergencePivotInput,
+     offset = -divergencePivotEffective,
      color = color.new(positiveDeltaColorInput, 38),
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 plotshape(
-     showDivergenceInput and bearishCvdDivergenceEvent,
+     showContextMarker and showDivergenceInput and bearishCvdDivergenceEvent,
      title = "Bearish CVD divergence",
      style = shape.circle,
      location = location.abovebar,
-     offset = -divergencePivotInput,
+     offset = -divergencePivotEffective,
      color = color.new(negativeDeltaColorInput, 38),
-     size = size.tiny)
+     size = size.tiny,
+     display = display.all - display.status_line)
 
 // ----------------------------------------------------------------------------
 // Data Window exports
@@ -1373,8 +2319,9 @@ string auctionText =
      "INSIDE VALUE"
 color auctionColor = close > nz(sessionVah, close) ? positiveDeltaColorInput : close < nz(sessionVal, close) ? negativeDeltaColorInput : dashboardTextInput
 string orderFlowRead =
-     buyersAbsorbed ? "BUYERS ABSORBED · bearish risk" :
-     sellersAbsorbed ? "SELLERS ABSORBED · bullish risk" :
+     not signalGate ? "PROVISIONAL · WAIT FOR CLOSE" :
+     buyersAbsorbed ? "POTENTIAL BUYER ABSORPTION" :
+     sellersAbsorbed ? "POTENTIAL SELLER ABSORPTION" :
      stackedBuyImbalance and deltaPercent > 0 ? "STACKED BUY AGGRESSION" :
      stackedSellImbalance and deltaPercent < 0 ? "STACKED SELL AGGRESSION" :
      extremePositiveDelta ? "EXTREME POSITIVE DELTA" :
@@ -1389,11 +2336,13 @@ string qualityText =
      not chart.is_standard ? "USE STANDARD CANDLES" :
      timeframe.isdaily or timeframe.isweekly or timeframe.ismonthly ? "1D+ FEED CAUTION" :
      profileBinLimitHit ? "PROFILE BIN LIMIT REACHED" :
+     profileActive and not sessionBarAligned ? "SESSION BOUNDARY STRADDLED" :
      sessionMissingDataBars > 0 or dailyMissingDataBars > 0 ? "PRESSURE DATA GAPS" :
+     profileIncomplete ? "PARTIAL PROFILE" :
      mixedPressureSource ? "MIXED SOURCES" :
      profileContainsEstimate or sessionContainsEstimate or dailyContainsEstimate ? "ESTIMATE · NOT BID/ASK" :
      useNative ? "CLASSIFIED INTRABAR" : "CHECK SYMBOL / PLAN / HISTORY"
-color qualityColor = not chart.is_standard or not hasOrderFlowData or profileBinLimitHit or sessionMissingDataBars > 0 or dailyMissingDataBars > 0 ? negativeDeltaColorInput : useFallback or profileContainsEstimate or sessionContainsEstimate or dailyContainsEstimate ? pocColorInput : positiveDeltaColorInput
+color qualityColor = not chart.is_standard or not hasOrderFlowData or profileBinLimitHit or (profileActive and not sessionBarAligned) or sessionMissingDataBars > 0 or dailyMissingDataBars > 0 ? negativeDeltaColorInput : profileIncomplete or useFallback or profileContainsEstimate or sessionContainsEstimate or dailyContainsEstimate ? pocColorInput : positiveDeltaColorInput
 
 string candlePressureTooltip = "Relative volume " + participationText + " · Delta z-score " + (na(deltaZScore) ? "—" : str.tostring(deltaZScore, "#.00")) + " · Bar POC " + format_price(barPoc) + "\nImbalances buy/sell " + imbalanceText + ". Strong candle pressure also requires the configured relative-volume threshold."
 string sessionPressureTooltip = "Configured session classified bars " + str.tostring(sessionPressureBars) + " · Missing " + str.tostring(sessionMissingDataBars) + " · Positive/negative delta bars " + str.tostring(sessionPositiveDeltaBars) + "/" + str.tostring(sessionNegativeDeltaBars) + " · Max/min candle delta " + format_signed_volume(sessionMaximumBarDelta) + "/" + format_signed_volume(sessionMinimumBarDelta) + "\nDPOC/pPOC " + profilePocText + " · Value area " + format_price(sessionVal) + "—" + format_price(sessionVah) + "."
@@ -1439,13 +2388,83 @@ if barstate.islast
             table.cell(professionalDashboard, 4, 6, "QUALITY", bgcolor = color.new(dashboardHeaderInput, 35), text_color = color.white, text_size = dashboardSizeInput, text_halign = text.align_left, text_font_family = font.family_monospace, text_formatting = text.format_bold, tooltip = "Data provenance and chart compatibility.")
             table.cell(professionalDashboard, 5, 6, qualityText, bgcolor = color.new(qualityColor, 89), text_color = qualityColor, text_size = dashboardSizeInput, text_halign = text.align_left, text_font_family = font.family_monospace, tooltip = "Use standard candles. Directional volume is classified from intrabar price movement, not true exchange aggressor flags. Historical footprint precision can differ from realtime precision.")
 
+// Separate compact checklist: disabling the large pressure matrix hides no setup state.
+// Keep this script's tables apart when both panels select the same corner.
+string checklistPosition = showDashboardInput and ictPanelPositionInput == dashboardPositionInput ? (ictPanelPositionInput == "Top right" ? "Bottom right" : ictPanelPositionInput == "Bottom right" ? "Top right" : ictPanelPositionInput == "Top left" ? "Bottom left" : "Top left") : ictPanelPositionInput
+int checklistRows = compactChecklist ? 14 : 16
+var table ictPanel = table.new(resolve_dashboard_position(checklistPosition), 3, checklistRows, bgcolor = dashboardBackgroundInput, frame_color = color.new(dashboardTextInput, 65), frame_width = 1)
+
+var table qualityBadge = table.new(badgePositionInput == "Top center" ? position.top_center : position.bottom_center, 1, 1)
+var line previousVahLine = na
+var line previousValLine = na
+var label previousVahLabel = na
+var label previousValLabel = na
+if barstate.islast
+    if showPriorValueInput and not na(previousSessionVah) and not na(previousSessionVal)
+        color priorColor = previousProfileUsable ? valueAreaColorInput : color.gray
+        int knownFromBar = math.max(nz(previousProfileKnownBar, bar_index), bar_index - 4999)
+        if na(previousVahLine)
+            previousVahLine := line.new(knownFromBar, previousSessionVah, bar_index + 4, previousSessionVah, style = line.style_dashed)
+            previousValLine := line.new(knownFromBar, previousSessionVal, bar_index + 4, previousSessionVal, style = line.style_dashed)
+            previousVahLabel := label.new(bar_index + 4, previousSessionVah, "", style = label.style_label_left, size = size.tiny)
+            previousValLabel := label.new(bar_index + 4, previousSessionVal, "", style = label.style_label_left, size = size.tiny)
+        line.set_xy1(previousVahLine, knownFromBar, previousSessionVah)
+        line.set_xy2(previousVahLine, bar_index + 4, previousSessionVah)
+        line.set_xy1(previousValLine, knownFromBar, previousSessionVal)
+        line.set_xy2(previousValLine, bar_index + 4, previousSessionVal)
+        line.set_color(previousVahLine, color.new(priorColor, 60))
+        line.set_color(previousValLine, color.new(priorColor, 60))
+        label.set_xy(previousVahLabel, bar_index + 4, previousSessionVah)
+        label.set_xy(previousValLabel, bar_index + 4, previousSessionVal)
+        string priorSuffix = previousProfileUsable ? "" : " · incomplete / estimated"
+        label.set_text(previousVahLabel, "Prior " + profileResetInput + " VAH " + format_price(previousSessionVah) + priorSuffix)
+        label.set_text(previousValLabel, "Prior " + profileResetInput + " VAL " + format_price(previousSessionVal) + priorSuffix)
+        label.set_color(previousVahLabel, color.new(priorColor, 90))
+        label.set_color(previousValLabel, color.new(priorColor, 90))
+        label.set_textcolor(previousVahLabel, priorColor)
+        label.set_textcolor(previousValLabel, priorColor)
+    else
+        line.delete(previousVahLine)
+        line.delete(previousValLine)
+        label.delete(previousVahLabel)
+        label.delete(previousValLabel)
+        previousVahLine := na
+        previousValLine := na
+        previousVahLabel := na
+        previousValLabel := na
+
+    table.clear(qualityBadge, 0, 0, 0, 0)
+    if showQualityBadgeInput
+        string badgeText = (automaticTuning ? "AUTO " + presetName : "MANUAL") + " · " + (useNative ? "Native" : useFallback ? "Estimate" : "No flow") + " · " + (profileActive ? "Session open" : "Session closed") + "\n" + qualityText
+        string badgeTooltip = chartDetailInput + "\n" + dataSourceText + "\n" + effectiveSettingsText + "\nVolume type: " + syminfo.volumetype + ". Native footprints are direction-classified, not exchange aggressor flags. The first loaded profile is treated as partial. Confirmed footprints may change after reload. LTF Estimate does not remove this script's Premium/Ultimate requirement."
+        table.cell(qualityBadge, 0, 0, badgeText, bgcolor = dashboardBackgroundInput, text_color = qualityColor, text_size = badgeSizeInput, tooltip = badgeTooltip)
+
+    table.clear(ictPanel, 0, 0, 2, checklistRows - 1)
+    if enableIctInput
+        table.merge_cells(ictPanel, 0, 0, 2, 0)
+        string panelTooltip = "Closed-bar assessment. Before a candidate, the latest pending direction is shown; both directions continue to be monitored. Candidate checks freeze at assessment. Last result is historical and is not an active entry."
+        table.cell(ictPanel, 0, 0, "ICT · " + ictModeInput + " · " + workflowSide + " · " + (automaticTuning ? "AUTO " + presetName : "MANUAL"), bgcolor = dashboardHeaderInput, text_color = color.white, text_size = checklistSizeInput, tooltip = effectiveSettingsText + "\n" + panelTooltip)
+        workflow_row(ictPanel, 1, "ASSESSMENT", workflowState, workflowReason, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        workflow_row(ictPanel, 2, "Closed-bar data", workflowDataReason == "" ? "Ready" : "Unavailable", workflowDataReason == "" ? "Native volume · " + (na(workflowBar) ? "waiting" : str.tostring(bar_index - workflowBar) + " bars ago") : workflowDataReason, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        array<string> stepNames = array.from("1 · Liquidity sweep", "2 · Structure break", "3 · Displacement/FVG", "4 · Location context", "5 · Volume participation", "6 · Fresh imbalance", "7 · Target room", "8 · Entry assessment")
+        for i = 0 to 7
+            workflow_row(ictPanel, i + 3, stepNames.get(i), stepStates.get(i), stepReasons.get(i), checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        string levelText = "Entry " + format_price(workflowEntry) + " / stop " + format_price(workflowStop) + " / target " + format_price(workflowTarget) + " / " + (na(workflowR) ? "—" : str.tostring(workflowR, "#.00") + "R")
+        workflow_row(ictPanel, 11, "Active references", ictExecutionInput == "Limit at FVG" ? "Limit" : "Retest close", levelText, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        string lastResult = ict.active ? "Current setup is active; see above" : ict.direction == 0 ? "No candidate assessed yet" : (ict.direction > 0 ? "Long · " : "Short · ") + ict.state + " · " + str.tostring(bar_index - ict.updated) + " bars ago. " + ict.sweepName + ". " + ict.reason
+        workflow_row(ictPanel, 12, "Last result", "History", lastResult, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        workflow_row(ictPanel, 13, "Daily open", workflowDailyState, workflowDailyReason, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+        if not compactChecklist
+            workflow_row(ictPanel, 14, "Profile coverage", previousProfileUsable ? "Ready" : "Unavailable", "Prior: " + (previousProfileUsable ? "usable" : previousProfileReason) + ". Current: " + (profileIncomplete ? profileCoverageReason : "observed chart coverage") + ". Session " + profileSessionInput + " " + profileTimezone, checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+            workflow_row(ictPanel, 15, "Liquidity coverage", ictSweepInput, "Prior session: " + configuredLiquidityRange.status + "; Asia: " + (combinedLiquidity and liqAsiaInput ? asiaRange.status : "Off") + "; London: " + (combinedLiquidity and liqLondonInput ? londonRange.status : "Off") + "; NY: " + (combinedLiquidity and liqNewYorkInput ? newYorkRange.status : "Off"), checklistSizeInput, dashboardBackgroundInput, dashboardTextInput, positiveDeltaColorInput, negativeDeltaColorInput, pocColorInput)
+
 // ----------------------------------------------------------------------------
 // Alerts
 // ----------------------------------------------------------------------------
 alertcondition(extremePositiveEvent, "Extreme positive delta", "{{ticker}} {{interval}}: extreme positive volume delta with qualifying relative volume.")
 alertcondition(extremeNegativeEvent, "Extreme negative delta", "{{ticker}} {{interval}}: extreme negative volume delta with qualifying relative volume.")
-alertcondition(sellersAbsorbedEvent, "Sellers absorbed", "{{ticker}} {{interval}}: aggressive selling was absorbed; inspect bullish reversal context and structure.")
-alertcondition(buyersAbsorbedEvent, "Buyers absorbed", "{{ticker}} {{interval}}: aggressive buying was absorbed; inspect bearish reversal context and structure.")
+alertcondition(sellersAbsorbedEvent, "Potential seller absorption", "{{ticker}} {{interval}}: negative classified delta with bullish rejection; potential absorption, not confirmed passive execution.")
+alertcondition(buyersAbsorbedEvent, "Potential buyer absorption", "{{ticker}} {{interval}}: positive classified delta with bearish rejection; potential absorption, not confirmed passive execution.")
 alertcondition(stackedBuyEvent, "Stacked buy imbalance", "{{ticker}} {{interval}}: native footprint detected a stacked buy imbalance.")
 alertcondition(stackedSellEvent, "Stacked sell imbalance", "{{ticker}} {{interval}}: native footprint detected a stacked sell imbalance.")
 alertcondition(bullishCvdDivergenceEvent, "Bullish CVD divergence confirmed", "{{ticker}} {{interval}}: confirmed price/CVD bullish divergence. The pivot is delayed by the configured confirmation length.")

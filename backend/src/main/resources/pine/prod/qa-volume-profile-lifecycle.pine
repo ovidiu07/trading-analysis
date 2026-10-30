@@ -1,0 +1,213 @@
+//@version=6
+indicator("QA · Volume Profile ICT Lifecycle", overlay=true)
+type LiquidityLevel
+    float price
+    int side
+    string name
+    string kind
+    int born
+    int expires
+    bool consumed = false
+    int expiresBar = na
+
+type LiquiditySession
+    int anchor = na
+    int ending = na
+    float hi = na
+    float lo = na
+    bool complete = false
+    bool published = false
+    string status = "Waiting for session history"
+
+type FlowZone
+    int direction
+    float bottom
+    float top
+    int born
+    int state = 0 // 0 fresh, 1 tested, 2 invalidated, 3 expired
+    box drawing = na
+
+type IctCandidate
+    int direction = 0
+    int born = na
+    int updated = na
+    string state = "WAITING"
+    string reason = "Waiting for sweep / structure / displacement / FVG"
+    float bottom = na
+    float top = na
+    float entry = na
+    float stop = na
+    float target = na
+    float boundary = na
+    string sweepName = ""
+    float sweepPrice = na
+    string sweepKind = ""
+    string targetName = ""
+    string locationModel = "Prior value"
+    float rvol = na
+    float rr = na
+    bool locationAvailable = false
+    bool imbalanceAvailable = false
+    string dataReason = ""
+    string locationReason = ""
+    string targetReason = ""
+    bool locationOk = false
+    bool participationOk = false
+    bool imbalanceOk = false
+    bool roomOk = false
+    bool filtersOk = false
+    bool dataOk = false
+    bool active = false
+    int firstTouch = na
+    FlowZone zone = na
+    box drawing = na
+
+
+liquidity_event(LiquidityLevel level, int atBar, int atTime, float barHigh, float barLow, float barClose, float previousClose, float penetration) =>
+    int event = 0
+    if not level.consumed and atBar > level.born and atTime < level.expires and (na(level.expiresBar) or atBar <= level.expiresBar)
+        bool crossed = level.side < 0 ? barLow < level.price : barHigh > level.price
+        bool deepEnough = level.side < 0 ? barLow <= level.price - penetration : barHigh >= level.price + penetration
+        bool reclaimed = level.side < 0 ? previousClose >= level.price and barClose > level.price : previousClose <= level.price and barClose < level.price
+        if crossed
+            level.consumed := true
+            event := reclaimed and deepEnough ? -level.side : 0
+    event
+equal_pool_valid(float first, float second, float excursion, float tolerance, int separation, int minimumSeparation, int maximumSeparation, int side) =>
+    not na(first) and not na(second) and separation >= minimumSeparation and separation <= maximumSeparation and math.abs(first - second) <= tolerance and (side > 0 ? excursion <= math.max(first, second) : excursion >= math.min(first, second))
+local_location_ok(int direction, float entry, float sweepExtreme, float structure) =>
+    not na(entry) and not na(sweepExtreme) and not na(structure) and (direction > 0 ? structure > sweepExtreme and entry >= sweepExtreme and entry <= math.avg(sweepExtreme, structure) : structure < sweepExtreme and entry <= sweepExtreme and entry >= math.avg(sweepExtreme, structure))
+update_ict_candidate(IctCandidate candidate, int atBar, float barOpen, float barHigh, float barLow, float barClose, float previousClose, float barDeltaPercent, bool newSession, bool inSession, bool dataAvailable, string executionMode, int expiryBars, int zoneExpiryBars, bool requireImbalance, bool requireRoom, float minimumR, float reactionDelta) =>
+    bool qualified = false
+    // Manage the existing candidate before considering another. Failed filters
+    // are never upgraded after seeing how their retest turned out.
+    if candidate.active and atBar > candidate.born
+        bool stopBroken = candidate.direction > 0 ? barLow <= candidate.stop : barHigh >= candidate.stop
+        bool gapBroken = candidate.direction > 0 ? barClose < candidate.bottom : barClose > candidate.top
+        // Geometry remains valid even if the display-history cap evicts this zone.
+        bool zoneBroken = not na(candidate.zone) ? (candidate.direction > 0 ? barClose < candidate.zone.bottom : barClose > candidate.zone.top) : false
+        bool zoneExpired = not na(candidate.zone) ? atBar - candidate.zone.born > zoneExpiryBars : false
+        bool touched = barHigh >= candidate.bottom and barLow <= candidate.top
+        bool limitTouched = barLow <= candidate.entry and barHigh >= candidate.entry
+        bool targetReached = not na(candidate.target) and (candidate.direction > 0 ? barHigh >= candidate.target : barLow <= candidate.target)
+        bool gappedPastLimit = candidate.direction > 0 ? previousClose > candidate.entry and barHigh < candidate.entry : previousClose < candidate.entry and barLow > candidate.entry
+        if newSession or not inSession or atBar - candidate.born > expiryBars or (requireImbalance and zoneExpired)
+            candidate.state := "EXPIRED"
+            candidate.reason := requireImbalance and zoneExpired ? "Supporting imbalance zone expired" : "Session ended or FVG age limit exceeded"
+            candidate.active := false
+        else if not dataAvailable
+            candidate.state := "INSUFFICIENT DATA"
+            candidate.reason := "Native data or session alignment lost; qualification withdrawn"
+            candidate.active := false
+        else if stopBroken or gapBroken or (requireImbalance and zoneBroken)
+            candidate.state := "INVALIDATED"
+            candidate.reason := stopBroken ? "Structural stop breached; any same-bar touch is ambiguous" : gapBroken ? "Confirmed close through FVG far edge" : "Supporting imbalance invalidated"
+            candidate.active := false
+        else if requireRoom and targetReached
+            candidate.state := touched ? "REVIEW" : "EXPIRED"
+            candidate.reason := touched ? "Retest and target on same bar; sequence unknown" : "Fixed target reached before entry assessment"
+            candidate.active := false
+        else if executionMode == "Limit at FVG" and (limitTouched or gappedPastLimit)
+            candidate.state := gappedPastLimit ? "REVIEW" : "ENTRY TOUCHED"
+            candidate.reason := gappedPastLimit ? "Price gapped past limit; execution cannot be inferred" : "Prequalified limit price traded; fill and outcome unverified"
+            candidate.active := false
+        else if executionMode == "Confirmed retest"
+            if touched and na(candidate.firstTouch)
+                candidate.firstTouch := atBar
+            bool reaction = not na(candidate.firstTouch) and (candidate.direction > 0 ? barClose > candidate.top and barClose > barOpen : barClose < candidate.bottom and barClose < barOpen) and barDeltaPercent * candidate.direction >= reactionDelta
+            float reactionRisk = (barClose - candidate.stop) * candidate.direction
+            float reactionR = reactionRisk > 0 and not na(candidate.target) ? (candidate.target - barClose) * candidate.direction / reactionRisk : na
+            if reaction
+                candidate.entry := barClose
+                candidate.rr := reactionR
+                candidate.roomOk := not na(reactionR) and reactionR >= minimumR
+                candidate.state := not requireRoom or candidate.roomOk ? "CONDITIONS MET" : "FILTERED"
+                candidate.reason := not requireRoom or candidate.roomOk ? "Retest rejection confirmed now; close is an entry reference, not a fill" : "Reaction confirmed but insufficient R at the confirmation close"
+                candidate.active := false
+                qualified := candidate.state == "CONDITIONS MET"
+            else if not na(candidate.firstTouch)
+                candidate.state := "WAITING"
+                candidate.reason := "FVG tested; waiting for rejection close and directional delta"
+
+    qualified
+fresh_candidate() =>
+    IctCandidate c = IctCandidate.new()
+    c.direction := 1
+    c.born := 10
+    c.active := true
+    c.state := "CONDITIONS MET"
+    c.bottom := 100
+    c.top := 104
+    c.entry := 102
+    c.stop := 96
+    c.target := 120
+    c
+var int passed = 0
+if barstate.isfirst
+    IctCandidate c = na
+    c := fresh_candidate()
+    update_ict_candidate(c, 10, 106, 108, 101, 107, 106, 30, false, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.active and c.state == "CONDITIONS MET")
+        runtime.error("FAIL: no creation-bar touch")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 11, 106, 108, 101, 107, 106, -99, false, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (not c.active and c.state == "ENTRY TOUCHED")
+        runtime.error("FAIL: limit prequalification ignores future delta")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 11, 106, 108, 95, 107, 106, 30, false, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.state == "INVALIDATED")
+        runtime.error("FAIL: stop and touch ambiguity")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 11, 106, 121, 101, 107, 106, 30, false, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.state == "REVIEW")
+        runtime.error("FAIL: target and touch ambiguity")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 11, 106, 108, 101, 107, 106, 30, false, true, false, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.state == "INSUFFICIENT DATA")
+        runtime.error("FAIL: data loss blocks touch")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 11, 106, 108, 105, 107, 106, 30, true, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.state == "EXPIRED")
+        runtime.error("FAIL: session reset without outside bars")
+    passed += 1
+    c := fresh_candidate()
+    update_ict_candidate(c, 23, 106, 108, 105, 107, 106, 30, false, true, true, "Limit at FVG", 12, 60, true, true, 1.5, 15)
+    if not (c.state == "EXPIRED")
+        runtime.error("FAIL: expiry from FVG confirmation")
+    passed += 1
+    c := fresh_candidate()
+    bool qualified = update_ict_candidate(c, 11, 102, 108, 101, 105, 106, 30, false, true, true, "Confirmed retest", 12, 60, true, true, 1.5, 15)
+    if not qualified or math.abs(c.rr - 15.0 / 9.0) > 0.00001
+        runtime.error("FAIL: confirmation must reprice risk")
+    passed += 1
+    LiquidityLevel l = LiquidityLevel.new(100, -1, "EQL", "EQ", 10, 10000)
+    if liquidity_event(l, 10, 1000, 104, 99, 102, 101, 1) != 0 or l.consumed
+        runtime.error("FAIL: no confirmation-bar pool sweep")
+    passed += 1
+    if liquidity_event(l, 11, 1000, 104, 99, 102, 101, 1) != 1 or not l.consumed
+        runtime.error("FAIL: EQL sweep and reclaim")
+    passed += 1
+    if liquidity_event(l, 12, 1000, 104, 99, 102, 101, 1) != 0
+        runtime.error("FAIL: consumed pool repeated")
+    passed += 1
+    l := LiquidityLevel.new(100, 1, "EQH", "EQ", 10, 10000)
+    if liquidity_event(l, 11, 1000, 101, 97, 98, 99, 1) != -1
+        runtime.error("FAIL: EQH sweep symmetry")
+    passed += 1
+    if not equal_pool_valid(100, 100.5, 100.5, 0.5, 10, 3, 250, 1) or equal_pool_valid(100, 100.5, 101, 0.5, 10, 3, 250, 1)
+        runtime.error("FAIL: equal-pool tolerance / intervening raid")
+    passed += 1
+    if not local_location_ok(1, 102, 98, 110) or local_location_ok(1, 105, 98, 110)
+        runtime.error("FAIL: local long discount")
+    passed += 1
+    if not local_location_ok(-1, 106, 110, 98) or local_location_ok(-1, 103, 110, 98)
+        runtime.error("FAIL: local short premium")
+    passed += 1
+var table result = table.new(position.top_right, 1, 1)
+if barstate.islast
+    table.cell(result, 0, 0, "PASS · " + str.tostring(passed) + " lifecycle / liquidity checks", bgcolor=color.green, text_color=color.white)
