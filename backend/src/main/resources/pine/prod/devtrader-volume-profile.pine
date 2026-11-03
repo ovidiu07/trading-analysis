@@ -29,18 +29,21 @@ const string GROUP_PRESET = "0 · Automatic timeframe settings"
 const string GROUP_UI = "0A · Readability & layout"
 const string GROUP_DATA = "1 · Data engine"
 const string GROUP_PROFILE = "2 · Session volume profile"
-const string GROUP_FOOTPRINT_VALUES = "2A · Footprint values"
+const string GROUP_FOOTPRINT_VALUES = "2B · Footprint values"
+const string GROUP_PROFILE_STYLE = "2A · Profile colours & contrast"
 const string GROUP_FLOW = "3 · Order-flow analysis"
-const string GROUP_CANDLES = "4 · Delta candles"
+const string GROUP_CANDLES = "4 · Pressure candles"
+const string GROUP_PHASE = "4A · Possible accumulation / distribution"
 const string GROUP_LEVELS = "5 · Levels & signals"
 const string GROUP_DASHBOARD = "6 · Professional dashboard"
 const string GROUP_ICT = "7 · ICT entry checklist"
 const string GROUP_LIQUIDITY = "7A · Liquidity sources & daily open"
 const string GROUP_ZONES = "8 · Auction references & imbalance zones"
 const int MAX_PROFILE_BINS = 2500
+const string UI_BUILD = "Session Profile 4"
 
 string tuningModeInput = input.string("Auto by timeframe", "Parameter mode", options = ["Auto by timeframe", "Manual"], tooltip = "Auto applies conservative timeframe-specific thresholds. These are starting presets, not optimized or proven best settings. Numeric inputs below are used in Manual mode; footprint base ticks, sessions, risk and execution choices remain yours in both modes. Effective settings are shown in the checklist header tooltip.", group = GROUP_PRESET)
-string chartDetailInput = input.string("Entry focus", "Chart detail", options = ["Entry focus", "Context + entries", "Full diagnostics"], tooltip = "Entry focus: qualified ICT labels and their FVG/imbalance only. Context + entries: recent, deduplicated flow markers and zones. Full diagnostics: all lifecycle labels and raw context markers. Hidden diagnostics remain available in the checklist.", group = GROUP_PRESET)
+string chartDetailInput = input.string("Entry focus", "Chart detail", options = ["Entry focus", "Context + entries", "Full diagnostics"], tooltip = "Entry focus limits ICT labels to qualified candidates. Context + entries adds flow events; Full diagnostics adds rejected setups. Pressure candles, source-candle imbalance labels and possible phase annotations have independent switches in groups 4, 4A and 8.", group = GROUP_PRESET)
 int entryLabelLimitInput = input.int(8, "Retained entry labels", minval = 1, maxval = 30, group = GROUP_PRESET)
 int contextHistoryBarsInput = input.int(150, "Context marker history (bars)", minval = 20, maxval = 2000, group = GROUP_PRESET)
 int manualCooldownInput = input.int(5, "Manual context cooldown (bars)", minval = 1, maxval = 100, active = tuningModeInput == "Manual", group = GROUP_PRESET)
@@ -99,14 +102,14 @@ string timezoneInput = input.string(
      options = ["Exchange", "Etc/UTC", "America/New_York", "America/Chicago", "Europe/London", "Europe/Berlin", "Europe/Bucharest", "Asia/Tokyo"],
      group = GROUP_PROFILE)
 string profileResetInput = input.string(
-     "Daily", "Profile reset",
+     "Session only", "Profile reset",
      options = ["Daily", "Weekly", "Monthly", "Session only"],
      tooltip = "Daily, weekly and monthly modes aggregate configured-session bars inside each calendar period. Session only resets at the session's local start date, including 24-hour and session-restricted charts.",
      group = GROUP_PROFILE)
 string profileResolutionInput = input.string(
      "Adaptive", "Profile row resolution",
      options = ["Adaptive", "Footprint rows"],
-     tooltip = "Adaptive freezes a session row size from current ATR, keeping the developing profile responsive across instruments. Footprint rows preserves the exact configured footprint-row height but can be expensive on wide sessions.",
+     tooltip = "Legacy chart engine only. Fixed 1m uses its independent fixed row ticks below; chart ATR and automatic footprint presets never change that grid.",
      group = GROUP_PROFILE)
 float profileAtrFractionInput = input.float(
      0.20, "Adaptive row size (ATR fraction)", minval = 0.05, maxval = 5.0, step = 0.05,
@@ -131,8 +134,8 @@ float profileRowGapInput = input.float(
      10.0, "Visual row separation (%)", minval = 0.0, maxval = 40.0, step = 2.5,
      tooltip = "Adds a small gap between displayed rows so the profile remains readable instead of becoming one solid mass.",
      group = GROUP_PROFILE)
-int valueAreaTransparencyInput = input.int(60, "Value-area transparency", minval = 0, maxval = 100, group = GROUP_PROFILE)
-int outsideValueTransparencyInput = input.int(88, "Outside", minval = 0, maxval = 100, group = GROUP_PROFILE)
+int valueAreaTransparencyInput = input.int(60, "Value-area transparency", minval = 0, maxval = 100, tooltip = "Used only with Value-area shading or Legacy gradient + shading. Exact picker colours ignores this control.", group = GROUP_PROFILE_STYLE)
+int outsideValueTransparencyInput = input.int(88, "Outside", minval = 0, maxval = 100, tooltip = "Outside-value transparency in shaded modes only. Exact picker colours uses your picker opacity throughout the profile.", group = GROUP_PROFILE_STYLE)
 bool showValueAreaBracketInput = input.bool(true, "Value-area bracket", group = GROUP_PROFILE)
 bool showProfileMeanInput = input.bool(true, "Mean", group = GROUP_PROFILE)
 string pocDisplayModeInput = input.string(
@@ -152,9 +155,9 @@ int pocMigrationRowsInput = input.int(
      1, "POC migration threshold (rows)", minval = 1, maxval = 20,
      tooltip = "The developing trail moves only after POC changes by at least this many active profile rows. This suppresses one-tick visual noise.",
      group = GROUP_PROFILE)
-color profileTotalColorInput = input.color(#FF8F22, "Total profile", group = GROUP_PROFILE)
-color profileBuyColorInput = input.color(#112B8C, "Buy profile", group = GROUP_PROFILE)
-color profileSellColorInput = input.color(#751B21, "Sell profile", group = GROUP_PROFILE)
+color profileTotalColorInput = input.color(#FF8F22, "Total profile", group = GROUP_PROFILE_STYLE)
+color profileBuyColorInput = input.color(#112B8C, "Buy profile", group = GROUP_PROFILE_STYLE)
+color profileSellColorInput = input.color(#751B21, "Sell profile", group = GROUP_PROFILE_STYLE)
 color valueAreaColorInput = input.color(#FFFFFF, "Value area", group = GROUP_PROFILE)
 
 // Footprint values
@@ -223,16 +226,27 @@ bool confirmedSignalsOnlyInput = input.bool(
 
 // Delta candle visuals
 bool showDeltaCandlesInput = input.bool(true, "Show delta candles", group = GROUP_CANDLES)
+string candleEncodingInput = input.string("Pressure body", "Candle colouring", options = ["Pressure body", "Original layout", "Legacy delta fill"], tooltip = "Original layout disables this script's candle replacements and bar colouring, preserving the chart's own candles. Pressure body colours the actual OHLC body by whole-candle classified delta, not candle direction. Colours and transparency below are independent of zone/profile colours. This is a pressure proxy, not exchange aggressor data. Legacy fill height is a gauge, NOT the price location of buying/selling.", group = GROUP_CANDLES)
+color pressureBuyColorInput = input.color(#008C60, "Pressure buy body", group = GROUP_CANDLES)
+color pressureSellColorInput = input.color(#D92D42, "Pressure sell body", group = GROUP_CANDLES)
+color pressureNeutralColorInput = input.color(#808080, "Pressure neutral / unavailable body", group = GROUP_CANDLES)
+color pressureOutlineColorInput = input.color(#424242, "Pressure wick / border", group = GROUP_CANDLES)
+bool pressureDirectionalOutlineInput = input.bool(true, "Match wick / border to pressure", tooltip = "Off uses the separate wick/border colour. On uses buy/sell colour on directional candles, including weak bias, and neutral colour otherwise.", group = GROUP_CANDLES)
+int pressureStrongTransparencyInput = input.int(0, "Strong body transparency", minval = 0, maxval = 100, tooltip = "0 = solid, 100 = invisible. These controls override the alpha channel of the body colour pickers.", group = GROUP_CANDLES)
+int pressureDirectionalTransparencyInput = input.int(10, "Directional body transparency", minval = 0, maxval = 100, group = GROUP_CANDLES)
+int pressureWeakTransparencyInput = input.int(35, "Weak bias body transparency", minval = 0, maxval = 100, tooltip = "Visibility only: making a weak bias darker does not qualify it as strong pressure. Read the closed-candle classification.", group = GROUP_CANDLES)
+int pressureNeutralTransparencyInput = input.int(55, "Neutral / unavailable transparency", minval = 0, maxval = 100, group = GROUP_CANDLES)
+bool showFlowReadoutInput = input.bool(true, "Pressure legend & last closed candle", group = GROUP_CANDLES)
 string deltaFillModeInput = input.string(
      "Full body", "Delta fill mode",
      options = ["Full body", "Half body"],
-     tooltip = "Full body grows positive delta from the body low and negative delta from the body high. Half body grows around the candle midpoint.",
-     group = GROUP_CANDLES)
+     tooltip = "Legacy only: a delta gauge, not the price location of trades. Full body grows positive delta from the body low and negative delta from the body high. Half body grows around the midpoint.",
+     active = candleEncodingInput == "Legacy delta fill", group = GROUP_CANDLES)
 string deltaRangeInput = input.string(
      "Full candle range", "Delta visual range",
      options = ["Candle body", "Full candle range"],
      tooltip = "Candle body is cleaner. Full candle range makes delta visible on doji and very small-body candles.",
-     group = GROUP_CANDLES)
+     active = candleEncodingInput == "Legacy delta fill", group = GROUP_CANDLES)
 float deltaNeutralThresholdInput = input.float(
      5.0, "Neutral delta band (%)", minval = 0.0, maxval = 50.0, step = 1.0,
      tooltip = "Absolute delta below this level is treated as neutral so insignificant directional differences do not color the candle.",
@@ -240,13 +254,20 @@ float deltaNeutralThresholdInput = input.float(
 float deltaSaturationInput = input.float(
      50.0, "Full delta fill at (%)", minval = 5.0, maxval = 100.0, step = 5.0,
      tooltip = "Absolute normalized delta at or above this value fills the complete selected candle range.",
-     group = GROUP_CANDLES)
-int candleFillTransparencyInput = input.int(84, "Base candle transparency", minval = 0, maxval = 100, group = GROUP_CANDLES)
-color candleUpColorInput = input.color(#112B8C, "Bull outline", group = GROUP_CANDLES)
-color candleDownColorInput = input.color(#000000, "Bear outline", group = GROUP_CANDLES)
+     active = candleEncodingInput == "Legacy delta fill", group = GROUP_CANDLES)
+int candleFillTransparencyInput = input.int(84, "Legacy base transparency", minval = 0, maxval = 100, active = candleEncodingInput == "Legacy delta fill", group = GROUP_CANDLES)
+color candleUpColorInput = input.color(#112B8C, "Legacy bull outline", group = GROUP_CANDLES)
+color candleDownColorInput = input.color(#000000, "Legacy bear outline", group = GROUP_CANDLES)
 color positiveDeltaColorInput = input.color(#41A549, "Positive delta", group = GROUP_CANDLES)
 color negativeDeltaColorInput = input.color(#F03542, "Negative delta", group = GROUP_CANDLES)
 color neutralDeltaColorInput = input.color(#FFFFFF, "Neutral delta", group = GROUP_CANDLES)
+
+bool showPhasesInput = input.bool(true, "Show possible auction phases", tooltip = "Research heuristic, not observed inventory or a confirmed Wyckoff phase. Requires a compact range, low net progress, native footprint coverage, participation and repeated absorption-like candles at one range edge. Recognition is at candle close; no labels are backdated. These annotations do not change ICT entry qualification.", group = GROUP_PHASE)
+int phaseWindowInput = input.int(20, "Manual range window (bars)", minval = 6, maxval = 100, active = tuningModeInput == "Manual", group = GROUP_PHASE)
+float phaseWidthAtrInput = input.float(3.0, "Maximum range width / ATR", minval = 0.5, maxval = 10, step = 0.25, group = GROUP_PHASE)
+float phaseEfficiencyInput = input.float(0.30, "Maximum net progress / travelled distance", minval = 0.05, maxval = 0.75, step = 0.05, group = GROUP_PHASE)
+int phaseAbsorptionsInput = input.int(2, "Minimum edge absorption candles", minval = 2, maxval = 10, group = GROUP_PHASE)
+int phaseRetentionInput = input.int(3, "Retained phase ranges", minval = 1, maxval = 6, group = GROUP_PHASE)
 
 // Levels and signals
 string barPocDisplayInput = input.string(
@@ -329,10 +350,24 @@ bool showIctMarksInput = input.bool(true, "Show setup and lifecycle labels", gro
 int recentPressureInput = input.int(5, "Recent pressure window (bars)", minval = 2, maxval = 30, group = GROUP_ICT)
 bool showPriorValueInput = input.bool(true, "Show previous profile VAH / VAL", group = GROUP_ZONES)
 bool showImbalanceZonesInput = input.bool(true, "Show imbalance zones", group = GROUP_ZONES)
-int zoneLimitInput = input.int(12, "Maximum retained imbalance zones", minval = 2, maxval = 30, active = tuningModeInput == "Manual" or chartDetailInput == "Full diagnostics", group = GROUP_ZONES)
+string imbalanceDisplayInput = input.string("At source candle", "Imbalance presentation", options = ["At source candle", "Extended zones"], tooltip = "Default: a short price band on the originating candle, with BUY/SELL IMB, consecutive row count and a hover explanation. Shows native stacked evidence even in Entry focus. Extended zones restores lifecycle projections. Neither is an entry signal or proof of resting orders.", group = GROUP_ZONES)
+string imbalanceDensityInput = input.string("Clean", "Imbalance density", options = ["Clean", "All qualifying stacks"], tooltip = "Clean requires candle participation, suppresses nearby same-side repetitions and counts them on the original mark. All qualifying stacks shows each native stack allowed by row/share thresholds. Both use the visible limit below. This only changes drawings, never raw ICT stack eligibility.", group = GROUP_ZONES)
+int imbalanceVisibleLimitInput = input.int(4, "Maximum visible imbalance marks", minval = 1, maxval = 12, group = GROUP_ZONES)
+int imbalanceRepeatBarsInput = input.int(10, "Nearby repeat window (bars)", minval = 1, maxval = 100, group = GROUP_ZONES)
+float imbalanceNearbyAtrInput = input.float(0.25, "Nearby price gap / ATR", minval = 0, maxval = 2, step = 0.05, tooltip = "Same-side marks count as nearby when they overlap by at least half the smaller band, or their price gap is within this ATR fraction. The first source band keeps its original prices; no combined volume or enlarged price zone is fabricated.", group = GROUP_ZONES)
+bool showInactiveImbalanceInput = input.bool(false, "Keep invalid / expired imbalance marks", group = GROUP_ZONES)
+int zoneLimitInput = input.int(12, "Analytical imbalance history (stacks)", minval = 2, maxval = 30, tooltip = "Raw references retained for ICT checks. Separate from Maximum visible imbalance marks. Auto outside Full diagnostics retains four analytical stacks.", active = tuningModeInput == "Manual" or chartDetailInput == "Full diagnostics", group = GROUP_ZONES)
 int zoneExpiryInput = input.int(60, "Imbalance zone expiry (bars)", minval = 3, maxval = 500, active = tuningModeInput == "Manual", group = GROUP_ZONES)
 float minimumStackShareInput = input.float(5, "Minimum stack share of candle volume (%)", minval = 0, maxval = 100, step = 1, active = tuningModeInput == "Manual", group = GROUP_ZONES)
 bool showQualityBadgeInput = input.bool(true, "Always show data-quality badge", group = GROUP_ZONES)
+
+// Append new inputs to preserve saved TradingView input IDs on existing charts.
+string profileColourModeInput = input.string("Exact picker colours", "Profile colour rendering", options = ["Exact picker colours", "Value-area shading", "Legacy gradient + shading"], tooltip = "Exact uses your colour pickers unchanged, including their opacity. Choose 100% opacity in the picker for an exact solid colour over other drawings. Shading overrides picker opacity with the two transparency inputs. Legacy also blends buy/sell hues in Delta Dominance. None of these settings changes volume or signals.", group = GROUP_PROFILE_STYLE)
+float profileNeutralPercentInput = input.float(0.0, "Neutral row delta (%)", minval = 0.0, maxval = 25.0, step = 0.5, tooltip = "Delta Dominance only: rows at or below this absolute delta percentage use Neutral profile. Zero means only equal buy/sell rows are neutral. This display threshold does not affect trading checks.", active = profileDisplayModeInput == "Delta Dominance", group = GROUP_PROFILE_STYLE)
+bool showProfileLegendInput = input.bool(true, "Show profile key / data details", tooltip = "A compact key above the profile identifies the display and value mode. Hover for row consolidation and data coverage. This is a session aggregate, not a footprint on each candle.", group = GROUP_PROFILE_STYLE)
+string profileLevelTextSizeInput = input.string(size.small, "Auction label text size", options = [size.tiny, size.small, size.normal], group = GROUP_PROFILE_STYLE)
+color profileNeutralColorInput = input.color(#808080, "Neutral profile", group = GROUP_PROFILE_STYLE)
+bool profileAutoTextContrastInput = input.bool(true, "Automatic value text contrast", tooltip = "Uses black or white text against the rendered row fill. Turn off to use the three value text colours above. Transparent fills are estimated against the chart background; overlapping drawings can still affect contrast.", group = GROUP_FOOTPRINT_VALUES)
 
 // Input defaults must be constant in Pine. Effective simple values are recomputed
 // when the chart timeframe changes; the native request never receives a series row size.
@@ -362,8 +397,23 @@ simple int zoneLimitEffective = automaticTuning and not fullDiagnostics ? 4 : zo
 simple int contextCooldown = automaticTuning ? int(math.max(2, math.min(100, math.ceil(600.0 / presetSeconds)))) : manualCooldownInput
 simple float minimumGapAtr = automaticTuning ? (presetBand == 0 ? 0.10 : presetBand == 1 ? 0.08 : presetBand == 2 ? 0.06 : 0.04) : 0.0
 simple bool effectiveSignalConfirmation = automaticTuning or confirmedSignalsOnlyInput
+simple int phaseWindow = automaticTuning ? (presetBand == 0 ? 30 : presetBand == 1 ? 20 : presetBand == 2 ? 12 : 10) : phaseWindowInput
+simple bool localImbalance = imbalanceDisplayInput == "At source candle"
 simple int retainedIctLabels = fullDiagnostics ? 80 : entryLabelLimitInput
 string effectiveSettingsText = (automaticTuning ? "AUTO · " + presetName : "MANUAL") + " · " + chartDetailInput + "\nRVOL ≥ " + str.tostring(minimumRelativeVolumeEffective, "#.0") + "× · Delta extreme " + str.tostring(extremeDeltaPercentEffective, "#") + "% · Stack " + str.tostring(stackedRowsEffective) + " rows / " + str.tostring(imbalancePercentEffective, "#") + "%\nSwing " + str.tostring(ictSwingEffective) + " bars · Displacement " + str.tostring(ictBodyAtrEffective, "#.0") + " ATR · FVG expiry " + str.tostring(ictExpiryEffective) + " bars\nFootprint row " + str.tostring(rowTicksEffective) + " ticks · Stack share " + str.tostring(minimumStackShareEffective, "#") + "% · Minimum gap " + str.tostring(minimumGapAtr, "#.00") + " ATR (and tick minimum)"
+
+// Session profile is independent of candle-native order flow. Append input IDs.
+string sessionEngineInput = input.string("Fixed 1m estimate", "Session profile engine", options = ["Fixed 1m estimate", "Legacy chart footprint"], tooltip = "Fixed 1m uses CLOSED standard 1-minute OHLCV on every supported chart (time-based intraday, 1 minute or higher). Volume is spread uniformly over each minute range; up/down follows close versus open. This is an estimate, NOT bid/ask volume. Legacy retains chart-footprint profiles and WILL vary with chart timeframe. Native candle flow is unchanged.", group = GROUP_PROFILE)
+int fixedProfileTicksInput = input.int(100, "Fixed profile row size (ticks)", minval = 1, maxval = 100000, tooltip = "Independent of Auto presets and chart ATR. Same symbol, session, row size, value-area rule and available 1m history are required for matching levels. 100 ticks = 1 point if minimum tick is 0.01; adjust for your instrument. Row-cap failure is flagged.", group = GROUP_PROFILE)
+bool showBuyImbalanceLabelsInput = input.bool(true, "Show BUY IMB labels", tooltip = "Text labels only. Bands, analytical evidence and alerts remain controlled separately.", group = GROUP_ZONES)
+bool showSellImbalanceLabelsInput = input.bool(true, "Show SELL IMB labels", tooltip = "Text labels only. Bands, analytical evidence and alerts remain controlled separately.", group = GROUP_ZONES)
+bool showSessionVwapInput = input.bool(false, "Show session VWAP reference", tooltip = "Fixed 1m engine only. Sum of closed 1m HLC3 × volume / volume, reset at configured session open. This is separate from the binned profile mean.", group = GROUP_ZONES)
+bool showSessionOpenInput = input.bool(false, "Show configured session open", group = GROUP_ZONES)
+bool showInitialBalanceInput = input.bool(false, "Show completed Initial Balance H/L", tooltip = "Fixed 1m engine only. First N minutes from the configured session start; freezes once complete. Configure the session opening to the auction you trade. A midnight session means a midnight IB, not the cash-market opening.", group = GROUP_ZONES)
+int initialBalanceMinutesInput = input.int(60, "Initial Balance duration (minutes)", minval = 1, maxval = 240, group = GROUP_ZONES)
+bool showProfileAuditInput = input.bool(false, "Show profile audit table", tooltip = "Current/prior levels, 1m sample count, total volume, grid and data status. Compare at the SAME closed minute, preferably with Replay. Developing values change as new minutes close.", group = GROUP_PROFILE)
+simple bool fixedProfileEngine = sessionEngineInput == "Fixed 1m estimate"
+simple bool fixedProfileSupported = chart.is_standard and timeframe.isintraday and timeframe.in_seconds() >= 60
 
 // Bounded price references; side +1 = highs, -1 = lows. A daily open has one of each.
 type LiquidityLevel
@@ -392,6 +442,22 @@ type FlowZone
     int born
     int state = 0 // 0 fresh, 1 tested, 2 invalidated, 3 expired
     box drawing = na
+    label tag = na
+    int rows = 0
+    float share = na
+    string evidence = ""
+    int lastSeen = na
+    int repeats = 0
+
+type AuctionPhase
+    int direction
+    int born
+    float bottom
+    float top
+    box drawing = na
+    label tag = na
+    bool active = true
+    string evidence = ""
 
 type IctCandidate
     int direction = 0
@@ -429,6 +495,7 @@ type IctCandidate
     box drawing = na
 
 var array<FlowZone> flowZones = array.new<FlowZone>()
+var array<FlowZone> displayedFlowZones = array.new<FlowZone>()
 var IctCandidate ict = IctCandidate.new()
 var array<label> ictLabels = array.new<label>()
 
@@ -449,6 +516,20 @@ format_footprint_value(float value, string numberFormat) =>
 
 format_signed_footprint_value(float value, string numberFormat) =>
     na(value) ? "" : (value > 0 ? "+" : "") + format_footprint_value(value, numberFormat)
+
+profile_fill(color selected, string rendering, int transparency) =>
+    rendering == "Exact picker colours" ? selected : color.new(selected, transparency)
+
+profile_dominance_colour(float ratio, float neutralPercent, string rendering, color buyColour, color sellColour, color neutralColour) =>
+    math.abs(ratio) * 100.0 <= neutralPercent ? neutralColour : rendering == "Legacy gradient + shading" ? color.from_gradient(ratio, -1.0, 1.0, sellColour, buyColour) : ratio > 0 ? buyColour : sellColour
+
+profile_text_colour(color fill, color customColour, bool automatic) =>
+    float opacity = 1.0 - color.t(fill) / 100.0
+    float red = color.r(fill) * opacity + color.r(chart.bg_color) * (1.0 - opacity)
+    float green = color.g(fill) * opacity + color.g(chart.bg_color) * (1.0 - opacity)
+    float blue = color.b(fill) * opacity + color.b(chart.bg_color) * (1.0 - opacity)
+    float luminance = 0.299 * red + 0.587 * green + 0.114 * blue
+    automatic ? (luminance >= 150 ? color.black : color.white) : customColour
 
 format_signed_volume(float value) =>
     na(value) ? "—" : (value > 0 ? "+" : "") + str.tostring(value, format.volume)
@@ -489,6 +570,68 @@ pressure_color(
      color negativeColor,
      color neutralColor) =>
     not available or na(value) or math.abs(value) < neutralThreshold ? neutralColor : value > 0 ? positiveColor : negativeColor
+
+// Scalar display rules: no candle-direction argument can invert pressure hue.
+classified_flow_valid(float buys, float sells, float total, float delta) =>
+    bool valid = false
+    if not na(buys) and not na(sells) and not na(total) and not na(delta) and buys >= 0 and sells >= 0 and total > 0
+        float tolerance = math.max(0.000001, total * 0.000001)
+        valid := math.abs(buys + sells - total) <= tolerance and math.abs(buys - sells - delta) <= tolerance
+    valid
+
+pressure_grade(float delta, bool nativeReady, bool confirmed, float rvol, float minimumRvol, float neutral, float directional, float strong) =>
+    int grade = 0
+    if nativeReady and confirmed and not na(delta) and delta != 0 and math.abs(delta) >= neutral
+        int side = delta > 0 ? 1 : -1
+        bool participation = not na(rvol) and rvol >= minimumRvol
+        grade := side * (participation and math.abs(delta) >= math.max(neutral, directional) ? (math.abs(delta) >= strong ? 3 : 2) : 1)
+    grade
+
+pressure_transparency(int grade, int strong, int directional, int weak, int neutral) =>
+    math.abs(grade) == 3 ? strong : math.abs(grade) == 2 ? directional : math.abs(grade) == 1 ? weak : neutral
+
+candle_overlay_enabled(bool enabled, string encoding) =>
+    enabled and encoding != "Original layout"
+
+imbalance_nearby(int side, float bottom, float top, int priorSide, float priorBottom, float priorTop, int age, int window, float allowedGap) =>
+    float smallerSpan = math.min(top - bottom, priorTop - priorBottom)
+    float overlap = math.max(0, math.min(top, priorTop) - math.max(bottom, priorBottom))
+    float gap = math.max(0, math.max(bottom, priorBottom) - math.min(top, priorTop))
+    side == priorSide and age >= 0 and age <= window and smallerSpan > 0 and (overlap >= smallerSpan * 0.5 or gap <= allowedGap)
+
+imbalance_lifecycle(int state, int side, float bottom, float top, int born, int atBar, float barHigh, float barLow, float barClose, bool reset, bool inSession, int expiry) =>
+    int nextState = state
+    if state < 2
+        if reset or not inSession or atBar - born > expiry
+            nextState := 3
+        else if side > 0 ? barClose < bottom : barClose > top
+            nextState := 2
+        else if atBar > born and barHigh >= bottom and barLow <= top
+            nextState := 1
+    nextState
+
+retain_imbalance_drawing(FlowZone zone, array<FlowZone> drawings, int limit) =>
+    drawings.push(zone)
+    while drawings.size() > limit
+        FlowZone oldDrawing = drawings.shift()
+        box.delete(oldDrawing.drawing)
+        label.delete(oldDrawing.tag)
+        oldDrawing.drawing := na
+        oldDrawing.tag := na
+
+// 0 is deliberately ambiguous / no directional phase, not a failed trade.
+phase_evidence(bool valid, float widthAtr, float efficiency, float rvol, int lowAbsorptions, int highAbsorptions, float positionInRange, float maxWidth, float maxEfficiency, int minimumAbsorptions) =>
+    int direction = 0
+    if valid and not na(widthAtr) and not na(efficiency) and not na(rvol) and widthAtr > 0 and widthAtr <= maxWidth and efficiency <= maxEfficiency and rvol >= 1
+        if lowAbsorptions >= minimumAbsorptions and highAbsorptions == 0 and positionInRange >= 0.5
+            direction := 1
+        else if highAbsorptions >= minimumAbsorptions and lowAbsorptions == 0 and positionInRange <= 0.5
+            direction := -1
+    direction
+
+phase_end(bool dataReady, bool sessionReset, int age, int maximumAge, float lastClose, float bottom, float top) =>
+    // A missing-data or session gap cannot manufacture a directional breakout.
+    sessionReset or age > maximumAge ? 3 : not dataReady ? 4 : lastClose > top ? 1 : lastClose < bottom ? -1 : 0
 
 resolve_dashboard_position(string selection) =>
     selection == "Top left" ? position.top_left :
@@ -584,6 +727,106 @@ profile_stats(
         vah := (float(keys.get(highIndex)) + 0.5) * priceStep
         val := (float(keys.get(lowIndex)) - 0.5) * priceStep
     [poc, vah, val, total, maximumRowVolume, profileMean]
+
+// Fixed-minute profile state. No chart OHLC/ATR/footprint enters this engine.
+type FixedProfile
+    int periodId = na
+    int sessionId = na
+    int lastTime = na
+    int samples = 0
+    int priorSamples = 0
+    bool incomplete = true
+    bool capped = false
+    bool published = false
+    bool priorComplete = false
+    float priorPoc = na
+    float priorVah = na
+    float priorVal = na
+    float priorVolume = na
+    int priorKnownTime = na
+    int priorId = na
+    bool referenceComplete = false
+    float sessionOpen = na
+    float pv = 0.0
+    float v = 0.0
+    float ibHigh = na
+    float ibLow = na
+    bool ibReady = false
+    int sessionEnd = na
+
+fixed_minute_source(string sessionWindow, string zone, string resetMode) =>
+    int startHour = int(str.tonumber(str.substring(sessionWindow, 0, 2)))
+    int startMinute = int(str.tonumber(str.substring(sessionWindow, 2, 4)))
+    int endHour = int(str.tonumber(str.substring(sessionWindow, 5, 7)))
+    int endMinute = int(str.tonumber(str.substring(sessionWindow, 7, 9)))
+    int todayStart = timestamp(zone, year(time, zone), month(time, zone), dayofmonth(time, zone), startHour, startMinute)
+    int sid = time >= todayStart ? todayStart : timestamp(zone, year(time, zone), month(time, zone), dayofmonth(time, zone) - 1, startHour, startMinute)
+    int endDayOffset = endHour * 60 + endMinute <= startHour * 60 + startMinute ? 1 : 0
+    int ending = timestamp(zone, year(sid, zone), month(sid, zone), dayofmonth(sid, zone) + endDayOffset, endHour, endMinute)
+    bool inside = not na(time("1", sessionWindow, zone))
+    int pid = resetMode == "Session only" ? sid : resetMode == "Weekly" ? time("1W", "0000-0000", zone) : resetMode == "Monthly" ? time("1M", "0000-0000", zone) : time("1D", "0000-0000", zone)
+    [time, time_close, open, high, low, close, volume, sid, pid, inside, ending]
+
+fixed_publish(FixedProfile state, map<int, float> buys, map<int, float> sells, float step, float va, int knownTime) =>
+    [poc, vah, val, total, maximum, mean] = profile_stats(buys, sells, step, va)
+    state.priorPoc := poc
+    state.priorVah := vah
+    state.priorVal := val
+    state.priorVolume := total
+    state.priorSamples := state.samples
+    state.priorId := state.periodId
+    state.priorComplete := not state.incomplete and not state.capped and total > 0
+    state.priorKnownTime := knownTime
+    state.published := true
+
+fixed_ingest(FixedProfile state, map<int, float> buys, map<int, float> sells, int stamp, int closing, float o, float h, float l, float c, float v, int sid, int pid, bool inside, int ending, float step, float va, int ibMinutes, string resetMode) =>
+    // Rollback restores state and maps before each realtime chart update; replay
+    // the closed-minute array from that snapshot. Never use varip or chart volume.
+    if na(state.lastTime) or stamp > state.lastTime
+        if inside
+            if na(state.periodId) or pid != state.periodId
+                if not na(state.periodId) and not state.published
+                    fixed_publish(state, buys, sells, step, va, stamp)
+                buys.clear()
+                sells.clear()
+                state.incomplete := na(state.lastTime) or state.lastTime >= pid
+                state.capped := false
+                state.samples := 0
+                state.published := false
+                state.periodId := pid
+            if na(state.sessionId) or sid != state.sessionId
+                state.referenceComplete := not na(state.lastTime) and state.lastTime < sid
+                state.sessionId := sid
+                state.sessionEnd := ending
+                state.sessionOpen := o
+                state.pv := 0.0
+                state.v := 0.0
+                state.ibHigh := na
+                state.ibLow := na
+                state.ibReady := false
+            bool valid = not na(v) and v >= 0 and not na(h) and not na(l) and h >= l and not na(o) and not na(c)
+            if valid
+                state.samples += 1
+                if v > 0
+                    bool accepted = profile_add_range(buys, sells, l, h, step, c >= o ? v : 0.0, c < o ? v : 0.0)
+                    state.capped := state.capped or not accepted
+                    state.pv += (h + l + c) / 3.0 * v
+                    state.v += v
+                if stamp < sid + ibMinutes * 60000
+                    state.ibHigh := na(state.ibHigh) ? h : math.max(state.ibHigh, h)
+                    state.ibLow := na(state.ibLow) ? l : math.min(state.ibLow, l)
+                state.ibReady := state.referenceComplete and closing >= sid + ibMinutes * 60000 and not na(state.ibHigh)
+            else
+                state.incomplete := true
+                state.referenceComplete := false
+            // Session-only may finalize at its actual end. Calendar profiles must
+            // never publish at the end of the overnight segment before midnight.
+            if resetMode == "Session only" and closing >= ending and not state.published
+                fixed_publish(state, buys, sells, step, va, closing)
+        else if resetMode == "Session only" and not state.published and not na(state.periodId) and stamp >= state.sessionEnd
+            fixed_publish(state, buys, sells, step, va, stamp)
+        state.lastTime := stamp
+    state.samples
 
 clear_profile_boxes(array<box> boxes) =>
     while boxes.size() > 0
@@ -878,7 +1121,7 @@ var float previousSessionPoc = na
 var float previousSessionVah = na
 var float previousSessionVal = na
 
-if newProfile
+if newProfile and not fixedProfileEngine
     if sessionBuyMap.size() > 0
         [completedPoc, completedVah, completedVal, completedVolume, completedMaximum, completedMean] = profile_stats(
              sessionBuyMap,
@@ -998,6 +1241,8 @@ float bestSellStackLow = na
 float bestSellStackHigh = na
 float bestBuyStackVolume = 0.0
 float bestSellStackVolume = 0.0
+int bestBuyStackRows = 0
+int bestSellStackRows = 0
 
 if useNative
     buyVolume := requestedFootprint.buy_volume()
@@ -1052,14 +1297,16 @@ if useNative
                 bestBuyStackLow := buyRunLow
                 bestBuyStackHigh := buyRunHigh
                 bestBuyStackVolume := buyRunVolume
+                bestBuyStackRows := currentBuyStack
             if currentSellStack >= stackedRowsEffective and sellRunVolume >= totalVolume * minimumStackShareEffective / 100 and sellRunVolume > bestSellStackVolume
                 bestSellStackLow := sellRunLow
                 bestSellStackHigh := sellRunHigh
                 bestSellStackVolume := sellRunVolume
+                bestSellStackRows := currentSellStack
             previousRowLow := rowLow
             previousRowHigh := rowHigh
 
-            if profileActive and footprintRow.total_volume() > 0
+            if not fixedProfileEngine and profileActive and footprintRow.total_volume() > 0
                 bool accepted = profile_add_range(sessionBuyMap, sessionSellMap, rowLow, rowHigh, sessionProfilePriceStep, footprintRow.buy_volume(), footprintRow.sell_volume())
                 profileBinLimitHit := profileBinLimitHit or not accepted
 else if useFallback
@@ -1068,7 +1315,7 @@ else if useFallback
     totalVolume := fallbackBuyVolume + fallbackSellVolume
     volumeDelta := fallbackBuyVolume - fallbackSellVolume
     barPoc := fallbackBarPoc
-    if profileActive
+    if not fixedProfileEngine and profileActive
         int fallbackRowCount = fallbackKeys.size()
         if fallbackRowCount > 0
             profileContainsEstimate := true
@@ -1084,10 +1331,11 @@ else if useFallback
                 profileBinLimitHit := profileBinLimitHit or not accepted
 
 bool hasOrderFlowData = (useNative or useFallback) and nz(totalVolume, 0.0) > 0
-if profileActive and not sessionBarAligned
+bool pressureTotalsValid = classified_flow_valid(buyVolume, sellVolume, totalVolume, volumeDelta)
+if not fixedProfileEngine and profileActive and not sessionBarAligned
     profileIncomplete := true
     profileCoverageReason := "Chart candle straddles session boundary"
-if profileActive and traded_flow_missing(hasOrderFlowData, volume)
+if not fixedProfileEngine and profileActive and traded_flow_missing(hasOrderFlowData, volume)
     profileIncomplete := true
     profileMissingBars += 1
     profileCoverageReason := "Missing flow on " + str.tostring(profileMissingBars) + " traded bars"
@@ -1207,6 +1455,38 @@ else if nz(volume, 0.0) > 0
 float dailyDeltaPercent = dailyTotalVolume > 0 ? dailyCvd / dailyTotalVolume * 100.0 : na
 bool hasDailyPressure = dailyTotalVolume > 0
 
+// Fixed 1m feed: the request is never clamped to the chart and never falls
+// back to chart bars. Unsupported charts explicitly have no fixed profile.
+var FixedProfile fixedState = FixedProfile.new()
+int oldFixedPeriod = fixedState.periodId
+int oldPriorTime = fixedState.priorKnownTime
+if fixedProfileEngine
+    sessionProfilePriceStep := fixedProfileTicksInput * syminfo.mintick
+    if fixedProfileSupported
+        [minuteTimes, minuteCloses, minuteOpens, minuteHighs, minuteLows, minuteLasts, minuteVolumes, minuteSessions, minutePeriods, minuteActive, minuteEnds] = request.security_lower_tf(ticker.standard(syminfo.tickerid), "1", fixed_minute_source(profileSessionInput, profileTimezone, profileResetInput), calc_bars_count = 100000)
+        if minuteTimes.size() > 0
+            for minuteIndex = 0 to minuteTimes.size() - 1
+                if minuteCloses.get(minuteIndex) <= timenow
+                    fixed_ingest(fixedState, sessionBuyMap, sessionSellMap, minuteTimes.get(minuteIndex), minuteCloses.get(minuteIndex), minuteOpens.get(minuteIndex), minuteHighs.get(minuteIndex), minuteLows.get(minuteIndex), minuteLasts.get(minuteIndex), minuteVolumes.get(minuteIndex), minuteSessions.get(minuteIndex), minutePeriods.get(minuteIndex), minuteActive.get(minuteIndex), minuteEnds.get(minuteIndex), sessionProfilePriceStep, valueAreaPercentInput, initialBalanceMinutesInput, profileResetInput)
+        else if barstate.isconfirmed and profileActive and nz(volume) > 0
+            fixedState.incomplete := true
+            fixedState.referenceComplete := false
+    newProfile := not na(fixedState.periodId) and (na(oldFixedPeriod) or oldFixedPeriod != fixedState.periodId)
+    if newProfile
+        profileSequence += 1
+    profileContainsEstimate := true
+    profileIncomplete := fixedState.incomplete or not fixedProfileSupported
+    profileBinLimitHit := fixedState.capped
+    profileCoverageReason := not fixedProfileSupported ? "Fixed 1m requires standard intraday charts of 1m or higher" : fixedState.capped ? "Fixed grid row capacity exceeded; increase row ticks" : fixedState.incomplete ? "Partial / unavailable 1m history or missing volume" : "Closed 1m OHLCV estimate; observed source coverage"
+    previousSessionPoc := fixedState.priorPoc
+    previousSessionVah := fixedState.priorVah
+    previousSessionVal := fixedState.priorVal
+    // Usable for value-location context, never relabelled as native order flow.
+    previousProfileUsable := fixedState.priorComplete and fixedProfileSupported
+    previousProfileReason := previousProfileUsable ? "Complete observed 1m estimate (not native bid/ask)" : "Prior 1m profile partial, missing or row-capped"
+    if not na(fixedState.priorKnownTime) and (na(oldPriorTime) or oldPriorTime != fixedState.priorKnownTime)
+        previousProfileKnownBar := bar_index
+
 [sessionPoc, sessionVah, sessionVal, sessionProfileVolume, sessionMaxRowVolume, sessionProfileMean] = profile_stats(
      sessionBuyMap,
      sessionSellMap,
@@ -1214,7 +1494,7 @@ bool hasDailyPressure = dailyTotalVolume > 0
      valueAreaPercentInput)
 
 bool profileJustClosed = not profileActive and profileActive[1] and (profileResetInput == "Daily" or profileResetInput == "Session only")
-if profileJustClosed and not na(sessionPoc)
+if not fixedProfileEngine and profileJustClosed and not na(sessionPoc)
     previousSessionPoc := sessionPoc
     previousSessionVah := sessionVah
     previousSessionVal := sessionVal
@@ -1260,6 +1540,63 @@ bool sellersAbsorbed = extremeNegativeDelta and close > open and closeLocation >
 bool stackedBuyImbalance = useNative and not na(bestBuyStackLow)
 bool stackedSellImbalance = useNative and not na(bestSellStackLow)
 bool signalGate = not effectiveSignalConfirmation or barstate.isconfirmed
+
+// Possible auction phases. All evidence comes from the trailing window; boxes
+// begin at recognition, not at the earlier start of that window. Bounds freeze.
+float phaseHigh = ta.highest(high, phaseWindow)
+float phaseLow = ta.lowest(low, phaseWindow)
+float phaseWidth = phaseHigh - phaseLow
+float phaseTravel = math.sum(math.abs(close - close[1]), phaseWindow - 1)
+float phaseEfficiency = phaseTravel > 0 ? math.abs(close - close[phaseWindow - 1]) / phaseTravel : na
+float phaseTotal = math.sum(hasOrderFlowData ? totalVolume : 0, phaseWindow)
+float phaseBaseline = math.sum(averageVolume, phaseWindow)
+float phaseRvol = phaseBaseline > 0 ? phaseTotal / phaseBaseline : na
+bool phaseDataReady = chart.is_standard and timeframe.isintraday and profileActive and sessionBarAligned and useNative and hasOrderFlowData and pressureTotalsValid
+bool phaseWindowReady = math.sum(phaseDataReady ? 1.0 : 0.0, phaseWindow) == phaseWindow and pressureSessionSequence == pressureSessionSequence[phaseWindow - 1]
+int phaseLowAbsorptions = 0
+int phaseHighAbsorptions = 0
+if showPhasesInput and phaseWindowReady
+    for offset = 0 to phaseWindow - 1
+        phaseLowAbsorptions += sellersAbsorbed[offset] and low[offset] <= phaseLow + phaseWidth * 0.25 ? 1 : 0
+        phaseHighAbsorptions += buyersAbsorbed[offset] and high[offset] >= phaseHigh - phaseWidth * 0.25 ? 1 : 0
+int phaseDirection = phase_evidence(phaseWindowReady, currentAtr > 0 ? phaseWidth / currentAtr : na, phaseEfficiency, phaseRvol, phaseLowAbsorptions, phaseHighAbsorptions, phaseWidth > 0 ? (close - phaseLow) / phaseWidth : na, phaseWidthAtrInput, phaseEfficiencyInput, phaseAbsorptionsInput)
+var array<AuctionPhase> auctionPhases = array.new<AuctionPhase>()
+var AuctionPhase activePhase = na
+var int lastPhaseEnd = na
+var string phaseReadout = "Phase: warming up"
+if showPhasesInput and barstate.isconfirmed
+    if not na(activePhase) and activePhase.active
+        int ending = phase_end(phaseDataReady, newPressureSession or not profileActive or not sessionBarAligned, bar_index - activePhase.born, phaseWindow * 3, close, activePhase.bottom, activePhase.top)
+        if ending != 0
+            activePhase.active := false
+            lastPhaseEnd := bar_index
+            string outcome = ending == 4 ? "Data interrupted" : ending == 3 ? "Expired" : ending > 0 ? "Range broke up" : "Range broke down"
+            string interpretation = math.abs(ending) == 1 ? (ending == activePhase.direction ? " · supports hypothesis" : " · contradicts hypothesis") : ""
+            phaseReadout := outcome + interpretation
+            label.set_text(activePhase.tag, (activePhase.direction > 0 ? "Possible accumulation" : "Possible distribution") + "\n" + outcome)
+            label.set_tooltip(activePhase.tag, activePhase.evidence + "\n" + phaseReadout + ". A range break does not prove inventory accumulation/distribution.")
+            box.set_bgcolor(activePhase.drawing, color.new(activePhase.direction > 0 ? color.teal : color.purple, 97))
+        if ending != 4 and not newPressureSession and profileActive and sessionBarAligned
+            box.set_right(activePhase.drawing, bar_index)
+    bool canRecognize = (na(activePhase) or not activePhase.active) and (na(lastPhaseEnd) or bar_index - lastPhaseEnd >= phaseWindow)
+    // Two consecutive closes agree; avoid classifying a single transient window.
+    if canRecognize and phaseDirection != 0 and phaseDirection == phaseDirection[1]
+        color phaseColor = phaseDirection > 0 ? color.teal : color.purple
+        activePhase := AuctionPhase.new(phaseDirection, bar_index, phaseLow, phaseHigh)
+        activePhase.drawing := box.new(bar_index, phaseHigh, bar_index + 1, phaseLow, border_color = color.new(phaseColor, 55), bgcolor = color.new(phaseColor, 94))
+        string phaseName = phaseDirection > 0 ? "Possible accumulation" : "Possible distribution"
+        string phaseExplanation = phaseName + " · hypothesis, not observed inventory.\nRecognized at this candle close using " + str.tostring(phaseWindow) + " trailing bars and two agreeing windows.\nRange " + format_price(phaseLow) + "–" + format_price(phaseHigh) + " (frozen).\nNet progress / travel " + str.tostring(phaseEfficiency, "#.00") + "; window RVOL " + str.tostring(phaseRvol, "#.00") + "×.\nLow-edge seller absorption: " + str.tostring(phaseLowAbsorptions) + "; high-edge buyer absorption: " + str.tostring(phaseHighAbsorptions) + ".\nNative direction-classified volume; no position or trade-entry claim."
+        activePhase.evidence := phaseExplanation
+        activePhase.tag := label.new(bar_index, phaseDirection > 0 ? phaseLow : phaseHigh, phaseName + "\n" + (phaseDirection > 0 ? "Sellers absorbed at range lows" : "Buyers absorbed at range highs"), style = phaseDirection > 0 ? label.style_label_up : label.style_label_down, color = color.new(phaseColor, 15), textcolor = color.white, size = size.small, tooltip = phaseExplanation)
+        auctionPhases.push(activePhase)
+        while auctionPhases.size() > phaseRetentionInput
+            AuctionPhase oldPhase = auctionPhases.shift()
+            box.delete(oldPhase.drawing)
+            label.delete(oldPhase.tag)
+    if not na(activePhase) and activePhase.active
+        phaseReadout := activePhase.direction > 0 ? "Possible accumulation · range intact" : "Possible distribution · range intact"
+    else if na(lastPhaseEnd) or bar_index - lastPhaseEnd >= phaseWindow
+        phaseReadout := not phaseWindowReady ? "Phase unavailable · native/session coverage" : phaseDirection != 0 ? "Phase evidence · waiting for persistence" : "No directional phase evidence"
 
 // Confirmed CVD divergence. Markers are plotted back on the confirmed pivot bar.
 float confirmedPivotLow = ta.pivotlow(low, divergencePivotEffective, divergencePivotEffective)
@@ -1493,35 +1830,66 @@ string priorAuctionState = not previousProfileUsable ? "PRIOR VALUE INCOMPLETE" 
 
 if barstate.isconfirmed
     // Lifecycle precedes new-zone creation; a zone cannot retest on its creation bar.
-    for zone in flowZones
-        if zone.state < 2
-            bool breached = zone.direction > 0 ? close < zone.bottom : close > zone.top
-            bool touched = high >= zone.bottom and low <= zone.top
-            if newPressureSession or not profileActive or bar_index - zone.born > zoneExpiryEffective
-                zone.state := 3
-            else if breached
-                zone.state := 2
-            else if touched and bar_index > zone.born
-                zone.state := 1
+    // Display references have their own lifetime/cap; pruning them never removes
+    // the raw middle-candle stack used to assess an ICT FVG.
+    int displayIndex = displayedFlowZones.size() - 1
+    while displayIndex >= 0
+        FlowZone zone = displayedFlowZones.get(displayIndex)
+        bool wasActive = zone.state < 2
+        zone.state := imbalance_lifecycle(zone.state, zone.direction, zone.bottom, zone.top, zone.born, bar_index, high, low, close, newPressureSession, profileActive, zoneExpiryEffective)
+        if not showInactiveImbalanceInput and zone.state >= 2
+            box.delete(zone.drawing)
+            label.delete(zone.tag)
+            zone.drawing := na
+            zone.tag := na
+            displayedFlowZones.remove(displayIndex)
+        else
             if not na(zone.drawing)
-                box.set_right(zone.drawing, bar_index)
+                if not localImbalance and wasActive
+                    box.set_right(zone.drawing, bar_index)
                 color zoneColor = zone.direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
-                box.set_bgcolor(zone.drawing, color.new(zoneColor, zone.state == 0 ? 88 : 96))
-                box.set_text(zone.drawing, showZoneText and bar_index - zone.born >= 6 ? (zone.state == 0 ? "Fresh" : zone.state == 1 ? "Tested" : zone.state == 2 ? "Invalid" : "Expired") : "")
-    if profileActive and sessionBarAligned and useNative
+                string lifecycle = zone.state == 0 ? "Fresh" : zone.state == 1 ? "Tested" : zone.state == 2 ? "Invalid" : "Expired"
+                box.set_bgcolor(zone.drawing, color.new(zoneColor, localImbalance ? 70 : zone.state == 0 ? 88 : 96))
+                box.set_text(zone.drawing, not localImbalance and showZoneText and bar_index - zone.born >= 6 ? (zone.direction > 0 ? "Buy imbalance · " : "Sell imbalance · ") + lifecycle + (zone.repeats > 0 ? " · +" + str.tostring(zone.repeats) + " nearby repeats" : "") : "")
+                if not na(zone.tag)
+                    label.set_tooltip(zone.tag, zone.evidence + "\nCurrent reference status: " + lifecycle + ".\nNearby same-side repeats hidden: " + str.tostring(zone.repeats) + ". First band/volume are unchanged; repeats are not additional independent confirmations.")
+        displayIndex -= 1
+    for zone in flowZones
+        zone.state := imbalance_lifecycle(zone.state, zone.direction, zone.bottom, zone.top, zone.born, bar_index, high, low, close, newPressureSession, profileActive, zoneExpiryEffective)
+    if profileActive and sessionBarAligned and useNative and chart.is_standard and pressureTotalsValid
         for direction in array.from(1, -1)
             float bottom = direction > 0 ? bestBuyStackLow : bestSellStackLow
             float top = direction > 0 ? bestBuyStackHigh : bestSellStackHigh
             if not na(bottom)
                 FlowZone zone = FlowZone.new(direction, bottom, top, bar_index)
-                if showImbalanceZonesInput and not entryFocus
+                zone.rows := direction > 0 ? bestBuyStackRows : bestSellStackRows
+                zone.share := 100 * (direction > 0 ? bestBuyStackVolume : bestSellStackVolume) / totalVolume
+                zone.lastSeen := bar_index
+                bool cleanDisplay = imbalanceDensityInput == "Clean"
+                bool displayEligible = showImbalanceZonesInput and (localImbalance or not entryFocus) and (not cleanDisplay or sufficientParticipation)
+                FlowZone nearby = na
+                if displayEligible and cleanDisplay
+                    for shown in displayedFlowZones
+                        if shown.state < 2 and imbalance_nearby(direction, bottom, top, shown.direction, shown.bottom, shown.top, bar_index - shown.lastSeen, imbalanceRepeatBarsInput, nz(currentAtr) * imbalanceNearbyAtrInput)
+                            nearby := shown
+                if displayEligible and not na(nearby)
+                    nearby.lastSeen := bar_index
+                    nearby.repeats += 1
+                    if not na(nearby.tag)
+                        label.set_text(nearby.tag, (nearby.direction > 0 ? "BUY IMB" : "SELL IMB") + " · " + str.tostring(nearby.rows) + " rows\n+" + str.tostring(nearby.repeats) + " nearby repeats")
+                        label.set_tooltip(nearby.tag, nearby.evidence + "\nNearby same-side repeats hidden: " + str.tostring(nearby.repeats) + ". First band/volume unchanged. Last repeat: " + str.format_time(time, "HH:mm", profileTimezone) + ". Repeats are not independent confirmations.")
+                if displayEligible and na(nearby)
                     color zoneColor = direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
-                    zone.drawing := box.new(bar_index, top, bar_index + 1, bottom, bgcolor = color.new(zoneColor, 88), border_color = color.new(zoneColor, 65), text = "", text_size = size.small, text_color = zoneColor, text_wrap = text.wrap_auto)
+                    zone.drawing := box.new(bar_index, top, bar_index + 1, bottom, bgcolor = color.new(zoneColor, localImbalance ? 70 : 88), border_color = color.new(zoneColor, 30), text = "", text_size = size.small, text_color = zoneColor, text_wrap = text.wrap_auto)
+                    if localImbalance
+                        zone.evidence := (direction > 0 ? "BUY" : "SELL") + " classified imbalance at " + format_price(bottom) + "–" + format_price(top) + ".\n" + str.tostring(zone.rows) + " consecutive rows; diagonal threshold " + str.tostring(imbalancePercentEffective, "#") + "%.\nStack contains " + str.tostring(zone.share, "#.0") + "% of candle total volume (both sides).\nCandle delta " + format_percent(deltaPercent) + "; RVOL " + str.tostring(relativeVolume, "#.00") + "×.\nDirection-classified volume, not exchange aggressor flags. Not an entry."
+                        if direction > 0 ? showBuyImbalanceLabelsInput : showSellImbalanceLabelsInput
+                            zone.tag := label.new(bar_index, direction > 0 ? low : high, (direction > 0 ? "BUY IMB" : "SELL IMB") + " · " + str.tostring(zone.rows) + " rows", style = direction > 0 ? label.style_label_up : label.style_label_down, color = color.new(zoneColor, 15), textcolor = color.white, size = size.small, tooltip = zone.evidence + "\nCurrent reference status: Fresh.")
+                    retain_imbalance_drawing(zone, displayedFlowZones, imbalanceVisibleLimitInput)
+                // This is unconditional: display filtering cannot delete ICT evidence.
                 flowZones.push(zone)
     while flowZones.size() > zoneLimitEffective
-        FlowZone oldZone = flowZones.shift()
-        if not na(oldZone.drawing)
-            box.delete(oldZone.drawing)
+        flowZones.shift()
 
 float ictPivotHigh = ta.pivothigh(high, ictSwingEffective, ictSwingEffective)
 float ictPivotLow = ta.pivotlow(low, ictSwingEffective, ictSwingEffective)
@@ -1703,9 +2071,11 @@ if enableIctInput and barstate.isconfirmed
                 usedBearBreak := bearBreakBar
             ictQualifiedEvent := ict.state == "CONDITIONS MET"
             color setupColor = direction > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
-            if entryFocus and ict.active and showImbalanceZonesInput and not na(ict.zone) and na(ict.zone.drawing)
+            if entryFocus and ict.active and showImbalanceZonesInput and not localImbalance and not na(ict.zone) and na(ict.zone.drawing)
                 FlowZone supportingZone = ict.zone
                 supportingZone.drawing := box.new(supportingZone.born, supportingZone.top, bar_index + 1, supportingZone.bottom, bgcolor = color.new(setupColor, 90), border_color = color.new(setupColor, 60), text = "", text_size = size.small, text_color = setupColor, text_wrap = text.wrap_auto)
+                supportingZone.lastSeen := bar_index
+                retain_imbalance_drawing(supportingZone, displayedFlowZones, imbalanceVisibleLimitInput)
             if showIctMarksInput and (not entryFocus or ict.active)
                 ict.drawing := box.new(bar_index, ict.top, bar_index + 1, ict.bottom, bgcolor = color.new(setupColor, 92), border_color = setupColor, text = "", text_size = size.small, text_color = setupColor, text_wrap = text.wrap_auto)
 
@@ -1877,24 +2247,48 @@ color deltaDirectionColor =
      neutralDelta ? neutralDeltaColorInput :
      scaledDeltaRatio > 0 ? positiveDeltaColorInput : negativeDeltaColorInput
 color deltaFillColor = color.new(deltaDirectionColor, deltaTransparency)
+bool pressureBody = candleEncodingInput == "Pressure body"
+bool candleOverlayEnabled = candle_overlay_enabled(showDeltaCandlesInput, candleEncodingInput)
+bool candleNativeReady = chart.is_standard and useNative and hasOrderFlowData and pressureTotalsValid
+int candleGrade = pressure_grade(deltaPercent, candleNativeReady, barstate.isconfirmed, relativeVolume, minimumRelativeVolumeEffective, deltaNeutralThresholdInput, directionalDeltaPercentInput, extremeDeltaPercentEffective)
+color pressureHue = candleGrade > 0 ? pressureBuyColorInput : candleGrade < 0 ? pressureSellColorInput : pressureNeutralColorInput
+int pressureTransparency = pressure_transparency(candleGrade, pressureStrongTransparencyInput, pressureDirectionalTransparencyInput, pressureWeakTransparencyInput, pressureNeutralTransparencyInput)
+color actualBodyColor = pressureBody ? color.new(pressureHue, pressureTransparency) : color.new(priceDirectionColor, candleFillTransparencyInput)
+color actualOutlineColor = pressureBody ? (pressureDirectionalOutlineInput ? color.new(pressureHue, 0) : pressureOutlineColorInput) : priceDirectionColor
+
+// Readout snapshots the same closed-bar quantities used by the pressure body.
+// The open candle uses the neutral colour in Pressure body mode, never silently provisional.
+var string closedPressureText = "Waiting for a closed candle"
+var string closedPressureDetail = ""
+var string closedPressureTooltip = ""
+var color closedPressureColor = color.gray
+if barstate.isconfirmed
+    string directionText = candleGrade > 0 ? "BUY" : "SELL"
+    string gradeText = not chart.is_standard ? "Use standard candles" : not hasOrderFlowData ? "No flow data" : not pressureTotalsValid ? "Inconsistent flow totals" : not useNative ? "LTF estimate · no pressure colour" : candleGrade == 0 ? "Neutral delta" : math.abs(candleGrade) == 1 ? directionText + " bias · weak/unqualified" : math.abs(candleGrade) == 3 ? "Strong " + directionText + " pressure" : directionText + " pressure"
+    string sourceText = useNative ? "Native proxy" : useFallback ? "LTF estimate" : "No flow"
+    closedPressureText := str.format_time(time, "HH:mm", profileTimezone) + " closed · " + gradeText
+    string priceResponse = not candleNativeReady ? "Response unavailable" : sellersAbsorbed ? "Sellers possibly absorbed" : buyersAbsorbed ? "Buyers possibly absorbed" : deltaPercent > 0 and close < open ? "Buy delta / price fell" : deltaPercent < 0 and close > open ? "Sell delta / price rose" : "Price and delta: no rejection flag"
+    closedPressureDetail := "Δ " + format_percent(deltaPercent) + " · RVOL " + (na(relativeVolume) ? "—" : str.tostring(relativeVolume, "#.00") + "×") + " · " + priceResponse
+    closedPressureTooltip := sourceText + " · " + str.format_time(time, "dd MMM HH:mm", profileTimezone) + " (bar opening time, " + profileTimezone + ").\nBuy-classified " + format_volume(buyVolume) + "; sell-classified " + format_volume(sellVolume) + "; total " + format_volume(totalVolume) + "; delta " + format_signed_volume(volumeDelta) + ".\nDelta = 100 × (buy − sell) / total. Body hue uses this sign, NOT close versus open.\nDirectional colour requires |delta| ≥ " + str.tostring(math.max(deltaNeutralThresholdInput, directionalDeltaPercentInput), "#.0") + "% and RVOL ≥ " + str.tostring(minimumRelativeVolumeEffective, "#.00") + "×; strong ≥ " + str.tostring(extremeDeltaPercentEffective, "#.0") + "%. Opacity is user-configurable; the grade, not visual darkness, defines qualification.\nNative footprint volume is classified from intrabar price direction, not exchange aggressor flags. Feed volume type: " + syminfo.volumetype + ".\nImbalance rows: buy " + str.tostring(buyImbalanceCount) + ", sell " + str.tostring(sellImbalanceCount) + ". Best qualified stack: buy " + str.tostring(bestBuyStackRows) + ", sell " + str.tostring(bestSellStackRows) + ".\n" + priceResponse + ". Absorption is a price/delta hypothesis, not observed passive executions.\nPressure body: open candles use the neutral colour. Original layout: chart colours are preserved. Historical footprint classifications may change after reload."
+    closedPressureColor := math.abs(candleGrade) >= 2 ? color.new(pressureHue, 0) : chart.fg_color
 
 // Make the original chart candle transparent only while replacement candles are enabled.
-barcolor(showDeltaCandlesInput ? color.new(priceDirectionColor, 100) : na)
+barcolor(candleOverlayEnabled ? color.new(priceDirectionColor, 100) : na)
 plotcandle(
-     showDeltaCandlesInput ? open : na,
-     showDeltaCandlesInput ? high : na,
-     showDeltaCandlesInput ? low : na,
-     showDeltaCandlesInput ? close : na,
+     candleOverlayEnabled ? open : na,
+     candleOverlayEnabled ? high : na,
+     candleOverlayEnabled ? low : na,
+     candleOverlayEnabled ? close : na,
      title = "Defined price candle",
-     color = color.new(priceDirectionColor, candleFillTransparencyInput),
-     wickcolor = color.new(priceDirectionColor, 10),
-     bordercolor = priceDirectionColor,
+     color = actualBodyColor,
+     wickcolor = actualOutlineColor,
+     bordercolor = actualOutlineColor,
      display = display.all - display.status_line)
 plotcandle(
-     showDeltaCandlesInput and hasOrderFlowData ? deltaBase : na,
-     showDeltaCandlesInput and hasOrderFlowData ? deltaVisualHigh : na,
-     showDeltaCandlesInput and hasOrderFlowData ? deltaVisualLow : na,
-     showDeltaCandlesInput and hasOrderFlowData ? deltaValue : na,
+     candleOverlayEnabled and not pressureBody and hasOrderFlowData ? deltaBase : na,
+     candleOverlayEnabled and not pressureBody and hasOrderFlowData ? deltaVisualHigh : na,
+     candleOverlayEnabled and not pressureBody and hasOrderFlowData ? deltaVisualLow : na,
+     candleOverlayEnabled and not pressureBody and hasOrderFlowData ? deltaValue : na,
      title = "Normalized delta body",
      color = deltaFillColor,
      wickcolor = na,
@@ -1959,272 +2353,294 @@ plot(
 // The full analytical map is preserved; only display rows are consolidated.
 // Values are written into these same boxes from displayBuys/displaySells, so
 // their text and bar widths always use the exact same consolidated buckets.
-var array<box> sessionProfileBoxes = array.new<box>()
-var line sessionProfileAxis = na
-int profileLeftIndex = bar_index + profileOffsetInput
-int profileCenterIndex = profileLeftIndex + profileWidthInput
-int profileRightIndex = profileDisplayModeInput == "Buy / Sell Split" ? profileCenterIndex + profileWidthInput : profileCenterIndex
+draw_session_profile() =>
+    var array<box> sessionProfileBoxes = array.new<box>()
+    var line sessionProfileAxis = na
+    var label sessionProfileKey = na
+    int profileLeftIndex = bar_index + profileOffsetInput
+    int profileCenterIndex = profileLeftIndex + profileWidthInput
+    int profileRightIndex = profileDisplayModeInput == "Buy / Sell Split" ? profileCenterIndex + profileWidthInput : profileCenterIndex
 
-if barstate.islast
-    clear_profile_boxes(sessionProfileBoxes)
-    if not na(sessionProfileAxis)
-        line.delete(sessionProfileAxis)
-        sessionProfileAxis := na
+    if barstate.islast
+        clear_profile_boxes(sessionProfileBoxes)
+        label.delete(sessionProfileKey)
+        sessionProfileKey := na
+        if not na(sessionProfileAxis)
+            line.delete(sessionProfileAxis)
+            sessionProfileAxis := na
 
-    array<int> profileKeys = sessionBuyMap.keys()
-    profileKeys.sort(order.ascending)
-    int sourceRowCount = profileKeys.size()
-    if showProfileHistogramInput and sourceRowCount > 0
-        int firstDisplayKey = profileKeys.first()
-        int priceBinSpan = profileKeys.last() - firstDisplayKey + 1
-        int rowsPerDisplayBucket = int(math.ceil(float(priceBinSpan) / float(maxProfileRowsInput)))
-        array<float> displayLows = array.new<float>()
-        array<float> displayHighs = array.new<float>()
-        array<float> displayBuys = array.new<float>()
-        array<float> displaySells = array.new<float>()
-        int sourceIndex = 0
-        int displayBucketCount = int(math.ceil(float(priceBinSpan) / float(rowsPerDisplayBucket)))
-        for bucketNumber = 0 to displayBucketCount - 1
-            int firstBucketKey = firstDisplayKey + bucketNumber * rowsPerDisplayBucket
-            int lastBucketKey = firstBucketKey + rowsPerDisplayBucket - 1
-            float bucketBuy = 0.0
-            float bucketSell = 0.0
-            while sourceIndex < sourceRowCount and profileKeys.get(sourceIndex) <= lastBucketKey
-                int key = profileKeys.get(sourceIndex)
-                bucketBuy += nz(sessionBuyMap.get(key))
-                bucketSell += nz(sessionSellMap.get(key))
-                sourceIndex += 1
-            // Equal price intervals retain empty buckets rather than bridging
-            // arbitrary gaps between occupied map keys. Zero-volume boxes are omitted.
-            displayLows.push((float(firstBucketKey) - 0.5) * sessionProfilePriceStep)
-            displayHighs.push((float(lastBucketKey) + 0.5) * sessionProfilePriceStep)
-            displayBuys.push(bucketBuy)
-            displaySells.push(bucketSell)
+        array<int> profileKeys = sessionBuyMap.keys()
+        profileKeys.sort(order.ascending)
+        int sourceRowCount = profileKeys.size()
+        if showProfileHistogramInput and sourceRowCount > 0
+            int firstDisplayKey = profileKeys.first()
+            int priceBinSpan = profileKeys.last() - firstDisplayKey + 1
+            int rowsPerDisplayBucket = int(math.ceil(float(priceBinSpan) / float(maxProfileRowsInput)))
+            array<float> displayLows = array.new<float>()
+            array<float> displayHighs = array.new<float>()
+            array<float> displayBuys = array.new<float>()
+            array<float> displaySells = array.new<float>()
+            int sourceIndex = 0
+            int displayBucketCount = int(math.ceil(float(priceBinSpan) / float(rowsPerDisplayBucket)))
+            for bucketNumber = 0 to displayBucketCount - 1
+                int firstBucketKey = firstDisplayKey + bucketNumber * rowsPerDisplayBucket
+                int lastBucketKey = firstBucketKey + rowsPerDisplayBucket - 1
+                float bucketBuy = 0.0
+                float bucketSell = 0.0
+                while sourceIndex < sourceRowCount and profileKeys.get(sourceIndex) <= lastBucketKey
+                    int key = profileKeys.get(sourceIndex)
+                    bucketBuy += nz(sessionBuyMap.get(key))
+                    bucketSell += nz(sessionSellMap.get(key))
+                    sourceIndex += 1
+                // Equal price intervals retain empty buckets rather than bridging
+                // arbitrary gaps between occupied map keys. Zero-volume boxes are omitted.
+                displayLows.push((float(firstBucketKey) - 0.5) * sessionProfilePriceStep)
+                displayHighs.push((float(lastBucketKey) + 0.5) * sessionProfilePriceStep)
+                displayBuys.push(bucketBuy)
+                displaySells.push(bucketSell)
 
-        int displayRowCount = displayLows.size()
-        float largestDisplayedSide = 0.0
-        float largestDisplayedTotal = 0.0
-        if displayRowCount > 0
-            for index = 0 to displayRowCount - 1
-                float bucketBuy = displayBuys.get(index)
-                float bucketSell = displaySells.get(index)
-                largestDisplayedSide := math.max(largestDisplayedSide, math.max(bucketBuy, bucketSell))
-                largestDisplayedTotal := math.max(largestDisplayedTotal, bucketBuy + bucketSell)
+            int displayRowCount = displayLows.size()
+            float largestDisplayedSide = 0.0
+            float largestDisplayedTotal = 0.0
+            if displayRowCount > 0
+                for index = 0 to displayRowCount - 1
+                    float bucketBuy = displayBuys.get(index)
+                    float bucketSell = displaySells.get(index)
+                    largestDisplayedSide := math.max(largestDisplayedSide, math.max(bucketBuy, bucketSell))
+                    largestDisplayedTotal := math.max(largestDisplayedTotal, bucketBuy + bucketSell)
 
-            if profileDisplayModeInput == "Buy / Sell Split"
-                sessionProfileAxis := line.new(
-                     profileCenterIndex,
-                     displayLows.first(),
-                     profileCenterIndex,
-                     displayHighs.last(),
-                     color = color.new(chart.fg_color, 82),
-                     style = line.style_dotted)
+                if showProfileLegendInput
+                    string profileKeyText = profileDisplayModeInput == "Buy / Sell Split" ? "SELL | BUY" : profileDisplayModeInput == "Delta Dominance" ? "DELTA COLOUR · TOTAL WIDTH" : "TOTAL VOLUME"
+                    profileKeyText += fixedProfileEngine ? " · 1m EST." : " · CHART TF"
+                    profileKeyText += showFootprintValuesInput ? "\n" + footprintValueModeInput : ""
+                    string profileCoverage = fixedProfileEngine ? "Closed 1m OHLCV · uniform range allocation · up/down proxy" : profileContainsEstimate ? "Contains estimated flow" : "Chart-timeframe native classified flow"
+                    profileCoverage += profileIncomplete ? " · PARTIAL" : ""
+                    profileCoverage += profileBinLimitHit ? " · ROW LIMIT" : ""
+                    string profileKeyTooltip = "Session aggregate · " + profileResetInput + " reset\n" + profileCoverage + "\n" + str.tostring(sourceRowCount) + " occupied analytical rows; " + str.tostring(displayRowCount) + " display intervals.\nDisplayed row height: " + format_price(sessionProfilePriceStep * rowsPerDisplayBucket) + "; analytical row height: " + format_price(sessionProfilePriceStep) + ".\nNumbers sum each display bucket; POC / VAH / VAL use the analytical profile.\n" + profileColourModeInput + ". Neutral delta band: " + str.tostring(profileNeutralPercentInput, "#.#") + "%.\nBuy/sell are intrabar price-direction classifications, not exchange aggressor flags."
+                    sessionProfileKey := label.new(profileDisplayModeInput == "Buy / Sell Split" ? profileCenterIndex : profileLeftIndex + int(profileWidthInput / 2), displayHighs.last() + sessionProfilePriceStep * rowsPerDisplayBucket, profileKeyText, xloc = xloc.bar_index, style = label.style_label_down, color = chart.bg_color, textcolor = chart.fg_color, size = size.tiny, tooltip = profileKeyTooltip)
 
-            for index = 0 to displayRowCount - 1
-                float rowLow = displayLows.get(index)
-                float rowHigh = displayHighs.get(index)
-                float rowBuy = displayBuys.get(index)
-                float rowSell = displaySells.get(index)
-                float rowTotal = rowBuy + rowSell
-                bool insideValueArea = not na(sessionVah) and not na(sessionVal) and rowHigh >= sessionVal and rowLow <= sessionVah
-                int rowTransparency = insideValueArea ? valueAreaTransparencyInput : outsideValueTransparencyInput
-                float rowPadding = (rowHigh - rowLow) * profileRowGapInput / 200.0
-                float drawHigh = rowHigh - rowPadding
-                float drawLow = rowLow + rowPadding
-                int buyWidth = largestDisplayedSide > 0 ? int(math.round(rowBuy / largestDisplayedSide * profileWidthInput)) : 0
-                int sellWidth = largestDisplayedSide > 0 ? int(math.round(rowSell / largestDisplayedSide * profileWidthInput)) : 0
-                int totalWidth = largestDisplayedTotal > 0 ? int(math.round(rowTotal / largestDisplayedTotal * profileWidthInput)) : 0
-                float rowDeltaRatio = rowTotal > 0 ? (rowBuy - rowSell) / rowTotal : 0.0
-                color dominanceColor = math.abs(rowDeltaRatio) < 0.05 ? profileTotalColorInput : color.from_gradient(rowDeltaRatio, -1.0, 1.0, profileSellColorInput, profileBuyColorInput)
-                int valueWidthMinimum = minimumValueRowWidthInput * (footprintNumberFormatInput == "Full" ? 2 : 1) * (footprintValueTextSizeInput == size.normal ? 2 : 1)
-                bool showSideValues = showFootprintValuesInput and footprintValueModeInput == "Sell × Buy" and sellWidth >= valueWidthMinimum and buyWidth >= valueWidthMinimum
-                bool showCombinedSplitValue = showFootprintValuesInput and not showSideValues and math.max(sellWidth, buyWidth) >= valueWidthMinimum * (footprintValueModeInput == "Sell × Buy" ? 2 : 1)
-                bool combinedValueOnSell = sellWidth >= buyWidth
-                string combinedBuySellText = format_footprint_value(rowSell, footprintNumberFormatInput) + " × " + format_footprint_value(rowBuy, footprintNumberFormatInput)
-                string summaryText =
-                     footprintValueModeInput == "Delta" ? format_signed_footprint_value(rowBuy - rowSell, footprintNumberFormatInput) :
-                     footprintValueModeInput == "Total volume" ? format_footprint_value(rowTotal, footprintNumberFormatInput) : combinedBuySellText
-                color summaryTextColor =
-                     footprintValueModeInput != "Delta" ? neutralValueTextColorInput :
-                     rowBuy > rowSell ? buyValueTextColorInput : rowSell > rowBuy ? sellValueTextColorInput : neutralValueTextColorInput
-                string sellBoxText =
-                     showSideValues ? format_footprint_value(rowSell, footprintNumberFormatInput) + " " :
-                     showCombinedSplitValue and combinedValueOnSell ? summaryText : ""
-                string buyBoxText =
-                     showSideValues ? " " + format_footprint_value(rowBuy, footprintNumberFormatInput) :
-                     showCombinedSplitValue and not combinedValueOnSell ? summaryText : ""
-                color sellBoxTextColor = showSideValues ? sellValueTextColorInput : summaryTextColor
-                color buyBoxTextColor = showSideValues ? buyValueTextColorInput : summaryTextColor
-                string sellBoxTextAlignment = showSideValues ? text.align_right : text.align_center
-                string buyBoxTextAlignment = showSideValues ? text.align_left : text.align_center
-                if profileDisplayModeInput == "Buy / Sell Split" and rowSell > 0
-                    box sellBox = box.new(
-                         profileCenterIndex - math.max(sellWidth, 1), drawHigh,
-                         profileCenterIndex, drawLow,
-                         xloc = xloc.bar_index,
-                         bgcolor = color.new(profileSellColorInput, rowTransparency),
-                         border_color = color.new(profileSellColorInput, 100),
-                         border_width = 0,
-                         text = sellBoxText,
-                         text_size = footprintValueTextSizeInput,
-                         text_color = sellBoxTextColor,
-                         text_halign = sellBoxTextAlignment,
-                         text_valign = text.align_center,
-                         text_wrap = text.wrap_none,
-                         text_font_family = font.family_monospace)
-                    sessionProfileBoxes.push(sellBox)
-                if profileDisplayModeInput == "Buy / Sell Split" and rowBuy > 0
-                    box buyBox = box.new(
-                         profileCenterIndex, drawHigh,
-                         profileCenterIndex + math.max(buyWidth, 1), drawLow,
-                         xloc = xloc.bar_index,
-                         bgcolor = color.new(profileBuyColorInput, rowTransparency),
-                         border_color = color.new(profileBuyColorInput, 100),
-                         border_width = 0,
-                         text = buyBoxText,
-                         text_size = footprintValueTextSizeInput,
-                         text_color = buyBoxTextColor,
-                         text_halign = buyBoxTextAlignment,
-                         text_valign = text.align_center,
-                         text_wrap = text.wrap_none,
-                         text_font_family = font.family_monospace)
-                    sessionProfileBoxes.push(buyBox)
-                if profileDisplayModeInput != "Buy / Sell Split" and rowTotal > 0
-                    color profileRowColor = profileDisplayModeInput == "Delta Dominance" ? dominanceColor : profileTotalColorInput
-                    bool showTotalBoxText = showFootprintValuesInput and totalWidth >= valueWidthMinimum
-                    box totalBox = box.new(
-                         profileRightIndex - math.max(totalWidth, 1), drawHigh,
-                         profileRightIndex, drawLow,
-                         xloc = xloc.bar_index,
-                         bgcolor = color.new(profileRowColor, rowTransparency),
-                         border_color = color.new(profileRowColor, 100),
-                         border_width = 0,
-                         text = showTotalBoxText ? summaryText : "",
-                         text_size = footprintValueTextSizeInput,
-                         text_color = summaryTextColor,
-                         text_halign = text.align_center,
-                         text_valign = text.align_center,
-                         text_wrap = text.wrap_none,
-                         text_font_family = font.family_monospace)
-                    sessionProfileBoxes.push(totalBox)
+                if profileDisplayModeInput == "Buy / Sell Split"
+                    sessionProfileAxis := line.new(
+                         profileCenterIndex,
+                         displayLows.first(),
+                         profileCenterIndex,
+                         displayHighs.last(),
+                         color = color.new(chart.fg_color, 82),
+                         style = line.style_dotted)
 
-// ----------------------------------------------------------------------------
-// Profile-local auction markers
-// -----------------------------------------------------------------------------
-// POC and value-area structure stay beside the histogram by default so price
-// remains the chart's primary visual. Exact values stay in dashboard/data.
-var line currentPocGuide = na
-var line currentVahGuide = na
-var line currentValGuide = na
-var line currentValueAreaBracket = na
-var line currentMeanGuide = na
-var label currentPocLabel = na
-var label currentVahLabel = na
-var label currentValLabel = na
-var label previousPocLabel = na
+                for index = 0 to displayRowCount - 1
+                    float rowLow = displayLows.get(index)
+                    float rowHigh = displayHighs.get(index)
+                    float rowBuy = displayBuys.get(index)
+                    float rowSell = displaySells.get(index)
+                    float rowTotal = rowBuy + rowSell
+                    bool insideValueArea = not na(sessionVah) and not na(sessionVal) and rowHigh >= sessionVal and rowLow <= sessionVah
+                    int rowTransparency = insideValueArea ? valueAreaTransparencyInput : outsideValueTransparencyInput
+                    float rowPadding = (rowHigh - rowLow) * profileRowGapInput / 200.0
+                    float drawHigh = rowHigh - rowPadding
+                    float drawLow = rowLow + rowPadding
+                    int buyWidth = largestDisplayedSide > 0 ? int(math.round(rowBuy / largestDisplayedSide * profileWidthInput)) : 0
+                    int sellWidth = largestDisplayedSide > 0 ? int(math.round(rowSell / largestDisplayedSide * profileWidthInput)) : 0
+                    int totalWidth = largestDisplayedTotal > 0 ? int(math.round(rowTotal / largestDisplayedTotal * profileWidthInput)) : 0
+                    float rowDeltaRatio = rowTotal > 0 ? (rowBuy - rowSell) / rowTotal : 0.0
+                    color dominanceColor = profile_dominance_colour(rowDeltaRatio, profileNeutralPercentInput, profileColourModeInput, profileBuyColorInput, profileSellColorInput, profileNeutralColorInput)
+                    color sellFill = profile_fill(profileSellColorInput, profileColourModeInput, rowTransparency)
+                    color buyFill = profile_fill(profileBuyColorInput, profileColourModeInput, rowTransparency)
+                    int valueWidthMinimum = minimumValueRowWidthInput * (footprintNumberFormatInput == "Full" ? 2 : 1) * (footprintValueTextSizeInput == size.normal ? 2 : 1)
+                    bool showSideValues = showFootprintValuesInput and footprintValueModeInput == "Sell × Buy"
+                    bool showSellValue = showSideValues and sellWidth >= valueWidthMinimum
+                    bool showBuyValue = showSideValues and buyWidth >= valueWidthMinimum
+                    bool showCombinedSplitValue = showFootprintValuesInput and not showSideValues and math.max(sellWidth, buyWidth) >= valueWidthMinimum
+                    bool combinedValueOnSell = sellWidth >= buyWidth
+                    string combinedBuySellText = format_footprint_value(rowSell, footprintNumberFormatInput) + " × " + format_footprint_value(rowBuy, footprintNumberFormatInput)
+                    string summaryText =
+                         footprintValueModeInput == "Delta" ? format_signed_footprint_value(rowBuy - rowSell, footprintNumberFormatInput) :
+                         footprintValueModeInput == "Total volume" ? format_footprint_value(rowTotal, footprintNumberFormatInput) : combinedBuySellText
+                    color summaryTextColor =
+                         footprintValueModeInput != "Delta" ? neutralValueTextColorInput :
+                         rowBuy > rowSell ? buyValueTextColorInput : rowSell > rowBuy ? sellValueTextColorInput : neutralValueTextColorInput
+                    string sellBoxText =
+                         showSellValue ? format_footprint_value(rowSell, footprintNumberFormatInput) + " " :
+                         showCombinedSplitValue and combinedValueOnSell ? summaryText : ""
+                    string buyBoxText =
+                         showBuyValue ? " " + format_footprint_value(rowBuy, footprintNumberFormatInput) :
+                         showCombinedSplitValue and not combinedValueOnSell ? summaryText : ""
+                    color sellBoxTextColor = profile_text_colour(sellFill, showSideValues ? sellValueTextColorInput : summaryTextColor, profileAutoTextContrastInput)
+                    color buyBoxTextColor = profile_text_colour(buyFill, showSideValues ? buyValueTextColorInput : summaryTextColor, profileAutoTextContrastInput)
+                    string sellBoxTextAlignment = showSideValues ? text.align_right : text.align_center
+                    string buyBoxTextAlignment = showSideValues ? text.align_left : text.align_center
+                    if profileDisplayModeInput == "Buy / Sell Split" and rowSell > 0
+                        box sellBox = box.new(
+                             profileCenterIndex - math.max(sellWidth, 1), drawHigh,
+                             profileCenterIndex, drawLow,
+                             xloc = xloc.bar_index,
+                             bgcolor = sellFill,
+                             border_color = color.new(profileSellColorInput, 100),
+                             border_width = 0,
+                             text = sellBoxText,
+                             text_size = footprintValueTextSizeInput,
+                             text_color = sellBoxTextColor,
+                             text_halign = sellBoxTextAlignment,
+                             text_valign = text.align_center,
+                             text_wrap = text.wrap_none,
+                             text_font_family = font.family_monospace)
+                        sessionProfileBoxes.push(sellBox)
+                    if profileDisplayModeInput == "Buy / Sell Split" and rowBuy > 0
+                        box buyBox = box.new(
+                             profileCenterIndex, drawHigh,
+                             profileCenterIndex + math.max(buyWidth, 1), drawLow,
+                             xloc = xloc.bar_index,
+                             bgcolor = buyFill,
+                             border_color = color.new(profileBuyColorInput, 100),
+                             border_width = 0,
+                             text = buyBoxText,
+                             text_size = footprintValueTextSizeInput,
+                             text_color = buyBoxTextColor,
+                             text_halign = buyBoxTextAlignment,
+                             text_valign = text.align_center,
+                             text_wrap = text.wrap_none,
+                             text_font_family = font.family_monospace)
+                        sessionProfileBoxes.push(buyBox)
+                    if profileDisplayModeInput != "Buy / Sell Split" and rowTotal > 0
+                        color profileRowColor = profileDisplayModeInput == "Delta Dominance" ? dominanceColor : profileTotalColorInput
+                        color totalFill = profile_fill(profileRowColor, profileColourModeInput, rowTransparency)
+                        bool showTotalBoxText = showFootprintValuesInput and totalWidth >= valueWidthMinimum * (footprintValueModeInput == "Sell × Buy" ? 2 : 1)
+                        box totalBox = box.new(
+                             profileRightIndex - math.max(totalWidth, 1), drawHigh,
+                             profileRightIndex, drawLow,
+                             xloc = xloc.bar_index,
+                             bgcolor = totalFill,
+                             border_color = color.new(profileRowColor, 100),
+                             border_width = 0,
+                             text = showTotalBoxText ? summaryText : "",
+                             text_size = footprintValueTextSizeInput,
+                             text_color = profile_text_colour(totalFill, summaryTextColor, profileAutoTextContrastInput),
+                             text_halign = text.align_center,
+                             text_valign = text.align_center,
+                             text_wrap = text.wrap_none,
+                             text_font_family = font.family_monospace)
+                        sessionProfileBoxes.push(totalBox)
 
-if barstate.islast
-    bool hasCurrentAuction = profileActive and not na(sessionPoc) and not na(sessionVah) and not na(sessionVal)
-    int pocEndIndex = profileRightIndex + 1
-    int bracketIndex = profileRightIndex + 2
-    int levelLabelIndex = profileRightIndex + 3
-    bool showPocLine = hasCurrentAuction and pocDisplayModeInput != "Hidden" and pocDisplayModeInput != "Label only"
-    if showPocLine
-        int pocStartIndex =
-             pocDisplayModeInput == "Extended line" ? bar_index :
-             pocDisplayModeInput == "Short dotted line" ? profileRightIndex - 4 : profileRightIndex - 2
-        string selectedPocLineStyle = pocDisplayModeInput == "Short dotted line" ? line.style_dotted : line.style_solid
-        int selectedPocWidth = pocDisplayModeInput == "Edge notch" ? 2 : 1
-        if na(currentPocGuide)
-            currentPocGuide := line.new(pocStartIndex, sessionPoc, pocEndIndex, sessionPoc, xloc = xloc.bar_index, color = color.new(profilePocColor, 18), width = selectedPocWidth, style = selectedPocLineStyle)
+    // ----------------------------------------------------------------------------
+    // Profile-local auction markers
+    // -----------------------------------------------------------------------------
+    // POC and value-area structure stay beside the histogram by default so price
+    // remains the chart's primary visual. Exact values stay in dashboard/data.
+    var line currentPocGuide = na
+    var line currentVahGuide = na
+    var line currentValGuide = na
+    var line currentValueAreaBracket = na
+    var line currentMeanGuide = na
+    var label currentPocLabel = na
+    var label currentVahLabel = na
+    var label currentValLabel = na
+    var label previousPocLabel = na
+
+    if barstate.islast
+        bool hasCurrentAuction = profileActive and not na(sessionPoc) and not na(sessionVah) and not na(sessionVal)
+        int pocEndIndex = profileRightIndex + 1
+        int bracketIndex = profileRightIndex + 2
+        int levelLabelIndex = profileRightIndex + 3
+        bool showPocLine = hasCurrentAuction and pocDisplayModeInput != "Hidden" and pocDisplayModeInput != "Label only"
+        if showPocLine
+            int pocStartIndex =
+                 pocDisplayModeInput == "Extended line" ? bar_index :
+                 pocDisplayModeInput == "Short dotted line" ? profileRightIndex - 4 : profileRightIndex - 2
+            string selectedPocLineStyle = pocDisplayModeInput == "Short dotted line" ? line.style_dotted : line.style_solid
+            int selectedPocWidth = pocDisplayModeInput == "Edge notch" ? 2 : 1
+            if na(currentPocGuide)
+                currentPocGuide := line.new(pocStartIndex, sessionPoc, pocEndIndex, sessionPoc, xloc = xloc.bar_index, color = color.new(profilePocColor, 18), width = selectedPocWidth, style = selectedPocLineStyle)
+            else
+                line.set_xy1(currentPocGuide, pocStartIndex, sessionPoc)
+                line.set_xy2(currentPocGuide, pocEndIndex, sessionPoc)
+                line.set_color(currentPocGuide, color.new(profilePocColor, 18))
+                line.set_style(currentPocGuide, selectedPocLineStyle)
+                line.set_width(currentPocGuide, selectedPocWidth)
+        else if not na(currentPocGuide)
+            line.delete(currentPocGuide)
+            currentPocGuide := na
+
+        bool showValueAreaBracket = hasCurrentAuction and showValueAreaBracketInput
+        if showValueAreaBracket
+            color bracketColor = color.new(valueAreaColorInput, 52)
+            if na(currentValueAreaBracket)
+                currentVahGuide := line.new(profileRightIndex, sessionVah, bracketIndex, sessionVah, xloc = xloc.bar_index, color = bracketColor)
+                currentValGuide := line.new(profileRightIndex, sessionVal, bracketIndex, sessionVal, xloc = xloc.bar_index, color = bracketColor)
+                currentValueAreaBracket := line.new(bracketIndex, sessionVal, bracketIndex, sessionVah, xloc = xloc.bar_index, color = bracketColor)
+            else
+                line.set_xy1(currentVahGuide, profileRightIndex, sessionVah)
+                line.set_xy2(currentVahGuide, bracketIndex, sessionVah)
+                line.set_color(currentVahGuide, bracketColor)
+                line.set_xy1(currentValGuide, profileRightIndex, sessionVal)
+                line.set_xy2(currentValGuide, bracketIndex, sessionVal)
+                line.set_color(currentValGuide, bracketColor)
+                line.set_xy1(currentValueAreaBracket, bracketIndex, sessionVal)
+                line.set_xy2(currentValueAreaBracket, bracketIndex, sessionVah)
+                line.set_color(currentValueAreaBracket, bracketColor)
         else
-            line.set_xy1(currentPocGuide, pocStartIndex, sessionPoc)
-            line.set_xy2(currentPocGuide, pocEndIndex, sessionPoc)
-            line.set_color(currentPocGuide, color.new(profilePocColor, 18))
-            line.set_style(currentPocGuide, selectedPocLineStyle)
-            line.set_width(currentPocGuide, selectedPocWidth)
-    else if not na(currentPocGuide)
-        line.delete(currentPocGuide)
-        currentPocGuide := na
+            if not na(currentVahGuide)
+                line.delete(currentVahGuide)
+                currentVahGuide := na
+            if not na(currentValGuide)
+                line.delete(currentValGuide)
+                currentValGuide := na
+            if not na(currentValueAreaBracket)
+                line.delete(currentValueAreaBracket)
+                currentValueAreaBracket := na
 
-    bool showValueAreaBracket = hasCurrentAuction and showValueAreaBracketInput
-    if showValueAreaBracket
-        color bracketColor = color.new(valueAreaColorInput, 52)
-        if na(currentValueAreaBracket)
-            currentVahGuide := line.new(profileRightIndex, sessionVah, bracketIndex, sessionVah, xloc = xloc.bar_index, color = bracketColor)
-            currentValGuide := line.new(profileRightIndex, sessionVal, bracketIndex, sessionVal, xloc = xloc.bar_index, color = bracketColor)
-            currentValueAreaBracket := line.new(bracketIndex, sessionVal, bracketIndex, sessionVah, xloc = xloc.bar_index, color = bracketColor)
-        else
-            line.set_xy1(currentVahGuide, profileRightIndex, sessionVah)
-            line.set_xy2(currentVahGuide, bracketIndex, sessionVah)
-            line.set_color(currentVahGuide, bracketColor)
-            line.set_xy1(currentValGuide, profileRightIndex, sessionVal)
-            line.set_xy2(currentValGuide, bracketIndex, sessionVal)
-            line.set_color(currentValGuide, bracketColor)
-            line.set_xy1(currentValueAreaBracket, bracketIndex, sessionVal)
-            line.set_xy2(currentValueAreaBracket, bracketIndex, sessionVah)
-            line.set_color(currentValueAreaBracket, bracketColor)
-    else
-        if not na(currentVahGuide)
-            line.delete(currentVahGuide)
-            currentVahGuide := na
-        if not na(currentValGuide)
-            line.delete(currentValGuide)
-            currentValGuide := na
-        if not na(currentValueAreaBracket)
-            line.delete(currentValueAreaBracket)
-            currentValueAreaBracket := na
+        if hasCurrentAuction and showProfileMeanInput and not na(sessionProfileMean)
+            if na(currentMeanGuide)
+                currentMeanGuide := line.new(profileRightIndex - 3, sessionProfileMean, profileRightIndex, sessionProfileMean, xloc = xloc.bar_index, color = color.new(chart.fg_color, 72), style = line.style_dotted)
+            else
+                line.set_xy1(currentMeanGuide, profileRightIndex - 3, sessionProfileMean)
+                line.set_xy2(currentMeanGuide, profileRightIndex, sessionProfileMean)
+        else if not na(currentMeanGuide)
+            line.delete(currentMeanGuide)
+            currentMeanGuide := na
 
-    if hasCurrentAuction and showProfileMeanInput and not na(sessionProfileMean)
-        if na(currentMeanGuide)
-            currentMeanGuide := line.new(profileRightIndex - 3, sessionProfileMean, profileRightIndex, sessionProfileMean, xloc = xloc.bar_index, color = color.new(chart.fg_color, 72), style = line.style_dotted)
-        else
-            line.set_xy1(currentMeanGuide, profileRightIndex - 3, sessionProfileMean)
-            line.set_xy2(currentMeanGuide, profileRightIndex, sessionProfileMean)
-    else if not na(currentMeanGuide)
-        line.delete(currentMeanGuide)
-        currentMeanGuide := na
+        bool showPocLabel = hasCurrentAuction and (pocDisplayModeInput == "Label only" or (showAuctionLabelsInput and pocDisplayModeInput != "Hidden"))
+        if showPocLabel
+            if na(currentPocLabel)
+                currentPocLabel := label.new(levelLabelIndex, sessionPoc, "POC " + format_price(sessionPoc), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(chart.bg_color, 10), textcolor = chart.fg_color, size = profileLevelTextSizeInput)
+            else
+                label.set_xy(currentPocLabel, levelLabelIndex, sessionPoc)
+                label.set_text(currentPocLabel, "POC " + format_price(sessionPoc))
+                label.set_color(currentPocLabel, color.new(chart.bg_color, 10))
+                label.set_textcolor(currentPocLabel, chart.fg_color)
+        else if not na(currentPocLabel)
+            label.delete(currentPocLabel)
+            currentPocLabel := na
 
-    bool showPocLabel = hasCurrentAuction and (pocDisplayModeInput == "Label only" or (showAuctionLabelsInput and pocDisplayModeInput != "Hidden"))
-    if showPocLabel
-        if na(currentPocLabel)
-            currentPocLabel := label.new(levelLabelIndex, sessionPoc, "POC " + format_price(sessionPoc), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(profilePocColor, 88), textcolor = profilePocColor, size = size.tiny)
+        bool showValueAreaLabels = showValueAreaBracket and showAuctionLabelsInput
+        if showValueAreaLabels
+            if na(currentVahLabel)
+                currentVahLabel := label.new(levelLabelIndex, sessionVah, "VAH " + format_price(sessionVah), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(chart.bg_color, 10), textcolor = chart.fg_color, size = profileLevelTextSizeInput)
+                currentValLabel := label.new(levelLabelIndex, sessionVal, "VAL " + format_price(sessionVal), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(chart.bg_color, 10), textcolor = chart.fg_color, size = profileLevelTextSizeInput)
+            else
+                label.set_xy(currentVahLabel, levelLabelIndex, sessionVah)
+                label.set_text(currentVahLabel, "VAH " + format_price(sessionVah))
+                label.set_xy(currentValLabel, levelLabelIndex, sessionVal)
+                label.set_text(currentValLabel, "VAL " + format_price(sessionVal))
         else
-            label.set_xy(currentPocLabel, levelLabelIndex, sessionPoc)
-            label.set_text(currentPocLabel, "POC " + format_price(sessionPoc))
-            label.set_color(currentPocLabel, color.new(profilePocColor, 88))
-            label.set_textcolor(currentPocLabel, profilePocColor)
-    else if not na(currentPocLabel)
-        label.delete(currentPocLabel)
-        currentPocLabel := na
+            if not na(currentVahLabel)
+                label.delete(currentVahLabel)
+                currentVahLabel := na
+            if not na(currentValLabel)
+                label.delete(currentValLabel)
+                currentValLabel := na
 
-    bool showValueAreaLabels = showValueAreaBracket and showAuctionLabelsInput
-    if showValueAreaLabels
-        if na(currentVahLabel)
-            currentVahLabel := label.new(levelLabelIndex, sessionVah, "VAH " + format_price(sessionVah), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(valueAreaColorInput, 90), textcolor = color.new(valueAreaColorInput, 5), size = size.tiny)
-            currentValLabel := label.new(levelLabelIndex, sessionVal, "VAL " + format_price(sessionVal), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(valueAreaColorInput, 90), textcolor = color.new(valueAreaColorInput, 5), size = size.tiny)
-        else
-            label.set_xy(currentVahLabel, levelLabelIndex, sessionVah)
-            label.set_text(currentVahLabel, "VAH " + format_price(sessionVah))
-            label.set_xy(currentValLabel, levelLabelIndex, sessionVal)
-            label.set_text(currentValLabel, "VAL " + format_price(sessionVal))
-    else
-        if not na(currentVahLabel)
-            label.delete(currentVahLabel)
-            currentVahLabel := na
-        if not na(currentValLabel)
-            label.delete(currentValLabel)
-            currentValLabel := na
+        if showPreviousPocInput and showAuctionLabelsInput and not na(previousSessionPoc)
+            if na(previousPocLabel)
+                previousPocLabel := label.new(bar_index + 1, previousSessionPoc, "pPOC " + format_price(previousSessionPoc), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(chart.bg_color, 10), textcolor = chart.fg_color, size = profileLevelTextSizeInput)
+            else
+                label.set_xy(previousPocLabel, bar_index + 1, previousSessionPoc)
+                label.set_text(previousPocLabel, "pPOC " + format_price(previousSessionPoc))
+        else if not na(previousPocLabel)
+            label.delete(previousPocLabel)
+            previousPocLabel := na
+    0
 
-    if showPreviousPocInput and showAuctionLabelsInput and not na(previousSessionPoc)
-        if na(previousPocLabel)
-            previousPocLabel := label.new(bar_index + 1, previousSessionPoc, "pPOC " + format_price(previousSessionPoc), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(profilePocColor, 92), textcolor = color.new(profilePocColor, 20), size = size.tiny)
-        else
-            label.set_xy(previousPocLabel, bar_index + 1, previousSessionPoc)
-            label.set_text(previousPocLabel, "pPOC " + format_price(previousSessionPoc))
-    else if not na(previousPocLabel)
-        label.delete(previousPocLabel)
-        previousPocLabel := na
+draw_session_profile()
 
 // ----------------------------------------------------------------------------
 // Event markers
@@ -2249,7 +2665,7 @@ plotshape(
      size = size.tiny,
      display = display.all - display.status_line)
 plotshape(
-     showContextMarker and showStackedImbalanceInput and stackedBuyEvent,
+     showContextMarker and not (localImbalance and showImbalanceZonesInput) and showStackedImbalanceInput and stackedBuyEvent,
      title = "Stacked buy imbalance",
      style = shape.triangleup,
      location = location.belowbar,
@@ -2257,7 +2673,7 @@ plotshape(
      size = size.tiny,
      display = display.all - display.status_line)
 plotshape(
-     showContextMarker and showStackedImbalanceInput and stackedSellEvent,
+     showContextMarker and not (localImbalance and showImbalanceZonesInput) and showStackedImbalanceInput and stackedSellEvent,
      title = "Stacked sell imbalance",
      style = shape.triangledown,
      location = location.abovebar,
@@ -2297,6 +2713,17 @@ plot(relativeVolume, "Relative volume", display = display.data_window)
 plot(sessionPoc, "Session POC", display = display.data_window)
 plot(sessionVah, "Session VAH", display = display.data_window)
 plot(sessionVal, "Session VAL", display = display.data_window)
+
+// Strategy bridge: current confirmation bar only, NEVER offset to the pivot.
+// 0 = no event, 1 = bullish, -1 = bearish, 2 = conflicting events (skip).
+// Uses the same qualified events as the divergence alerts. Visual marker
+// visibility/history limits do not truncate the strategy's signal history.
+float cvdStrategySignal = barstate.isconfirmed ? (bullishCvdDivergenceEvent and bearishCvdDivergenceEvent ? 2.0 : bullishCvdDivergenceEvent ? 1.0 : bearishCvdDivergenceEvent ? -1.0 : 0.0) : 0.0
+plot(cvdStrategySignal, "CVD strategy signal", display = display.data_window)
+// Price of the candle carrying the circle, delivered on the confirmation bar.
+// Use the effective pivot length so Manual/Auto settings match the marker.
+float cvdStrategyStop = cvdStrategySignal == 1.0 ? low[divergencePivotEffective] : cvdStrategySignal == -1.0 ? high[divergencePivotEffective] : na
+plot(cvdStrategyStop, "CVD strategy pivot stop", display = display.data_window)
 
 // ----------------------------------------------------------------------------
 // Professional dashboard
@@ -2394,7 +2821,7 @@ string checklistPosition = showDashboardInput and ictPanelPositionInput == dashb
 int checklistRows = compactChecklist ? 14 : 16
 var table ictPanel = table.new(resolve_dashboard_position(checklistPosition), 3, checklistRows, bgcolor = dashboardBackgroundInput, frame_color = color.new(dashboardTextInput, 65), frame_width = 1)
 
-var table qualityBadge = table.new(badgePositionInput == "Top center" ? position.top_center : position.bottom_center, 1, 1)
+var table qualityBadge = table.new(badgePositionInput == "Top center" ? position.top_center : position.bottom_center, 1, 5)
 var line previousVahLine = na
 var line previousValLine = na
 var label previousVahLabel = na
@@ -2416,7 +2843,7 @@ if barstate.islast
         line.set_color(previousValLine, color.new(priorColor, 60))
         label.set_xy(previousVahLabel, bar_index + 4, previousSessionVah)
         label.set_xy(previousValLabel, bar_index + 4, previousSessionVal)
-        string priorSuffix = previousProfileUsable ? "" : " · incomplete / estimated"
+        string priorSuffix = (fixedProfileEngine ? " · 1m est." : "") + (previousProfileUsable ? "" : " · INCOMPLETE")
         label.set_text(previousVahLabel, "Prior " + profileResetInput + " VAH " + format_price(previousSessionVah) + priorSuffix)
         label.set_text(previousValLabel, "Prior " + profileResetInput + " VAL " + format_price(previousSessionVal) + priorSuffix)
         label.set_color(previousVahLabel, color.new(priorColor, 90))
@@ -2433,11 +2860,17 @@ if barstate.islast
         previousVahLabel := na
         previousValLabel := na
 
-    table.clear(qualityBadge, 0, 0, 0, 0)
+    table.clear(qualityBadge, 0, 0, 0, 4)
     if showQualityBadgeInput
-        string badgeText = (automaticTuning ? "AUTO " + presetName : "MANUAL") + " · " + (useNative ? "Native" : useFallback ? "Estimate" : "No flow") + " · " + (profileActive ? "Session open" : "Session closed") + "\n" + qualityText
+        string badgeText = UI_BUILD + " · " + (automaticTuning ? "AUTO " + presetName : "MANUAL") + " · " + (useNative ? "Native proxy" : useFallback ? "Estimate" : "No flow") + "\n" + qualityText + "\nProfile: " + (fixedProfileEngine ? "fixed 1m estimate" : "CHART TF · varies by timeframe") + (fixedProfileEngine and not fixedProfileSupported ? " · UNSUPPORTED CHART" : "")
         string badgeTooltip = chartDetailInput + "\n" + dataSourceText + "\n" + effectiveSettingsText + "\nVolume type: " + syminfo.volumetype + ". Native footprints are direction-classified, not exchange aggressor flags. The first loaded profile is treated as partial. Confirmed footprints may change after reload. LTF Estimate does not remove this script's Premium/Ultimate requirement."
         table.cell(qualityBadge, 0, 0, badgeText, bgcolor = dashboardBackgroundInput, text_color = qualityColor, text_size = badgeSizeInput, tooltip = badgeTooltip)
+    if showFlowReadoutInput
+        table.cell(qualityBadge, 0, 1, closedPressureText, bgcolor = dashboardBackgroundInput, text_color = closedPressureColor, text_size = badgeSizeInput, tooltip = closedPressureTooltip)
+        table.cell(qualityBadge, 0, 2, closedPressureDetail, bgcolor = dashboardBackgroundInput, text_color = dashboardTextInput, text_size = badgeSizeInput, tooltip = closedPressureTooltip)
+        table.cell(qualityBadge, 0, 3, showPhasesInput ? phaseReadout : "Phase annotations off", bgcolor = dashboardBackgroundInput, text_color = dashboardTextInput, text_size = badgeSizeInput, tooltip = "Possible phases are trailing price/volume hypotheses, not verified accumulation/distribution. Two agreeing closed windows are required. The range freezes at recognition. A breakout describes price response only. No ICT entry filters are changed by this display.")
+        string colourLegend = not candleOverlayEnabled ? "Original layout candles · pressure in readout only" : pressureBody ? "Pressure proxy · custom buy / sell / neutral colours\nOpacity is editable · bias is not qualified pressure" : "LEGACY fill: delta gauge · height is NOT execution price"
+        table.cell(qualityBadge, 0, 4, colourLegend, bgcolor = dashboardBackgroundInput, text_color = dashboardTextInput, text_size = badgeSizeInput, tooltip = closedPressureTooltip)
 
     table.clear(ictPanel, 0, 0, 2, checklistRows - 1)
     if enableIctInput
@@ -2461,6 +2894,35 @@ if barstate.islast
 // ----------------------------------------------------------------------------
 // Alerts
 // ----------------------------------------------------------------------------
+// Optional fixed-minute references. Current levels only: no retrospective IB line.
+draw_session_references() =>
+    var array<line> sessionReferenceLines = array.new<line>()
+    var array<label> sessionReferenceLabels = array.new<label>()
+    var table profileAudit = table.new(position.bottom_left, 2, 8, bgcolor = dashboardBackgroundInput)
+    if barstate.islast
+        while sessionReferenceLines.size() > 0
+            line.delete(sessionReferenceLines.pop())
+            label.delete(sessionReferenceLabels.pop())
+        bool referencesReady = fixedProfileEngine and fixedProfileSupported and fixedState.referenceComplete
+        float fixedVwap = referencesReady and fixedState.v > 0 ? fixedState.pv / fixedState.v : na
+        array<float> referencePrices = array.from(showSessionVwapInput ? fixedVwap : na, showSessionOpenInput and referencesReady ? fixedState.sessionOpen : na, showInitialBalanceInput and referencesReady and fixedState.ibReady ? fixedState.ibHigh : na, showInitialBalanceInput and referencesReady and fixedState.ibReady ? fixedState.ibLow : na)
+        array<string> referenceNames = array.from("Session VWAP · 1m", "Session open", "IB high · " + str.tostring(initialBalanceMinutesInput) + "m", "IB low · " + str.tostring(initialBalanceMinutesInput) + "m")
+        for refIndex = 0 to 3
+            float refPrice = referencePrices.get(refIndex)
+            if not na(refPrice)
+                sessionReferenceLines.push(line.new(bar_index, refPrice, bar_index + 6, refPrice, color = color.new(chart.fg_color, 30), style = line.style_dotted))
+                sessionReferenceLabels.push(label.new(bar_index + 6, refPrice, referenceNames.get(refIndex) + " " + format_price(refPrice), style = label.style_label_left, color = color.new(chart.bg_color, 15), textcolor = chart.fg_color, size = size.small, tooltip = "Configured session " + profileSessionInput + " · " + profileTimezone + ". Closed 1m data. Context reference, not an entry signal."))
+        table.clear(profileAudit, 0, 0, 1, 7)
+        if showProfileAuditInput
+            array<string> auditNames = array.from("PROFILE ENGINE", "POC / VAH / VAL", "PRIOR POC / VAH / VAL", "CURRENT / PRIOR 1m SAMPLES", "CURRENT / PRIOR VOLUME", "GRID / VA TARGET", "LAST SOURCE MINUTE", "COVERAGE")
+            array<string> auditValues = array.from(sessionEngineInput + " · " + profileResetInput, format_price(sessionPoc) + " / " + format_price(sessionVah) + " / " + format_price(sessionVal), format_price(previousSessionPoc) + " / " + format_price(previousSessionVah) + " / " + format_price(previousSessionVal), fixedProfileEngine ? str.tostring(fixedState.samples) + " / " + str.tostring(fixedState.priorSamples) : "Chart-dependent", str.tostring(sessionProfileVolume, "#.##") + " / " + (fixedProfileEngine ? str.tostring(fixedState.priorVolume, "#.##") : "—"), format_price(sessionProfilePriceStep) + " / " + str.tostring(valueAreaPercentInput) + "%", fixedProfileEngine and not na(fixedState.lastTime) ? str.format_time(fixedState.lastTime, "yyyy-MM-dd HH:mm", profileTimezone) : "—", profileCoverageReason + " · Prior: " + previousProfileReason)
+            for auditIndex = 0 to 7
+                table.cell(profileAudit, 0, auditIndex, auditNames.get(auditIndex), text_color = dashboardTextInput, text_size = size.small)
+                table.cell(profileAudit, 1, auditIndex, auditValues.get(auditIndex), text_color = dashboardTextInput, text_size = size.small)
+    0
+
+draw_session_references()
+
 alertcondition(extremePositiveEvent, "Extreme positive delta", "{{ticker}} {{interval}}: extreme positive volume delta with qualifying relative volume.")
 alertcondition(extremeNegativeEvent, "Extreme negative delta", "{{ticker}} {{interval}}: extreme negative volume delta with qualifying relative volume.")
 alertcondition(sellersAbsorbedEvent, "Potential seller absorption", "{{ticker}} {{interval}}: negative classified delta with bullish rejection; potential absorption, not confirmed passive execution.")
