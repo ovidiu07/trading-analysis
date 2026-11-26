@@ -22,8 +22,14 @@ type RichTextEditorProps = {
   ariaLabel?: string
 }
 
-const sanitizeHtml = (html: string) => {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
+const sanitizeContent = (root: HTMLElement) => {
+  const selection = root.ownerDocument.getSelection()
+  const anchorNode = selection?.anchorNode
+  const focusNode = selection?.focusNode
+  const savedSelection = anchorNode?.nodeType === Node.TEXT_NODE && focusNode?.nodeType === Node.TEXT_NODE &&
+    root.contains(anchorNode) && root.contains(focusNode)
+    ? { anchorNode, anchorOffset: selection.anchorOffset, focusNode, focusOffset: selection.focusOffset }
+    : null
   const allowedTags = new Set([
     'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE',
     'PRE', 'CODE', 'MARK', 'H1', 'H2', 'H3', 'H4', 'HR', 'A', 'SPAN', 'DIV', 'LABEL', 'INPUT'
@@ -36,7 +42,7 @@ const sanitizeHtml = (html: string) => {
     LABEL: ['data-type']
   }
 
-  Array.from(doc.body.querySelectorAll('*')).forEach((el) => {
+  Array.from(root.querySelectorAll('*')).forEach((el) => {
     if (!allowedTags.has(el.tagName)) {
       const parent = el.parentNode
       if (!parent) return
@@ -61,7 +67,22 @@ const sanitizeHtml = (html: string) => {
       el.setAttribute('target', '_blank')
     }
   })
-  return doc.body.innerHTML
+  // Unwrapping an unsupported element can move the selection even though its
+  // text nodes survive. Restore the endpoints only when sanitizing moved them.
+  if (savedSelection && root.contains(savedSelection.anchorNode) && root.contains(savedSelection.focusNode) && (
+    selection.anchorNode !== savedSelection.anchorNode || selection.anchorOffset !== savedSelection.anchorOffset ||
+    selection.focusNode !== savedSelection.focusNode || selection.focusOffset !== savedSelection.focusOffset
+  )) {
+    selection.setBaseAndExtent(
+      savedSelection.anchorNode, savedSelection.anchorOffset, savedSelection.focusNode, savedSelection.focusOffset
+    )
+  }
+  return root.innerHTML
+}
+
+const sanitizeHtml = (html: string) => {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return sanitizeContent(doc.body)
 }
 
 export default function RichTextEditor({
@@ -93,7 +114,7 @@ export default function RichTextEditor({
     if (readOnly) return
     document.execCommand(command, false, valueArg)
     if (editorRef.current) {
-      onChange(sanitizeHtml(editorRef.current.innerHTML))
+      onChange(sanitizeContent(editorRef.current))
     }
   }, [onChange, readOnly])
 
@@ -121,7 +142,9 @@ export default function RichTextEditor({
 
   const handleInput = () => {
     if (!editorRef.current) return
-    onChange(sanitizeHtml(editorRef.current.innerHTML))
+    // Clean the live DOM in place so the controlled value echoes the same HTML.
+    // Replacing innerHTML on each edit destroys the caret and native undo state.
+    onChange(sanitizeContent(editorRef.current))
   }
 
   const handleMoreAction = (action: () => void) => {

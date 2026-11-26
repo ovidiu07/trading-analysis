@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '../i18n'
@@ -153,6 +153,33 @@ describe('native Strategy Studio route', () => {
     await waitFor(() => expect(screen.getByText('Other page')).toBeInTheDocument())
     expect(stored.strategy.name).toBe('Updated research')
     expect(api.saveStudio).toHaveBeenCalled()
+  })
+  it('keeps the rich text caret through controlled edits and the autosave response', async () => {
+    renderPage()
+    const editor = await screen.findByRole('textbox', { name: 'Trading hypothesis' })
+    editor.innerHTML = '<p>EMA <span style="font-weight: 400;">20 rising</span></p>'
+    const text = editor.querySelector('span')!.firstChild!
+    editor.focus()
+    const range = document.createRange()
+    range.setStart(text, 3)
+    range.collapse(true)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    fireEvent.input(editor)
+
+    expect(selection.anchorNode).toBe(text)
+    expect(selection.anchorOffset).toBe(3)
+    await waitFor(
+      () => expect(stored.definition.summary.hypothesis).toBe('<p>EMA <span>20 rising</span></p>'),
+      { timeout: 2500 }
+    )
+    await waitFor(() => expect(screen.getByText('Saved', { exact: true })).toBeInTheDocument())
+    expect(screen.getByRole('textbox', { name: 'Trading hypothesis' })).toBe(editor)
+    expect(editor).toHaveFocus()
+    expect(selection.anchorNode).toBe(text)
+    expect(selection.anchorOffset).toBe(3)
   })
   it('inserts a persistent notebook table and preserves work across tabs', async () => {
     renderPage()
