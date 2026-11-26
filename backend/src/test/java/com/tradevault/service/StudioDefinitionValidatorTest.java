@@ -9,6 +9,7 @@ import com.tradevault.service.strategy.StudioDefinitionValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class StudioDefinitionValidatorTest {
     final ObjectMapper mapper = new ObjectMapper();
@@ -100,6 +101,33 @@ class StudioDefinitionValidatorTest {
         assertThat(html)
                 .contains("<h2>", "<mark>", "https://example.com")
                 .doesNotContain("<script", "javascript:", "onerror", "<img");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "EMA 20<div>VWAP above</div><div><br></div><hr>",
+        "EMA&nbsp; 20  <br><br>VWAP above ",
+        "<p>EMA 20</p><p><br></p><p>VWAP above</p>",
+        "EMA 20 .&nbsp; \n<br>\n EMA in downtrend - &gt; BEARISH&nbsp; \n<br>\n<br>"
+    })
+    void autosavePreservesBrowserLineContainersAndWhitespace(String html) {
+        var doc = validator.empty();
+        doc.with("summary").put("context", html);
+        doc.withArray("notebook")
+                .addObject().put("id", "notes").put("type", "TEXT").put("html", html);
+
+        for (int save = 0; save < 3; save++) {
+            doc = validator.validate(doc);
+            assertThat(doc.path("summary").path("context").asText()).isEqualTo(html);
+            assertThat(doc.path("notebook").get(0).path("html").asText()).isEqualTo(html);
+        }
+    }
+
+    @Test
+    void preservesLineContainersWhileRemovingTheirUnsafeAttributes() {
+        assertThat(StudioDefinitionValidator.cleanHtml(
+                "<div onclick='bad()' style='color:red'>EMA 20</div><div><br></div><hr>"))
+                .isEqualTo("<div>EMA 20</div><div><br></div><hr>");
     }
 
     @Test

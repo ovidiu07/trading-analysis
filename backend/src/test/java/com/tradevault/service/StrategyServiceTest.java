@@ -14,6 +14,8 @@ import com.tradevault.repository.StrategyVersionRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.time.OffsetDateTime;
@@ -99,6 +101,38 @@ class StrategyServiceTest {
 
         assertFalse(response.getEntryConditionsRich().contains("<script"));
         assertEquals(List.of("Sweep PDH", "Displacement"), response.getEntryConditions());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void richEditorsPreserveLineContainersFormattingAndTrailingSpaces(boolean update) {
+        String html = "EMA 20<div><span>VWAP above</span></div><div><br></div><hr> ";
+        StrategyRequest request = new StrategyRequest();
+        request.setName("Research");
+        request.setModel("Intraday");
+        request.setEntryConditionsRich(html);
+        request.setInvalidationLogic("Invalidation ");
+        request.setTpFramework("TP ");
+        request.setNoTradeRules("News ");
+        when(userStrategyRepository.save(any(UserStrategy.class))).thenAnswer(invocation -> {
+            UserStrategy entity = invocation.getArgument(0, UserStrategy.class);
+            if (entity.getId() == null) entity.setId(UUID.randomUUID());
+            return entity;
+        });
+        when(assetService.listByStrategy(any())).thenReturn(List.of());
+
+        UUID strategyId = UUID.randomUUID();
+        if (update) {
+            when(userStrategyRepository.lockOwned(strategyId, currentUser.getId()))
+                    .thenReturn(Optional.of(UserStrategy.builder().id(strategyId).user(currentUser).build()));
+        }
+        var response = update
+                ? strategyService.updateMyStrategyDraft(strategyId, request)
+                : strategyService.createMyStrategyDraft(request);
+        assertEquals(html, response.getEntryConditionsRich());
+        assertEquals("Invalidation ", response.getInvalidationLogic());
+        assertEquals("TP ", response.getTpFramework());
+        assertEquals("News ", response.getNoTradeRules());
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +39,8 @@ public class StudioDefinitionValidator {
             Safelist.none()
                     .addTags(
                             "p",
+                            "div",
+                            "hr",
                             "br",
                             "b",
                             "strong",
@@ -469,7 +472,10 @@ public class StudioDefinitionValidator {
     }
 
     public static String cleanHtml(String html) {
-        var doc = Jsoup.parseBodyFragment(Jsoup.clean(html, HTML));
+        // Pretty-printing before parsing adds whitespace to the saved HTML and
+        // changes the editor DOM on every autosave response, resetting its caret.
+        var settings = new Document.OutputSettings().prettyPrint(false);
+        var doc = Jsoup.parseBodyFragment(Jsoup.clean(html, "", HTML, settings));
         doc.select("input").forEach(input -> input.attr("type", "checkbox"));
         doc.outputSettings().prettyPrint(false);
         return doc.body().html();

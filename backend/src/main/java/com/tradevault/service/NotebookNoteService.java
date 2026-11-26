@@ -26,6 +26,7 @@ import com.tradevault.repository.TradeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -48,7 +49,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class NotebookNoteService {
     private static final Safelist NOTE_BODY_SAFELIST = Safelist.relaxed()
-            .addTags("hr", "pre", "code", "label", "input", "span")
+            .addTags("div", "hr", "pre", "code", "label", "input", "span")
             .addAttributes("a", "rel", "target")
             .addAttributes("input", "type", "checked", "disabled")
             .addAttributes("ul", "data-type")
@@ -360,7 +361,8 @@ public class NotebookNoteService {
     }
 
     private String sanitizeHtml(String html) {
-        return Jsoup.clean(html, NOTE_BODY_SAFELIST);
+        return Jsoup.clean(html, "", NOTE_BODY_SAFELIST,
+                new Document.OutputSettings().prettyPrint(false));
     }
 
     private void replaceTags(NotebookNote note, List<UUID> tagIds, User user) {

@@ -19,6 +19,7 @@ import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.StrategyAssetRepository;
 import com.tradevault.repository.StrategyVersionRepository;
 import com.tradevault.repository.UserStrategyRepository;
+import com.tradevault.service.strategy.StudioDefinitionValidator;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Jsoup;
@@ -45,9 +46,6 @@ public class StrategyService {
     private static final String SOURCE_MY = "MY";
     private static final String SOURCE_MENTOR = "MENTOR";
     private static final String EMPTY_ENTRY_RICH = "<p></p>";
-    private static final Safelist ENTRY_RICH_SAFE_LIST = Safelist.none()
-            .addTags("p", "br", "b", "strong", "i", "em", "u", "ul", "ol", "li", "h1", "h2", "h3", "h4", "mark", "a", "blockquote", "pre", "code")
-            .addAttributes("a", "href", "title").addProtocols("a", "href", "http", "https", "mailto");
 
     private final UserStrategyRepository userStrategyRepository;
     private final StrategyAssetRepository strategyAssetRepository;
@@ -103,9 +101,9 @@ public class StrategyService {
                 .model(requireText(request.getModel(), "model"))
                 .entryConditionsJson(writeList(entryConditionsList))
                 .entryConditionsRich(entryConditionsRich)
-                .invalidationLogic(requireText(request.getInvalidationLogic(), "invalidationLogic"))
-                .tpFramework(requireText(request.getTpFramework(), "tpFramework"))
-                .noTradeRules(normalizeOptionalText(request.getNoTradeRules()))
+                .invalidationLogic(requireRichText(request.getInvalidationLogic(), "invalidationLogic"))
+                .tpFramework(requireRichText(request.getTpFramework(), "tpFramework"))
+                .noTradeRules(normalizeOptionalRichText(request.getNoTradeRules()))
                 .sessionSuitabilityJson(writeList(normalizeList(request.getSessionSuitability())))
                 .tagsJson(writeList(normalizeList(request.getTags())))
                 .archived(Boolean.TRUE.equals(request.getArchived()))
@@ -143,9 +141,9 @@ public class StrategyService {
         strategy.setModel(requireText(request.getModel(), "model"));
         strategy.setEntryConditionsJson(writeList(entryConditionsList));
         strategy.setEntryConditionsRich(entryConditionsRich);
-        strategy.setInvalidationLogic(requireText(request.getInvalidationLogic(), "invalidationLogic"));
-        strategy.setTpFramework(requireText(request.getTpFramework(), "tpFramework"));
-        strategy.setNoTradeRules(normalizeOptionalText(request.getNoTradeRules()));
+        strategy.setInvalidationLogic(requireRichText(request.getInvalidationLogic(), "invalidationLogic"));
+        strategy.setTpFramework(requireRichText(request.getTpFramework(), "tpFramework"));
+        strategy.setNoTradeRules(normalizeOptionalRichText(request.getNoTradeRules()));
         strategy.setSessionSuitabilityJson(writeList(normalizeList(request.getSessionSuitability())));
         strategy.setTagsJson(writeList(normalizeList(request.getTags())));
         strategy.setArchived(Boolean.TRUE.equals(request.getArchived()));
@@ -239,7 +237,7 @@ public class StrategyService {
         if (entryConditions.isEmpty()) {
             entryConditions = extractEntryConditions(item.getEntryConditionsRich(), null);
         }
-        String entryConditionsRich = normalizeOptionalText(item.getEntryConditionsRich());
+        String entryConditionsRich = normalizeOptionalRichText(item.getEntryConditionsRich());
         if (entryConditionsRich == null) {
             entryConditionsRich = toBulletHtml(entryConditions);
         }
@@ -348,6 +346,18 @@ public class StrategyService {
         return normalized.isEmpty() ? null : normalized;
     }
 
+    private String normalizeOptionalRichText(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private String requireRichText(String value, String fieldName) {
+        String rich = normalizeOptionalRichText(value);
+        if (rich == null) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
+        return rich;
+    }
+
     private String firstNonBlank(String... values) {
         for (String value : values) {
             String normalized = normalizeOptionalText(value);
@@ -402,7 +412,7 @@ public class StrategyService {
     }
 
     private String normalizeEntryConditionsRich(String richValue, Collection<String> fallbackLines) {
-        String rich = normalizeOptionalText(richValue);
+        String rich = normalizeOptionalRichText(richValue);
         if (rich == null) {
             List<String> normalizedFallback = normalizeList(fallbackLines);
             if (normalizedFallback.isEmpty()) {
@@ -410,8 +420,8 @@ public class StrategyService {
             }
             return toBulletHtml(normalizedFallback);
         }
-        String sanitized = Jsoup.clean(rich, ENTRY_RICH_SAFE_LIST);
-        String normalized = normalizeOptionalText(sanitized);
+        String sanitized = StudioDefinitionValidator.cleanHtml(rich);
+        String normalized = normalizeOptionalRichText(sanitized);
         return normalized == null ? EMPTY_ENTRY_RICH : normalized;
     }
 
